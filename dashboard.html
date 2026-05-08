@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Dashboard - LMS Rubela</title>
+  <link rel="stylesheet" href="css/style.css" />
+</head>
+<body class="dash-body">
+  <aside class="sidebar" id="sidebar">
+    <div class="brand">
+      <div class="brand-logo">R</div>
+      <div>
+        <h1>LMS Rubela</h1>
+        <p id="sideRole">Panel</p>
+      </div>
+    </div>
+    <nav class="side-nav" id="sideNav"></nav>
+    <div class="sidebar-footer">
+      <div class="user-chip">
+        <div class="avatar" id="userAvatar">?</div>
+        <div class="info">
+          <strong id="userName">-</strong>
+          <span id="userRole">-</span>
+        </div>
+      </div>
+      <button class="btn btn-secondary btn-block mt-1" id="logoutBtn" style="margin-top:10px;">Keluar</button>
+    </div>
+  </aside>
+
+  <div class="main">
+    <header class="topbar">
+      <h2 id="pageTitle">Dashboard</h2>
+      <span class="role-badge" id="roleBadge">-</span>
+    </header>
+    <section class="content" id="content">
+      <!-- rendered by role module -->
+    </section>
+  </div>
+
+  <!-- Generic modal used by role modules -->
+  <div id="genericModal" class="modal hidden">
+    <div class="modal-content">
+      <header class="modal-header">
+        <h3 id="modalTitle">Modal</h3>
+        <button class="icon-btn" id="modalClose" type="button">&times;</button>
+      </header>
+      <div id="modalBody"></div>
+    </div>
+  </div>
+
+  <script src="js/data.js"></script>
+  <script src="js/auth.js"></script>
+  <script src="js/ui.js"></script>
+  <script src="js/admin.js"></script>
+  <script src="js/guru.js"></script>
+  <script src="js/siswa.js"></script>
+  <script src="js/dashboard.js"></script>
+</body>
+</html>
