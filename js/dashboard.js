@@ -9,20 +9,34 @@
       { key: 'guru', label: 'Kelola Guru', icon: '👨‍🏫' },
       { key: 'siswa', label: 'Kelola Siswa', icon: '👨‍🎓' },
       { key: 'courses', label: 'Semua Kelas', icon: '📚' },
+      { key: 'attendance', label: 'Absensi', icon: '📋' },
+      { key: 'rekap', label: 'Rekapan', icon: '📈' },
+      { key: 'keuangan', label: 'Keuangan', icon: '💰' },
       { key: 'settings', label: 'Pengaturan', icon: '⚙️' }
     ],
     guru: [
       { key: 'overview', label: 'Overview', icon: '📊' },
       { key: 'courses', label: 'Kelas Saya', icon: '📚' },
-      { key: 'grading', label: 'Penilaian', icon: '✅' },
+      { key: 'modul', label: 'Modul', icon: '📘' },
+      { key: 'rekaman', label: 'Rekaman Kelas', icon: '🎥' },
+      { key: 'bank-soal', label: 'Bank Soal', icon: '📝' },
+      { key: 'cbt', label: 'CBT / Ujian', icon: '🖥️' },
+      { key: 'grading', label: 'Penilaian Tugas', icon: '✅' },
+      { key: 'absensi', label: 'Absensi', icon: '📋' },
+      { key: 'keuangan', label: 'Honor Saya', icon: '💰' },
       { key: 'profile', label: 'Profil', icon: '👤' }
     ],
     siswa: [
       { key: 'overview', label: 'Overview', icon: '📊' },
       { key: 'my-courses', label: 'Kelas Saya', icon: '📚' },
       { key: 'browse', label: 'Jelajah Kelas', icon: '🔎' },
+      { key: 'modul', label: 'Modul', icon: '📘' },
+      { key: 'rekaman', label: 'Rekaman Kelas', icon: '🎥' },
+      { key: 'cbt', label: 'CBT / Ujian', icon: '🖥️' },
       { key: 'assignments', label: 'Tugas', icon: '📝' },
       { key: 'grades', label: 'Nilai', icon: '🏆' },
+      { key: 'absensi', label: 'Absensi Saya', icon: '📋' },
+      { key: 'keuangan', label: 'Pembayaran', icon: '💰' },
       { key: 'profile', label: 'Profil', icon: '👤' }
     ]
   };
