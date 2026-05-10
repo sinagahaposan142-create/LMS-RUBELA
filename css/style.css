@@ -94,7 +94,11 @@ p { margin: 0 0 12px; }
 }
 .form input,
 .form select,
-.form textarea {
+.form textarea,
+select.form,
+input.form,
+textarea.form,
+.att-input {
   width: 100%;
   padding: 10px 12px;
   border: 1px solid var(--gray-300);
@@ -106,12 +110,18 @@ p { margin: 0 0 12px; }
 }
 .form input:focus,
 .form select:focus,
-.form textarea:focus {
+.form textarea:focus,
+select.form:focus,
+input.form:focus,
+textarea.form:focus,
+.att-input:focus {
   outline: none;
   border-color: var(--primary);
   box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.15);
 }
 .form textarea { resize: vertical; min-height: 90px; }
+/* Standalone select.form / input.form / .att-input shouldn't stretch to full width */
+select.form, input.form, textarea.form, .att-input { width: auto; }
 
 .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 

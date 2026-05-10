@@ -893,10 +893,10 @@
           <h4 style="margin-top:10px;">Absensi Guru (Diri Sendiri)</h4>
           <div class="att-grid">
             <div class="att-name">${UI.esc(user.name)}</div>
-            <select class="form att-status-select" id="selfStatus">
+            <select class="att-input att-status-select" id="selfStatus">
               ${STATUSES.map(s => `<option value="${s}">${s.toUpperCase()}</option>`).join('')}
             </select>
-            <input class="form" id="selfNote" placeholder="Catatan..." style="max-width:240px;" />
+            <input class="att-input" id="selfNote" placeholder="Catatan..." style="max-width:240px;" />
             <button class="btn btn-sm btn-primary" id="saveSelfAtt">Simpan</button>
           </div>
 
@@ -909,15 +909,15 @@
               const rec = DB.getAttendanceRecord(course.id, s.id, selectedDate);
               return `<div class="att-grid" data-student="${s.id}">
                 <div class="att-name">${UI.esc(s.name)} <span class="muted small">(${UI.esc(s.kelas || '-')})</span></div>
-                <select class="form att-status-select stu-status">
+                <select class="att-input att-status-select stu-status">
                   ${STATUSES.map(st => `<option value="${st}" ${rec && rec.status === st ? 'selected' : (!rec && st === 'hadir' ? 'selected' : '')}>${st.toUpperCase()}</option>`).join('')}
                 </select>
-                <input class="form stu-note" value="${UI.esc(rec?.note || '')}" placeholder="Catatan..." style="max-width:240px;" />
+                <input class="att-input stu-note" value="${UI.esc(rec?.note || '')}" placeholder="Catatan..." style="max-width:240px;" />
                 <span class="muted small">${rec ? 'Tersimpan' : 'Baru'}</span>
               </div>`;
             }).join('')}
           </div>
-          <button class="btn btn-primary mt-2" id="saveAllAtt">Simpan Semua Absensi Siswa</button>`}
+          <button class="btn btn-primary mt-2" id="saveAllAtt">Simpan Semua Absensi</button>`}
         </div>
       `;
 
@@ -928,22 +928,30 @@
         document.getElementById('selfNote').value = selfRec.note || '';
       }
 
-      document.getElementById('attDate').addEventListener('change', (e) => renderDate(e.target.value));
-      document.getElementById('saveSelfAtt').addEventListener('click', () => {
+      const saveSelf = () => {
         DB.upsertAttendance(course.id, user.id, 'guru', selectedDate,
           document.getElementById('selfStatus').value,
           document.getElementById('selfNote').value);
+      };
+
+      document.getElementById('attDate').addEventListener('change', (e) => renderDate(e.target.value));
+      document.getElementById('saveSelfAtt').addEventListener('click', () => {
+        saveSelf();
         UI.toast('Absensi Anda tersimpan.');
+        renderDate(selectedDate);
       });
       const saveAll = document.getElementById('saveAllAtt');
       if (saveAll) saveAll.addEventListener('click', () => {
+        // Bug fix: also persist guru self-attendance so the user doesn't lose
+        // in-flight edits when only clicking "Simpan Semua Absensi Siswa".
+        saveSelf();
         document.querySelectorAll('[data-student]').forEach(row => {
           const sid = row.dataset.student;
           const status = row.querySelector('.stu-status').value;
           const note = row.querySelector('.stu-note').value;
           DB.upsertAttendance(course.id, sid, 'siswa', selectedDate, status, note);
         });
-        UI.toast('Absensi siswa disimpan.');
+        UI.toast('Absensi guru & siswa disimpan.');
         renderDate(selectedDate);
       });
     }
@@ -1184,8 +1192,8 @@
   function renderAbsensiSection(container, user) {
     const courses = DB.getCoursesByTeacher(user.id);
     const courseIds = courses.map(c => c.id);
-    // Summary stats
-    const myAtt = DB.getAttendanceByUser(user.id);
+    // Summary stats — only count this user's records as guru role
+    const myAtt = DB.getAttendanceByUser(user.id).filter(a => a.role === 'guru');
     const present = myAtt.filter(a => a.status === 'hadir').length;
     container.innerHTML = `
       <div class="stats-grid">

@@ -392,7 +392,7 @@
       getAll(KEYS.attendance).find(a => a.courseId === cid && a.userId === uid && a.date === date) || null,
     upsertAttendance: (cid, uid, role, date, status, note) => {
       const existing = DB.getAttendanceRecord(cid, uid, date);
-      if (existing) return update(KEYS.attendance, existing.id, { status, note: note || '' });
+      if (existing) return update(KEYS.attendance, existing.id, { role, status, note: note || '' });
       return add(KEYS.attendance, { courseId: cid, userId: uid, role, date, status, note: note || '', createdAt: Date.now() });
     },
     deleteAttendance: (id) => remove(KEYS.attendance, id),
