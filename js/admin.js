@@ -304,17 +304,35 @@
           <option value="">Semua Kelas</option>
           ${courses.map(c => `<option value="${c.id}">${UI.esc(c.title)}</option>`).join('')}
         </select>
+        <label style="margin-left:12px;">Peran:</label>
+        <select id="attRoleFilter">
+          <option value="">Semua</option>
+          <option value="siswa">Siswa</option>
+          <option value="guru">Guru</option>
+        </select>
+        <label style="margin-left:12px;">Status:</label>
+        <select id="attStatusFilter">
+          <option value="">Semua</option>
+          <option value="hadir">Hadir</option>
+          <option value="izin">Izin</option>
+          <option value="sakit">Sakit</option>
+          <option value="alfa">Alfa</option>
+        </select>
       </div>
 
       <div id="attBox"></div>
     `;
     let currentTab = 'siswa';
     let currentCourse = '';
+    let currentRole = '';
+    let currentStatus = '';
 
     const render = () => {
       const box = document.getElementById('attBox');
       let att = DB.getAttendance();
       if (currentCourse) att = att.filter(a => a.courseId === currentCourse);
+      if (currentTab === 'log' && currentRole) att = att.filter(a => a.role === currentRole);
+      if (currentTab === 'log' && currentStatus) att = att.filter(a => a.status === currentStatus);
 
       if (currentTab === 'log') {
         const log = att.slice().sort((a, b) => b.date.localeCompare(a.date)).slice(0, 200);
@@ -371,6 +389,8 @@
       render();
     }));
     document.getElementById('attCourseFilter').addEventListener('change', (e) => { currentCourse = e.target.value; render(); });
+    document.getElementById('attRoleFilter').addEventListener('change', (e) => { currentRole = e.target.value; render(); });
+    document.getElementById('attStatusFilter').addEventListener('change', (e) => { currentStatus = e.target.value; render(); });
     render();
   }
 
