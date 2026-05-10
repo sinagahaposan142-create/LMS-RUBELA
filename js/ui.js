@@ -25,6 +25,34 @@
     const p = (n) => String(n).padStart(2, '0');
     return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
   }
+  function toDateTimeLocalInput(ts) {
+    if (!ts) return '';
+    const d = new Date(ts);
+    const p = (n) => String(n).padStart(2, '0');
+    return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`;
+  }
+  function todayYMD() {
+    const d = new Date();
+    const p = (n) => String(n).padStart(2, '0');
+    return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+  }
+  function fmtYMD(ymd) {
+    if (!ymd) return '-';
+    const [y, m, d] = ymd.split('-');
+    const dt = new Date(Number(y), Number(m) - 1, Number(d));
+    return dt.toLocaleDateString('id-ID', { day: '2-digit', month: 'short', year: 'numeric' });
+  }
+  function fmtRp(num) {
+    const n = Number(num || 0);
+    return 'Rp ' + n.toLocaleString('id-ID');
+  }
+  function fmtDuration(seconds) {
+    const s = Number(seconds || 0);
+    const h = Math.floor(s / 3600);
+    const m = Math.floor((s % 3600) / 60);
+    if (h > 0) return `${h}j ${m}m`;
+    return `${m} menit`;
+  }
 
   const modal = {
     open(title, bodyHTML) {
@@ -72,5 +100,5 @@
     return classes[idx % classes.length];
   }
 
-  global.UI = { esc, fmtDate, fmtDateTime, toDateInput, modal, toast, confirmDialog, initials, bannerClass };
+  global.UI = { esc, fmtDate, fmtDateTime, toDateInput, toDateTimeLocalInput, todayYMD, fmtYMD, fmtRp, fmtDuration, modal, toast, confirmDialog, initials, bannerClass };
 })(window);
