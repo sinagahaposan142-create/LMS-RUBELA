@@ -16,6 +16,7 @@
       { key: 'kalender', label: 'Kalender', icon: '📅' },
       { key: 'pengumuman', label: 'Pengumuman', icon: '📢' },
       { key: 'feedback', label: 'Kritik & Saran', icon: '💬' },
+      { key: 'chat', label: 'Chat', icon: '💭' },
       { key: 'keuangan', label: 'Keuangan', icon: '💰' },
       { key: 'settings', label: 'Pengaturan', icon: '⚙️' }
     ],
@@ -31,6 +32,7 @@
       { key: 'kalender', label: 'Kalender', icon: '📅' },
       { key: 'pengumuman', label: 'Pengumuman', icon: '📢' },
       { key: 'feedback', label: 'Kritik & Saran', icon: '💬' },
+      { key: 'chat', label: 'Chat', icon: '💭' },
       { key: 'keuangan', label: 'Honor Saya', icon: '💰' },
       { key: 'profile', label: 'Profil', icon: '👤' }
     ],

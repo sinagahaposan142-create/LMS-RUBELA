@@ -14,6 +14,7 @@
     if (section === 'kalender') return Shared.renderCalendar(container, user);
     if (section === 'pengumuman') return Shared.renderAnnouncements(container, user);
     if (section === 'feedback') return Shared.renderFeedback(container, user);
+    if (section === 'chat') return Shared.renderChat(container, user);
     if (section === 'keuangan') return renderKeuangan(container);
     if (section === 'settings') return renderSettings(container);
   }

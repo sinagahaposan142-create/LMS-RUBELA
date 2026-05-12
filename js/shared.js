@@ -393,7 +393,7 @@
     }
   }
 
-  global.Shared = { toEmbedUrl, videoEmbedHtml, startCbt, showCbtResult, renderCalendar, renderFeedback, renderAnnouncements };
+  global.Shared = { toEmbedUrl, videoEmbedHtml, startCbt, showCbtResult, renderCalendar, renderFeedback, renderAnnouncements, renderChat };
 
   /* ===== Feedback / Kritik & Saran ===== */
   function renderFeedback(container, user) {
@@ -591,5 +591,134 @@
       UI.modal.close();
       renderAnnouncements(container, user);
     });
+  }
+
+  /* ===== Live Chat ===== */
+  function renderChat(container, user) {
+    let activeChatUserId = null;
+    const allUsers = DB.getUsers().filter(u => u.id !== user.id && u.role !== 'admin' || (user.role !== 'admin' && u.role === 'admin'));
+    // Show relevant contacts: admin sees all, guru sees students+admin, siswa sees guru+admin
+    let contacts;
+    if (user.role === 'admin') {
+      contacts = DB.getUsers().filter(u => u.id !== user.id);
+    } else if (user.role === 'guru') {
+      contacts = DB.getUsers().filter(u => u.id !== user.id && (u.role === 'siswa' || u.role === 'admin'));
+    } else {
+      contacts = DB.getUsers().filter(u => u.id !== user.id && (u.role === 'guru' || u.role === 'admin'));
+    }
+
+    renderLayout();
+
+    function renderLayout() {
+      const partners = DB.getConversationPartners(user.id);
+      // Sort contacts: those with existing conversations first
+      const sorted = contacts.slice().sort((a, b) => {
+        const ai = partners.includes(a.id) ? 0 : 1;
+        const bi = partners.includes(b.id) ? 0 : 1;
+        return ai - bi || a.name.localeCompare(b.name);
+      });
+
+      container.innerHTML = `
+        <div class="chat-layout">
+          <div class="chat-sidebar">
+            <div class="chat-search">
+              <input id="chatSearch" placeholder="Cari kontak..." />
+            </div>
+            <div class="chat-contacts" id="chatContacts">
+              ${sorted.map(c => {
+                const lastMsg = getLastMessage(user.id, c.id);
+                return `<div class="chat-contact ${activeChatUserId === c.id ? 'active' : ''}" data-uid="${c.id}">
+                  <div class="avatar" style="width:32px;height:32px;font-size:12px;">${UI.initials(c.name)}</div>
+                  <div style="flex:1;min-width:0;">
+                    <div style="font-size:13px;font-weight:500;">${UI.esc(c.name)}</div>
+                    <div class="muted small" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${lastMsg ? UI.esc(lastMsg.text.slice(0, 30)) : '<i>Belum ada pesan</i>'}</div>
+                  </div>
+                  <span class="badge badge-gray" style="font-size:9px;">${c.role}</span>
+                </div>`;
+              }).join('')}
+            </div>
+          </div>
+          <div class="chat-main" id="chatMain">
+            ${activeChatUserId ? '' : '<div class="empty" style="margin:auto;"><div class="empty-icon">💭</div>Pilih kontak untuk mulai chat</div>'}
+          </div>
+        </div>
+      `;
+
+      // Search
+      document.getElementById('chatSearch').addEventListener('input', (e) => {
+        const q = e.target.value.toLowerCase();
+        document.querySelectorAll('.chat-contact').forEach(el => {
+          const name = DB.getUser(el.dataset.uid)?.name?.toLowerCase() || '';
+          el.style.display = name.includes(q) ? '' : 'none';
+        });
+      });
+
+      // Click contact
+      container.querySelectorAll('.chat-contact').forEach(el => {
+        el.addEventListener('click', () => {
+          activeChatUserId = el.dataset.uid;
+          renderLayout();
+          renderConversation();
+        });
+      });
+
+      if (activeChatUserId) renderConversation();
+    }
+
+    function getLastMessage(uid1, uid2) {
+      const conv = DB.getConversation(uid1, uid2);
+      return conv.length > 0 ? conv[conv.length - 1] : null;
+    }
+
+    function renderConversation() {
+      const chatMain = document.getElementById('chatMain');
+      const partner = DB.getUser(activeChatUserId);
+      if (!partner) return;
+      const messages = DB.getConversation(user.id, activeChatUserId);
+
+      chatMain.innerHTML = `
+        <div class="chat-header">
+          <div class="avatar" style="width:32px;height:32px;font-size:12px;">${UI.initials(partner.name)}</div>
+          <div>
+            <strong>${UI.esc(partner.name)}</strong>
+            <div class="muted small">${UI.esc(partner.role)} ${partner.subject ? '• ' + UI.esc(partner.subject) : ''}</div>
+          </div>
+        </div>
+        <div class="chat-messages" id="chatMessages">
+          ${messages.length === 0 ? '<div class="muted small" style="text-align:center;padding:20px;">Belum ada pesan. Kirim pesan pertama!</div>' :
+            messages.map(m => `
+              <div class="chat-bubble ${m.senderId === user.id ? 'sent' : 'received'}">
+                <div class="chat-text">${UI.esc(m.text)}</div>
+                <div class="chat-time">${formatChatTime(m.createdAt)}</div>
+              </div>`).join('')}
+        </div>
+        <div class="chat-input-box">
+          <input id="chatInput" placeholder="Ketik pesan..." autocomplete="off" />
+          <button class="btn btn-primary btn-sm" id="chatSendBtn">Kirim</button>
+        </div>
+      `;
+
+      // Scroll to bottom
+      const msgBox = document.getElementById('chatMessages');
+      msgBox.scrollTop = msgBox.scrollHeight;
+
+      // Send
+      const send = () => {
+        const input = document.getElementById('chatInput');
+        const text = input.value.trim();
+        if (!text) return;
+        DB.addMessage({ senderId: user.id, receiverId: activeChatUserId, text });
+        input.value = '';
+        renderConversation();
+      };
+      document.getElementById('chatSendBtn').addEventListener('click', send);
+      document.getElementById('chatInput').addEventListener('keydown', (e) => { if (e.key === 'Enter') send(); });
+    }
+
+    function formatChatTime(ts) {
+      const d = UI.toTzDate(ts);
+      const p = n => String(n).padStart(2, '0');
+      return `${p(d.getHours())}:${p(d.getMinutes())}`;
+    }
   }
 })(window);

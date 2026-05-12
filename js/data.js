@@ -529,12 +529,44 @@
       localStorage.setItem('lms_events', JSON.stringify(list));
     },
 
+    /* ===== Chat Messages ===== */
+    getMessages: () => {
+      try { return JSON.parse(localStorage.getItem('lms_messages') || '[]'); } catch(e) { return []; }
+    },
+    getConversation: (userId1, userId2) => {
+      const msgs = JSON.parse(localStorage.getItem('lms_messages') || '[]');
+      return msgs.filter(m =>
+        (m.senderId === userId1 && m.receiverId === userId2) ||
+        (m.senderId === userId2 && m.receiverId === userId1)
+      ).sort((a, b) => a.createdAt - b.createdAt);
+    },
+    getConversationPartners: (userId) => {
+      const msgs = JSON.parse(localStorage.getItem('lms_messages') || '[]');
+      const partners = new Set();
+      msgs.forEach(m => {
+        if (m.senderId === userId) partners.add(m.receiverId);
+        if (m.receiverId === userId) partners.add(m.senderId);
+      });
+      return [...partners];
+    },
+    addMessage: (msg) => {
+      const list = JSON.parse(localStorage.getItem('lms_messages') || '[]');
+      if (!msg.id) msg.id = uid('msg');
+      msg.createdAt = Date.now();
+      list.push(msg);
+      localStorage.setItem('lms_messages', JSON.stringify(list));
+      return msg;
+    },
+
     resetAll: () => {
       Object.values(KEYS).forEach(k => localStorage.removeItem(k));
       localStorage.removeItem('lms_seeded_v1');
       localStorage.removeItem('lms_class_options');
       localStorage.removeItem('lms_events');
       localStorage.removeItem('lms_batches');
+      localStorage.removeItem('lms_feedbacks');
+      localStorage.removeItem('lms_announcements');
+      localStorage.removeItem('lms_messages');
       seedIfNeeded();
     }
   };
