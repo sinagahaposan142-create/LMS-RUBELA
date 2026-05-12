@@ -84,6 +84,9 @@
   genericModal.addEventListener('click', (e) => { if (e.target === genericModal) UI.modal.close(); });
 
   renderSidebar();
+  // Inject clock widget
+  document.getElementById('clockContainer').innerHTML = UI.clockWidgetHtml();
+  UI.startClock();
   navigate('overview');
 
   // Expose for role modules

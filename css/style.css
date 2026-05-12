@@ -804,3 +804,54 @@ select.form, input.form, textarea.form, .att-input { width: auto; }
   font-size: 14px;
   margin-top: 8px;
 }
+
+
+
+/* ===== Clock Widget ===== */
+.topbar-right {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+.clock-widget {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: var(--gray-50);
+  border: 1px solid var(--gray-200);
+  border-radius: var(--radius-sm);
+  padding: 6px 12px;
+}
+.clock-time {
+  font-family: 'Consolas', 'SF Mono', monospace;
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--primary);
+  letter-spacing: 0.5px;
+  min-width: 130px;
+}
+.clock-date {
+  font-size: 12px;
+  color: var(--gray-600);
+  white-space: nowrap;
+}
+.tz-select {
+  padding: 4px 8px;
+  border: 1px solid var(--gray-300);
+  border-radius: 4px;
+  font-size: 12px;
+  font-weight: 600;
+  background: #fff;
+  color: var(--primary-dark);
+  cursor: pointer;
+}
+.tz-select:focus {
+  outline: none;
+  border-color: var(--primary);
+}
+
+@media (max-width: 768px) {
+  .clock-date { display: none; }
+  .clock-widget { padding: 4px 8px; }
+  .clock-time { font-size: 13px; min-width: auto; }
+}

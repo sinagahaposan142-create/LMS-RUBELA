@@ -9,6 +9,125 @@
       .replace(/'/g, '&#39;');
   }
 
+  /* ===== Timezone System ===== */
+  const TZ_OFFSETS = { WIB: 7, WITA: 8, WIT: 9 }; // UTC offset hours
+  const TZ_LABELS = { WIB: 'WIB (UTC+7)', WITA: 'WITA (UTC+8)', WIT: 'WIT (UTC+9)' };
+  const TZ_KEY = 'lms_timezone';
+
+  function getTimezone() {
+    return localStorage.getItem(TZ_KEY) || 'WIB';
+  }
+  function setTimezone(tz) {
+    if (TZ_OFFSETS[tz] != null) localStorage.setItem(TZ_KEY, tz);
+  }
+
+  /** Get current Date adjusted to selected Indonesian timezone */
+  function nowInTz(tz) {
+    const zone = tz || getTimezone();
+    const offset = TZ_OFFSETS[zone];
+    const now = new Date();
+    // Convert to UTC then add offset
+    const utcMs = now.getTime() + now.getTimezoneOffset() * 60000;
+    return new Date(utcMs + offset * 3600000);
+  }
+
+  /** Convert a UTC timestamp to a Date in the given timezone */
+  function toTzDate(ts, tz) {
+    if (!ts) return null;
+    const zone = tz || getTimezone();
+    const offset = TZ_OFFSETS[zone];
+    const d = new Date(ts);
+    const utcMs = d.getTime() + d.getTimezoneOffset() * 60000;
+    return new Date(utcMs + offset * 3600000);
+  }
+
+  /** Format time as HH:MM:SS for clock display */
+  function fmtClock(d) {
+    const p = (n) => String(n).padStart(2, '0');
+    return `${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
+  }
+
+  /** Format full date+time with day name in Indonesian */
+  function fmtFullDateTime(d) {
+    const days = ['Minggu', 'Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu'];
+    const months = ['Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni', 'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'];
+    const p = (n) => String(n).padStart(2, '0');
+    return `${days[d.getDay()]}, ${p(d.getDate())} ${months[d.getMonth()]} ${d.getFullYear()}`;
+  }
+
+  /** Start the real-time clock widget. Call once after DOM ready. */
+  let _clockInterval = null;
+  function startClock() {
+    const el = document.getElementById('liveClock');
+    const dateEl = document.getElementById('liveDate');
+    const tzSel = document.getElementById('tzSelector');
+    if (!el) return;
+    if (tzSel) {
+      tzSel.value = getTimezone();
+      tzSel.addEventListener('change', (e) => {
+        setTimezone(e.target.value);
+        tickClock();
+      });
+    }
+    function tickClock() {
+      const tz = getTimezone();
+      const now = nowInTz(tz);
+      el.textContent = fmtClock(now) + ' ' + tz;
+      if (dateEl) dateEl.textContent = fmtFullDateTime(now);
+    }
+    tickClock();
+    if (_clockInterval) clearInterval(_clockInterval);
+    _clockInterval = setInterval(tickClock, 1000);
+  }
+
+  /** Render the clock + timezone selector HTML (for topbar) */
+  function clockWidgetHtml() {
+    const tz = getTimezone();
+    return `
+      <div class="clock-widget">
+        <div class="clock-time" id="liveClock">--:--:-- ${esc(tz)}</div>
+        <div class="clock-date" id="liveDate">-</div>
+        <select id="tzSelector" class="tz-select" title="Pilih Zona Waktu">
+          <option value="WIB" ${tz === 'WIB' ? 'selected' : ''}>WIB</option>
+          <option value="WITA" ${tz === 'WITA' ? 'selected' : ''}>WITA</option>
+          <option value="WIT" ${tz === 'WIT' ? 'selected' : ''}>WIT</option>
+        </select>
+      </div>`;
+  }
+
+  /** Convert a local datetime-local input value + timezone to UTC timestamp */
+  function tzInputToUtc(datetimeLocalStr, tz) {
+    if (!datetimeLocalStr) return null;
+    const zone = tz || getTimezone();
+    const offset = TZ_OFFSETS[zone];
+    // Parse as if local (no timezone)
+    const [datePart, timePart] = datetimeLocalStr.split('T');
+    const [y, mo, d] = datePart.split('-').map(Number);
+    const [h, mi] = (timePart || '00:00').split(':').map(Number);
+    // Construct UTC: subtract the timezone offset
+    const utcMs = Date.UTC(y, mo - 1, d, h - offset, mi, 0, 0);
+    return utcMs;
+  }
+
+  /** Convert a UTC timestamp to datetime-local string in given timezone */
+  function utcToTzInput(ts, tz) {
+    if (!ts) return '';
+    const d = toTzDate(ts, tz);
+    const p = (n) => String(n).padStart(2, '0');
+    return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`;
+  }
+
+  /** Format a UTC timestamp for display in the user's selected timezone */
+  function fmtDateTimeTz(ts, tz) {
+    if (!ts) return '-';
+    const d = toTzDate(ts, tz);
+    const zone = tz || getTimezone();
+    const p = (n) => String(n).padStart(2, '0');
+    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Agu', 'Sep', 'Okt', 'Nov', 'Des'];
+    return `${p(d.getDate())} ${months[d.getMonth()]} ${d.getFullYear()} ${p(d.getHours())}:${p(d.getMinutes())} ${zone}`;
+  }
+
+  /* ===== Original formatting functions ===== */
   function fmtDate(ts) {
     if (!ts) return '-';
     const d = new Date(ts);
@@ -16,8 +135,8 @@
   }
   function fmtDateTime(ts) {
     if (!ts) return '-';
-    const d = new Date(ts);
-    return d.toLocaleString('id-ID', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+    // Use timezone-aware display
+    return fmtDateTimeTz(ts);
   }
   function toDateInput(ts) {
     if (!ts) return '';
@@ -26,13 +145,11 @@
     return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
   }
   function toDateTimeLocalInput(ts) {
-    if (!ts) return '';
-    const d = new Date(ts);
-    const p = (n) => String(n).padStart(2, '0');
-    return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`;
+    // Use timezone-aware conversion
+    return utcToTzInput(ts);
   }
   function todayYMD() {
-    const d = new Date();
+    const d = nowInTz();
     const p = (n) => String(n).padStart(2, '0');
     return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
   }
@@ -100,5 +217,11 @@
     return classes[idx % classes.length];
   }
 
-  global.UI = { esc, fmtDate, fmtDateTime, toDateInput, toDateTimeLocalInput, todayYMD, fmtYMD, fmtRp, fmtDuration, modal, toast, confirmDialog, initials, bannerClass };
+  global.UI = {
+    esc, fmtDate, fmtDateTime, toDateInput, toDateTimeLocalInput, todayYMD, fmtYMD, fmtRp, fmtDuration,
+    modal, toast, confirmDialog, initials, bannerClass,
+    // Timezone
+    TZ_OFFSETS, TZ_LABELS, getTimezone, setTimezone, nowInTz, toTzDate, fmtClock, fmtFullDateTime,
+    startClock, clockWidgetHtml, tzInputToUtc, utcToTzInput, fmtDateTimeTz
+  };
 })(window);
