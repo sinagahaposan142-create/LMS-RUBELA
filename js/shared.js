@@ -239,5 +239,159 @@
     document.getElementById('backToCbt').addEventListener('click', () => Dashboard.navigate('cbt'));
   }
 
-  global.Shared = { toEmbedUrl, videoEmbedHtml, startCbt, showCbtResult };
+  /* ===== Calendar Renderer ===== */
+  function renderCalendar(container, user) {
+    const canEdit = user.role === 'admin' || user.role === 'guru';
+    const now = UI.nowInTz();
+    let viewYear = now.getFullYear();
+    let viewMonth = now.getMonth();
+
+    render();
+
+    function render() {
+      const firstDay = new Date(viewYear, viewMonth, 1);
+      const lastDay = new Date(viewYear, viewMonth + 1, 0);
+      const startDow = firstDay.getDay(); // 0=Sun
+      const daysInMonth = lastDay.getDate();
+      const monthNames = ['Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni', 'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'];
+      const dayLabels = ['Min', 'Sen', 'Sel', 'Rab', 'Kam', 'Jum', 'Sab'];
+
+      const events = DB.getEvents();
+      const p = n => String(n).padStart(2, '0');
+      const ymd = (y, m, d) => `${y}-${p(m + 1)}-${p(d)}`;
+      const todayStr = UI.todayYMD();
+
+      // Build cells
+      let cells = '';
+      for (let i = 0; i < startDow; i++) cells += '<div class="cal-cell empty"></div>';
+      for (let d = 1; d <= daysInMonth; d++) {
+        const dateStr = ymd(viewYear, viewMonth, d);
+        const dayEvents = events.filter(e => e.date === dateStr);
+        const isToday = dateStr === todayStr;
+        cells += `<div class="cal-cell${isToday ? ' today' : ''}" data-date="${dateStr}">
+          <div class="cal-day">${d}</div>
+          ${dayEvents.slice(0, 3).map(ev => `<div class="cal-event" style="background:${ev.color || 'var(--primary-light)'};" title="${UI.esc(ev.title)}">${UI.esc(ev.title.length > 12 ? ev.title.slice(0, 12) + '...' : ev.title)}</div>`).join('')}
+          ${dayEvents.length > 3 ? `<div class="cal-event muted">+${dayEvents.length - 3} lagi</div>` : ''}
+        </div>`;
+      }
+
+      container.innerHTML = `
+        <div class="card">
+          <div class="card-header">
+            <div class="flex-gap" style="align-items:center;">
+              <button class="btn btn-sm btn-secondary" id="calPrev">&lt;</button>
+              <h3 style="margin:0;min-width:180px;text-align:center;">${monthNames[viewMonth]} ${viewYear}</h3>
+              <button class="btn btn-sm btn-secondary" id="calNext">&gt;</button>
+            </div>
+            ${canEdit ? '<button class="btn btn-primary btn-sm" id="addEventBtn">+ Tambah Acara</button>' : ''}
+          </div>
+          <div class="cal-grid">
+            ${dayLabels.map(l => `<div class="cal-header">${l}</div>`).join('')}
+            ${cells}
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-header"><h3>Acara Bulan Ini</h3></div>
+          <div id="monthEvents"></div>
+        </div>
+      `;
+
+      // Month event list
+      const monthEvts = events.filter(e => e.date && e.date.startsWith(`${viewYear}-${p(viewMonth + 1)}`))
+        .sort((a, b) => a.date.localeCompare(b.date));
+      const evBox = document.getElementById('monthEvents');
+      if (monthEvts.length === 0) {
+        evBox.innerHTML = '<div class="empty"><div class="empty-icon">📅</div>Tidak ada acara bulan ini.</div>';
+      } else {
+        evBox.innerHTML = monthEvts.map(ev => `
+          <div class="list-item">
+            <div class="flex-between">
+              <div>
+                <div class="title">${UI.esc(ev.title)}</div>
+                <div class="meta">${UI.fmtYMD(ev.date)}${ev.time ? ' • ' + UI.esc(ev.time) : ''} • <span class="badge badge-info">${UI.esc(ev.category || 'Umum')}</span></div>
+              </div>
+              ${canEdit ? `<div class="flex-gap">
+                <button class="btn btn-sm btn-secondary" data-edit-ev="${ev.id}">Edit</button>
+                <button class="btn btn-sm btn-danger" data-del-ev="${ev.id}">Hapus</button>
+              </div>` : ''}
+            </div>
+            ${ev.description ? `<div class="content">${UI.esc(ev.description)}</div>` : ''}
+          </div>`).join('');
+      }
+
+      // Nav
+      document.getElementById('calPrev').addEventListener('click', () => { viewMonth--; if (viewMonth < 0) { viewMonth = 11; viewYear--; } render(); });
+      document.getElementById('calNext').addEventListener('click', () => { viewMonth++; if (viewMonth > 11) { viewMonth = 0; viewYear++; } render(); });
+
+      // Click date to add event
+      if (canEdit) {
+        container.querySelectorAll('.cal-cell[data-date]').forEach(cell => {
+          cell.addEventListener('dblclick', () => openEventForm(cell.dataset.date));
+        });
+        const addBtn = document.getElementById('addEventBtn');
+        if (addBtn) addBtn.addEventListener('click', () => openEventForm(todayStr));
+        container.querySelectorAll('[data-edit-ev]').forEach(b => b.addEventListener('click', () => openEventForm(null, b.dataset.editEv)));
+        container.querySelectorAll('[data-del-ev]').forEach(b => b.addEventListener('click', () => {
+          if (!UI.confirmDialog('Hapus acara ini?')) return;
+          DB.deleteEvent(b.dataset.delEv);
+          UI.toast('Acara dihapus.');
+          render();
+        }));
+      }
+    }
+
+    function openEventForm(dateStr, editId) {
+      const editing = editId ? DB.getEvent(editId) : null;
+      const CATEGORIES = ['Jadwal Kelas', 'Ujian/CBT', 'Rapat', 'Acara', 'Deadline', 'Lainnya'];
+      const body = `
+        <form id="eventForm" class="form">
+          <div class="form-group"><label>Judul</label>
+            <input name="title" required value="${UI.esc(editing?.title || '')}" /></div>
+          <div class="form-row">
+            <div class="form-group"><label>Tanggal</label>
+              <input name="date" type="date" required value="${editing?.date || dateStr || UI.todayYMD()}" /></div>
+            <div class="form-group"><label>Waktu (opsional)</label>
+              <input name="time" type="time" value="${UI.esc(editing?.time || '')}" /></div>
+          </div>
+          <div class="form-row">
+            <div class="form-group"><label>Kategori</label>
+              <select name="category">
+                ${CATEGORIES.map(c => `<option value="${c}" ${editing?.category === c ? 'selected' : ''}>${c}</option>`).join('')}
+              </select>
+            </div>
+            <div class="form-group"><label>Warna</label>
+              <input name="color" type="color" value="${editing?.color || '#eef2ff'}" /></div>
+          </div>
+          <div class="form-group"><label>Deskripsi (opsional)</label>
+            <textarea name="description" rows="3">${UI.esc(editing?.description || '')}</textarea></div>
+          <div class="flex-gap" style="justify-content:flex-end;">
+            <button type="button" class="btn btn-secondary" id="cancelBtn">Batal</button>
+            <button type="submit" class="btn btn-primary">Simpan</button>
+          </div>
+        </form>`;
+      UI.modal.open(editing ? 'Edit Acara' : 'Tambah Acara', body);
+      document.getElementById('cancelBtn').addEventListener('click', () => UI.modal.close());
+      document.getElementById('eventForm').addEventListener('submit', (e) => {
+        e.preventDefault();
+        const fd = new FormData(e.target);
+        const payload = {
+          title: fd.get('title').trim(),
+          date: fd.get('date'),
+          time: fd.get('time') || '',
+          category: fd.get('category'),
+          color: fd.get('color'),
+          description: fd.get('description').trim(),
+          authorId: user.id
+        };
+        if (editing) DB.updateEvent(editing.id, payload);
+        else DB.addEvent(payload);
+        UI.toast('Acara disimpan.');
+        UI.modal.close();
+        render();
+      });
+    }
+  }
+
+  global.Shared = { toEmbedUrl, videoEmbedHtml, startCbt, showCbtResult, renderCalendar };
 })(window);

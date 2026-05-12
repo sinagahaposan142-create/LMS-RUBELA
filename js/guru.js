@@ -16,6 +16,7 @@
     if (section === 'cbt') return renderCbtSection(container, user);
     if (section === 'grading') return renderGrading(container, user);
     if (section === 'absensi') return renderAbsensiSection(container, user);
+    if (section === 'kalender') return Shared.renderCalendar(container, user);
     if (section === 'keuangan') return renderHonorSection(container, user);
     if (section === 'profile') return renderProfile(container, user);
   }

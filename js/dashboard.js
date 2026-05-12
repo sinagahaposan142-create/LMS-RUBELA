@@ -11,6 +11,7 @@
       { key: 'courses', label: 'Semua Kelas', icon: '📚' },
       { key: 'attendance', label: 'Absensi', icon: '📋' },
       { key: 'rekap', label: 'Rekapan', icon: '📈' },
+      { key: 'kalender', label: 'Kalender', icon: '📅' },
       { key: 'keuangan', label: 'Keuangan', icon: '💰' },
       { key: 'settings', label: 'Pengaturan', icon: '⚙️' }
     ],
@@ -23,6 +24,7 @@
       { key: 'cbt', label: 'CBT / Ujian', icon: '🖥️' },
       { key: 'grading', label: 'Penilaian Tugas', icon: '✅' },
       { key: 'absensi', label: 'Absensi', icon: '📋' },
+      { key: 'kalender', label: 'Kalender', icon: '📅' },
       { key: 'keuangan', label: 'Honor Saya', icon: '💰' },
       { key: 'profile', label: 'Profil', icon: '👤' }
     ],
@@ -36,6 +38,7 @@
       { key: 'assignments', label: 'Tugas', icon: '📝' },
       { key: 'grades', label: 'Nilai', icon: '🏆' },
       { key: 'absensi', label: 'Absensi Saya', icon: '📋' },
+      { key: 'kalender', label: 'Kalender', icon: '📅' },
       { key: 'keuangan', label: 'Pembayaran', icon: '💰' },
       { key: 'profile', label: 'Profil', icon: '👤' }
     ]

@@ -428,10 +428,39 @@
       localStorage.setItem('lms_class_options', JSON.stringify(list));
     },
 
+    /* ===== Calendar Events ===== */
+    getEvents: () => {
+      try { return JSON.parse(localStorage.getItem('lms_events') || '[]'); } catch(e) { return []; }
+    },
+    getEvent: (id) => {
+      return (JSON.parse(localStorage.getItem('lms_events') || '[]')).find(e => e.id === id) || null;
+    },
+    addEvent: (ev) => {
+      const list = JSON.parse(localStorage.getItem('lms_events') || '[]');
+      if (!ev.id) ev.id = uid('ev');
+      ev.createdAt = Date.now();
+      list.push(ev);
+      localStorage.setItem('lms_events', JSON.stringify(list));
+      return ev;
+    },
+    updateEvent: (id, patch) => {
+      const list = JSON.parse(localStorage.getItem('lms_events') || '[]');
+      const idx = list.findIndex(e => e.id === id);
+      if (idx === -1) return null;
+      list[idx] = Object.assign({}, list[idx], patch);
+      localStorage.setItem('lms_events', JSON.stringify(list));
+      return list[idx];
+    },
+    deleteEvent: (id) => {
+      const list = JSON.parse(localStorage.getItem('lms_events') || '[]').filter(e => e.id !== id);
+      localStorage.setItem('lms_events', JSON.stringify(list));
+    },
+
     resetAll: () => {
       Object.values(KEYS).forEach(k => localStorage.removeItem(k));
       localStorage.removeItem('lms_seeded_v1');
       localStorage.removeItem('lms_class_options');
+      localStorage.removeItem('lms_events');
       seedIfNeeded();
     }
   };
