@@ -16,6 +16,11 @@
     if (section === 'cbt') return renderCbtSection(container, user);
     if (section === 'grading') return renderGrading(container, user);
     if (section === 'absensi') return renderAbsensiSection(container, user);
+    if (section === 'kalender') return Shared.renderCalendar(container, user);
+    if (section === 'pengumuman') return Shared.renderAnnouncements(container, user);
+    if (section === 'feedback') return Shared.renderFeedback(container, user);
+    if (section === 'chat') return Shared.renderChat(container, user);
+    if (section === 'ai-analytics') return Shared.renderAiAnalytics(container, user);
     if (section === 'keuangan') return renderHonorSection(container, user);
     if (section === 'profile') return renderProfile(container, user);
   }
@@ -785,6 +790,7 @@
           <div class="form-group"><label>Selesai</label>
             <input name="endAt" type="datetime-local" required value="${UI.toDateTimeLocalInput(editing?.endAt || Date.now() + 7 * 86400000)}" /></div>
         </div>
+        <div class="muted small" style="margin:-8px 0 10px;">Waktu dalam zona <strong>${UI.getTimezone()}</strong>. Siswa di zona waktu lain akan otomatis melihat konversi sesuai zona mereka.</div>
         <div class="form-group"><label>Durasi (menit)</label>
           <input name="duration" type="number" min="5" max="300" required value="${editing?.durationMinutes || 30}" /></div>
         <div class="form-group">
@@ -819,8 +825,8 @@
         courseId: course.id,
         title: fd.get('title').trim(),
         description: fd.get('description').trim(),
-        startAt: new Date(fd.get('startAt')).getTime(),
-        endAt: new Date(fd.get('endAt')).getTime(),
+        startAt: UI.tzInputToUtc(fd.get('startAt')),
+        endAt: UI.tzInputToUtc(fd.get('endAt')),
         durationMinutes: Number(fd.get('duration')),
         questionIds: qids
       };
