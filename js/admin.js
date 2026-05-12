@@ -7,18 +7,8 @@
     if (section === 'guru') return renderUsers(container, 'guru');
     if (section === 'siswa') return renderUsers(container, 'siswa');
     if (section === 'courses') return renderCourses(container);
-    if (section === 'admin-cbt') return renderAdminCbt(container, user);
-    if (section === 'admin-bank-soal') return renderAdminBankSoal(container, user);
-    if (section === 'jadwal-kelas') return renderJadwalKelas(container);
-    if (section === 'batch') return renderBatch(container);
-    if (section === 'alumni') return renderAlumni(container);
     if (section === 'attendance') return renderAttendance(container);
     if (section === 'rekap') return renderRekap(container);
-    if (section === 'kalender') return Shared.renderCalendar(container, user);
-    if (section === 'pengumuman') return Shared.renderAnnouncements(container, user);
-    if (section === 'feedback') return Shared.renderFeedback(container, user);
-    if (section === 'chat') return Shared.renderChat(container, user);
-    if (section === 'ai-analytics') return Shared.renderAiAnalytics(container, user);
     if (section === 'keuangan') return renderKeuangan(container);
     if (section === 'settings') return renderSettings(container);
   }
@@ -129,35 +119,24 @@
       <div class="card">
         <div class="card-header">
           <h3>${isGuru ? 'Daftar Guru' : 'Daftar Siswa'} (${list.length})</h3>
-          <div class="flex-gap">
-            <button class="btn btn-sm btn-secondary" id="exportBtn">Export Excel</button>
-            <label class="btn btn-sm btn-secondary" style="cursor:pointer;">Import Excel
-              <input type="file" id="importFile" accept=".xlsx,.xls,.csv" style="display:none;" />
-            </label>
-            <button class="btn btn-primary btn-sm" id="addUserBtn">+ Tambah ${isGuru ? 'Guru' : 'Siswa'}</button>
-          </div>
+          <button class="btn btn-primary btn-sm" id="addUserBtn">+ Tambah ${isGuru ? 'Guru' : 'Siswa'}</button>
         </div>
         ${list.length === 0 ? emptyState('Belum ada data.') : `
         <div class="table-wrap"><table class="table">
           <thead><tr>
-            <th>Nama</th><th>Username</th><th>${isGuru ? 'Subtest' : 'Kelas'}</th><th>${isGuru ? 'WhatsApp' : 'Telepon'}</th><th>Status</th><th>Aksi</th>
+            <th>Nama</th><th>Username</th><th>Email</th><th>${isGuru ? 'Mapel' : 'Kelas'}</th><th>Aksi</th>
           </tr></thead>
           <tbody>
-            ${list.map(u => {
-              const statusBadge = (u.status || 'Aktif') === 'Aktif' ? 'badge-success'
-                : (u.status === 'Nonaktif' ? 'badge-warning' : 'badge-gray');
-              return `<tr>
-              <td><strong>${UI.esc(u.name)}</strong><div class="muted small">${UI.esc(u.email || '-')}</div></td>
+            ${list.map(u => `<tr>
+              <td><strong>${UI.esc(u.name)}</strong></td>
               <td>${UI.esc(u.username)}</td>
+              <td>${UI.esc(u.email || '-')}</td>
               <td>${UI.esc(isGuru ? (u.subject || '-') : (u.kelas || '-'))}</td>
-              <td>${UI.esc(isGuru ? (u.whatsapp || '-') : (u.phone || '-'))}</td>
-              <td><span class="badge ${statusBadge}">${UI.esc(u.status || 'Aktif')}</span></td>
               <td class="actions">
                 <button class="btn btn-sm btn-secondary" data-edit="${u.id}">Edit</button>
                 <button class="btn btn-sm btn-danger" data-del="${u.id}">Hapus</button>
               </td>
-            </tr>`;
-            }).join('')}
+            </tr>`).join('')}
           </tbody>
         </table></div>`}
       </div>
@@ -171,178 +150,34 @@
       UI.toast('Pengguna dihapus.');
       renderUsers(container, role);
     }));
-
-    // Export Excel
-    document.getElementById('exportBtn').addEventListener('click', () => {
-      const users = DB.getUsers().filter(u => u.role === role);
-      let rows;
-      if (isGuru) {
-        rows = users.map(u => ({
-          Nama: u.name, Username: u.username, Email: u.email || '',
-          WhatsApp: u.whatsapp || '', Subtest: u.subject || '',
-          'Tarif Gaji': u.salaryRate || 0, Status: u.status || 'Aktif'
-        }));
-      } else {
-        rows = users.map(u => ({
-          Nama: u.name, Username: u.username, Email: u.email || '',
-          Telepon: u.phone || '', Kelas: u.kelas || '',
-          'Universitas Tujuan': u.targetUniv || '', 'Jurusan Tujuan': u.targetMajor || '',
-          Status: u.status || 'Aktif'
-        }));
-      }
-      if (typeof XLSX === 'undefined') { UI.toast('Library Excel belum termuat. Coba reload halaman.', 'error'); return; }
-      const ws = XLSX.utils.json_to_sheet(rows);
-      const wb = XLSX.utils.book_new();
-      XLSX.utils.book_append_sheet(wb, ws, isGuru ? 'Guru' : 'Siswa');
-      XLSX.writeFile(wb, `data_${role}_${UI.todayYMD()}.xlsx`);
-      UI.toast('File Excel berhasil diunduh.');
-    });
-
-    // Import Excel
-    document.getElementById('importFile').addEventListener('change', (e) => {
-      const file = e.target.files[0];
-      if (!file) return;
-      const reader = new FileReader();
-      reader.onload = (evt) => {
-        try {
-          if (typeof XLSX === 'undefined') { UI.toast('Library Excel belum termuat.', 'error'); return; }
-          const wb = XLSX.read(evt.target.result, { type: 'array' });
-          const ws = wb.Sheets[wb.SheetNames[0]];
-          const rows = XLSX.utils.sheet_to_json(ws);
-          if (rows.length === 0) { UI.toast('File kosong atau format tidak sesuai.', 'error'); return; }
-          let added = 0, skipped = 0;
-          rows.forEach(row => {
-            const name = (row.Nama || row.nama || '').trim();
-            const username = (row.Username || row.username || '').trim();
-            const email = (row.Email || row.email || '').trim();
-            if (!name || !username) { skipped++; return; }
-            if (DB.findUserByUsername(username)) { skipped++; return; }
-            const record = { id: DB.uid('u'), role, name, username, email, password: 'password123', status: (row.Status || row.status || 'Aktif') };
-            if (isGuru) {
-              record.subject = row.Subtest || row.subtest || row['Mata Pelajaran'] || '';
-              record.whatsapp = String(row.WhatsApp || row.whatsapp || row.WA || '');
-              record.salaryRate = Number(row['Tarif Gaji'] || row.salaryRate || 0);
-            } else {
-              record.kelas = row.Kelas || row.kelas || '';
-              record.phone = String(row.Telepon || row.telepon || row.Phone || row.phone || '');
-              record.targetUniv = row['Universitas Tujuan'] || row.targetUniv || '';
-              record.targetMajor = row['Jurusan Tujuan'] || row.targetMajor || '';
-            }
-            DB.addUser(record);
-            added++;
-          });
-          UI.toast(`Import selesai: ${added} ditambahkan, ${skipped} dilewati (duplikat/kosong).`, added > 0 ? 'success' : 'info');
-          renderUsers(container, role);
-        } catch (err) {
-          UI.toast('Gagal membaca file: ' + err.message, 'error');
-        }
-      };
-      reader.readAsArrayBuffer(file);
-      e.target.value = ''; // reset input
-    });
   }
 
   function openUserForm(role, editId) {
     const isGuru = role === 'guru';
     const editing = editId ? DB.getUser(editId) : null;
     const title = editing ? `Edit ${isGuru ? 'Guru' : 'Siswa'}` : `Tambah ${isGuru ? 'Guru' : 'Siswa'}`;
-
-    // Subtest options for guru
-    const SUBTESTS = [
-      'Penalaran Umum (PU)',
-      'Pengetahuan dan Pemahaman Umum (PPU)',
-      'Kemampuan Memahami Bacaan dan Menulis (PBM)',
-      'Pengetahuan Kuantitatif (PK)',
-      'Literasi dalam Bahasa Indonesia',
-      'Literasi dalam Bahasa Inggris',
-      'Penalaran Matematika'
-    ];
-
-    // Status options
-    const STATUSES = ['Aktif', 'Nonaktif', 'Dikeluarkan'];
-
-    // Class options from settings (admin-configurable)
-    const CLASS_OPTIONS = DB.getClassOptions ? DB.getClassOptions() : ['X-A', 'X-B', 'XI-A', 'XI-B', 'XII-A', 'XII-B'];
-
-    let body;
-    if (isGuru) {
-      body = `
-        <form id="userForm" class="form">
-          <div class="form-group"><label>Nama Lengkap</label>
-            <input name="name" required value="${UI.esc(editing?.name || '')}" /></div>
-          <div class="form-row">
-            <div class="form-group"><label>Username</label>
-              <input name="username" required value="${UI.esc(editing?.username || '')}" ${editing ? 'readonly' : ''} /></div>
-            <div class="form-group"><label>Email</label>
-              <input type="email" name="email" required value="${UI.esc(editing?.email || '')}" /></div>
-          </div>
-          <div class="form-row">
-            <div class="form-group"><label>No. WhatsApp</label>
-              <input name="whatsapp" type="tel" placeholder="08xxxxxxxxxx" value="${UI.esc(editing?.whatsapp || '')}" /></div>
-            <div class="form-group"><label>Status</label>
-              <select name="status">
-                ${STATUSES.map(s => `<option value="${s}" ${(editing?.status || 'Aktif') === s ? 'selected' : ''}>${s}</option>`).join('')}
-              </select>
-            </div>
-          </div>
-          <div class="form-group"><label>Guru Subtest</label>
-            <select name="subject" required>
-              <option value="">-- Pilih Subtest --</option>
-              ${SUBTESTS.map(s => `<option value="${s}" ${editing?.subject === s ? 'selected' : ''}>${s}</option>`).join('')}
-            </select>
-          </div>
-          <div class="form-group"><label>Tarif Gaji per Bulan (Rp)</label>
-            <input name="salaryRate" type="number" min="0" value="${editing?.salaryRate || 0}" /></div>
-          <div class="form-group"><label>Password ${editing ? '(kosongkan jika tidak diubah)' : ''}</label>
-            <input type="password" name="password" ${editing ? '' : 'required minlength="6"'} /></div>
-          <div id="userFormError" class="alert alert-error hidden"></div>
-          <div class="flex-gap" style="justify-content:flex-end;">
-            <button type="button" class="btn btn-secondary" id="cancelBtn">Batal</button>
-            <button type="submit" class="btn btn-primary">Simpan</button>
-          </div>
-        </form>`;
-    } else {
-      body = `
-        <form id="userForm" class="form">
-          <div class="form-group"><label>Nama Lengkap</label>
-            <input name="name" required value="${UI.esc(editing?.name || '')}" /></div>
-          <div class="form-row">
-            <div class="form-group"><label>Username</label>
-              <input name="username" required value="${UI.esc(editing?.username || '')}" ${editing ? 'readonly' : ''} /></div>
-            <div class="form-group"><label>Email</label>
-              <input type="email" name="email" required value="${UI.esc(editing?.email || '')}" /></div>
-          </div>
-          <div class="form-row">
-            <div class="form-group"><label>No. Telepon</label>
-              <input name="phone" type="tel" placeholder="08xxxxxxxxxx" value="${UI.esc(editing?.phone || '')}" /></div>
-            <div class="form-group"><label>Status</label>
-              <select name="status">
-                ${STATUSES.map(s => `<option value="${s}" ${(editing?.status || 'Aktif') === s ? 'selected' : ''}>${s}</option>`).join('')}
-              </select>
-            </div>
-          </div>
-          <div class="form-row">
-            <div class="form-group"><label>Kelas</label>
-              <select name="kelas">
-                <option value="">-- Pilih Kelas --</option>
-                ${CLASS_OPTIONS.map(c => `<option value="${c}" ${editing?.kelas === c ? 'selected' : ''}>${c}</option>`).join('')}
-              </select>
-            </div>
-            <div class="form-group"><label>Tujuan Universitas</label>
-              <input name="targetUniv" value="${UI.esc(editing?.targetUniv || '')}" placeholder="Nama universitas tujuan" /></div>
-          </div>
-          <div class="form-group"><label>Jurusan Tujuan</label>
-            <input name="targetMajor" value="${UI.esc(editing?.targetMajor || '')}" placeholder="Jurusan yang dituju" /></div>
-          <div class="form-group"><label>Password ${editing ? '(kosongkan jika tidak diubah)' : ''}</label>
-            <input type="password" name="password" ${editing ? '' : 'required minlength="6"'} /></div>
-          <div id="userFormError" class="alert alert-error hidden"></div>
-          <div class="flex-gap" style="justify-content:flex-end;">
-            <button type="button" class="btn btn-secondary" id="cancelBtn">Batal</button>
-            <button type="submit" class="btn btn-primary">Simpan</button>
-          </div>
-        </form>`;
-    }
-
+    const body = `
+      <form id="userForm" class="form">
+        <div class="form-group"><label>Nama Lengkap</label>
+          <input name="name" required value="${UI.esc(editing?.name || '')}" /></div>
+        <div class="form-row">
+          <div class="form-group"><label>Username</label>
+            <input name="username" required value="${UI.esc(editing?.username || '')}" ${editing ? 'readonly' : ''} /></div>
+          <div class="form-group"><label>Email</label>
+            <input type="email" name="email" required value="${UI.esc(editing?.email || '')}" /></div>
+        </div>
+        <div class="form-group"><label>${isGuru ? 'Mata Pelajaran' : 'Kelas'}</label>
+          <input name="extra" value="${UI.esc(isGuru ? (editing?.subject || '') : (editing?.kelas || ''))}" /></div>
+        ${isGuru ? `<div class="form-group"><label>Tarif Gaji per Bulan (Rp)</label>
+          <input name="salaryRate" type="number" min="0" value="${editing?.salaryRate || 0}" /></div>` : ''}
+        <div class="form-group"><label>Password ${editing ? '(kosongkan jika tidak diubah)' : ''}</label>
+          <input type="password" name="password" ${editing ? '' : 'required minlength="6"'} /></div>
+        <div id="userFormError" class="alert alert-error hidden"></div>
+        <div class="flex-gap" style="justify-content:flex-end;">
+          <button type="button" class="btn btn-secondary" id="cancelBtn">Batal</button>
+          <button type="submit" class="btn btn-primary">Simpan</button>
+        </div>
+      </form>`;
     UI.modal.open(title, body);
     document.getElementById('cancelBtn').addEventListener('click', () => UI.modal.close());
     document.getElementById('userForm').addEventListener('submit', (e) => {
@@ -351,8 +186,8 @@
       const name = fd.get('name').trim();
       const username = fd.get('username').trim();
       const email = fd.get('email').trim();
+      const extra = fd.get('extra').trim();
       const password = fd.get('password');
-      const status = fd.get('status');
       const err = document.getElementById('userFormError');
       err.classList.add('hidden');
 
@@ -362,31 +197,15 @@
           err.classList.remove('hidden');
           return;
         }
-        const record = { id: DB.uid('u'), role, name, username, email, password, status };
-        if (isGuru) {
-          record.subject = fd.get('subject');
-          record.whatsapp = fd.get('whatsapp').trim();
-          record.salaryRate = Number(fd.get('salaryRate') || 0);
-        } else {
-          record.kelas = fd.get('kelas');
-          record.phone = fd.get('phone').trim();
-          record.targetUniv = fd.get('targetUniv').trim();
-          record.targetMajor = fd.get('targetMajor').trim();
-        }
+        const record = { id: DB.uid('u'), role, name, username, email, password };
+        if (isGuru) { record.subject = extra; record.salaryRate = Number(fd.get('salaryRate') || 0); }
+        else record.kelas = extra;
         DB.addUser(record);
         UI.toast('Berhasil menambahkan.');
       } else {
-        const patch = { name, email, status };
-        if (isGuru) {
-          patch.subject = fd.get('subject');
-          patch.whatsapp = fd.get('whatsapp').trim();
-          patch.salaryRate = Number(fd.get('salaryRate') || 0);
-        } else {
-          patch.kelas = fd.get('kelas');
-          patch.phone = fd.get('phone').trim();
-          patch.targetUniv = fd.get('targetUniv').trim();
-          patch.targetMajor = fd.get('targetMajor').trim();
-        }
+        const patch = { name, email };
+        if (isGuru) { patch.subject = extra; patch.salaryRate = Number(fd.get('salaryRate') || 0); }
+        else patch.kelas = extra;
         if (password) patch.password = password;
         DB.updateUser(editing.id, patch);
         UI.toast('Perubahan disimpan.');
@@ -399,768 +218,39 @@
 
   function renderCourses(container) {
     const courses = DB.getCourses();
-    const gurus = DB.getUsers().filter(u => u.role === 'guru');
     container.innerHTML = `
       <div class="card">
-        <div class="card-header">
-          <h3>Semua Kelas (${courses.length})</h3>
-          <button class="btn btn-primary btn-sm" id="adminAddCourseBtn">+ Buat Kelas Baru</button>
-        </div>
+        <div class="card-header"><h3>Semua Kelas (${courses.length})</h3></div>
         ${courses.length === 0 ? emptyState('Belum ada kelas.') : `
         <div class="table-wrap"><table class="table">
           <thead><tr><th>Judul</th><th>Kategori</th><th>Guru</th><th>Materi</th><th>Tugas</th><th>Siswa</th><th>Aksi</th></tr></thead>
           <tbody>
             ${courses.map(c => {
               const t = DB.getUser(c.teacherId);
-              const enrollCount = DB.getEnrollmentsByCourse(c.id).length;
               return `<tr>
                 <td><strong>${UI.esc(c.title)}</strong><div class="small muted">${UI.esc(c.description)}</div></td>
                 <td><span class="badge badge-info">${UI.esc(c.category || '-')}</span></td>
                 <td>${UI.esc(t ? t.name : '-')}</td>
                 <td>${DB.getMaterialsByCourse(c.id).length}</td>
                 <td>${DB.getAssignmentsByCourse(c.id).length}</td>
-                <td>${enrollCount}</td>
-                <td class="actions">
-                  <button class="btn btn-sm btn-primary" data-manage-students="${c.id}">Kelola Siswa</button>
-                  <button class="btn btn-sm btn-secondary" data-edit-course="${c.id}">Edit</button>
-                  <button class="btn btn-sm btn-danger" data-del="${c.id}">Hapus</button>
-                </td>
+                <td>${DB.getEnrollmentsByCourse(c.id).length}</td>
+                <td><button class="btn btn-sm btn-danger" data-del="${c.id}">Hapus</button></td>
               </tr>`;
             }).join('')}
           </tbody>
         </table></div>`}
       </div>
     `;
-
-    // Add course
-    document.getElementById('adminAddCourseBtn').addEventListener('click', () => openAdminCourseForm(container));
-    // Edit course
-    container.querySelectorAll('[data-edit-course]').forEach(b => b.addEventListener('click', () => openAdminCourseForm(container, b.dataset.editCourse)));
-    // Delete course
     container.querySelectorAll('[data-del]').forEach(b => b.addEventListener('click', () => {
       if (!UI.confirmDialog('Hapus kelas dan semua data terkait (materi, tugas, submission)?')) return;
       DB.deleteCourse(b.dataset.del);
       UI.toast('Kelas dihapus.');
       renderCourses(container);
     }));
-    // Manage students
-    container.querySelectorAll('[data-manage-students]').forEach(b => b.addEventListener('click', () => {
-      openBulkEnrollModal(b.dataset.manageStudents, container);
-    }));
-  }
-
-  function openAdminCourseForm(container, editId) {
-    const editing = editId ? DB.getCourse(editId) : null;
-    const gurus = DB.getUsers().filter(u => u.role === 'guru' && (u.status || 'Aktif') === 'Aktif');
-    const body = `
-      <form id="adminCourseForm" class="form">
-        <div class="form-group"><label>Judul Kelas</label>
-          <input name="title" required value="${UI.esc(editing?.title || '')}" /></div>
-        <div class="form-row">
-          <div class="form-group"><label>Kategori</label>
-            <input name="category" value="${UI.esc(editing?.category || '')}" placeholder="mis. Matematika" /></div>
-          <div class="form-group"><label>Biaya / SPP (Rp)</label>
-            <input name="price" type="number" min="0" value="${editing?.price || 0}" /></div>
-        </div>
-        <div class="form-group"><label>Guru Pengajar</label>
-          <select name="teacherId" required>
-            <option value="">-- Pilih Guru --</option>
-            ${gurus.map(g => `<option value="${g.id}" ${editing?.teacherId === g.id ? 'selected' : ''}>${UI.esc(g.name)} (${UI.esc(g.subject || '-')})</option>`).join('')}
-          </select>
-        </div>
-        <div class="form-group"><label>Deskripsi</label>
-          <textarea name="description" required>${UI.esc(editing?.description || '')}</textarea></div>
-        <div class="flex-gap" style="justify-content:flex-end;">
-          <button type="button" class="btn btn-secondary" id="cancelBtn">Batal</button>
-          <button type="submit" class="btn btn-primary">Simpan</button>
-        </div>
-      </form>`;
-    UI.modal.open(editing ? 'Edit Kelas' : 'Buat Kelas Baru', body);
-    document.getElementById('cancelBtn').addEventListener('click', () => UI.modal.close());
-    document.getElementById('adminCourseForm').addEventListener('submit', (e) => {
-      e.preventDefault();
-      const fd = new FormData(e.target);
-      const payload = {
-        title: fd.get('title').trim(),
-        category: fd.get('category').trim(),
-        price: Number(fd.get('price') || 0),
-        description: fd.get('description').trim(),
-        teacherId: fd.get('teacherId')
-      };
-      if (editing) {
-        DB.updateCourse(editing.id, payload);
-        UI.toast('Kelas diperbarui.');
-      } else {
-        DB.addCourse(payload);
-        UI.toast('Kelas dibuat.');
-      }
-      UI.modal.close();
-      renderCourses(container);
-    });
-  }
-
-  function openBulkEnrollModal(courseId, container) {
-    const course = DB.getCourse(courseId);
-    const allStudents = DB.getUsers().filter(u => u.role === 'siswa' && (u.status || 'Aktif') === 'Aktif');
-    const enrolled = DB.getEnrollmentsByCourse(courseId);
-    const enrolledIds = new Set(enrolled.map(e => e.studentId));
-
-    const body = `
-      <div class="muted small mb-1">Centang siswa yang ingin didaftarkan ke kelas <strong>${UI.esc(course.title)}</strong>. Perubahan disimpan saat klik "Simpan".</div>
-      <div class="form" style="margin-bottom:12px;">
-        <input id="studentSearch" placeholder="Cari nama siswa..." style="width:100%;padding:8px 12px;border:1px solid var(--gray-300);border-radius:6px;" />
-      </div>
-      <div id="studentCheckList" style="max-height:350px;overflow-y:auto;border:1px solid var(--gray-200);border-radius:6px;padding:4px;">
-        ${allStudents.map(s => `
-          <label style="display:flex;align-items:center;gap:8px;padding:8px 12px;border-bottom:1px solid var(--gray-100);cursor:pointer;" data-name="${s.name.toLowerCase()}">
-            <input type="checkbox" name="sid" value="${s.id}" ${enrolledIds.has(s.id) ? 'checked' : ''} />
-            <div style="flex:1;">
-              <div style="font-size:13px;font-weight:500;">${UI.esc(s.name)}</div>
-              <div class="muted small">${UI.esc(s.kelas || '-')} • ${UI.esc(s.email || '-')}</div>
-            </div>
-            ${enrolledIds.has(s.id) ? '<span class="badge badge-success" style="font-size:10px;">Terdaftar</span>' : ''}
-          </label>`).join('')}
-      </div>
-      <div class="muted small mt-1">${allStudents.length} siswa tersedia, ${enrolledIds.size} sudah terdaftar</div>
-      <div class="flex-gap mt-2" style="justify-content:flex-end;">
-        <button type="button" class="btn btn-secondary" id="cancelBtn">Batal</button>
-        <button type="button" class="btn btn-primary" id="saveEnrollBtn">Simpan Perubahan</button>
-      </div>`;
-    UI.modal.open('Kelola Siswa di Kelas', body);
-    document.getElementById('cancelBtn').addEventListener('click', () => UI.modal.close());
-
-    // Search filter
-    document.getElementById('studentSearch').addEventListener('input', (e) => {
-      const q = e.target.value.toLowerCase();
-      document.querySelectorAll('#studentCheckList label').forEach(el => {
-        el.style.display = el.dataset.name.includes(q) ? '' : 'none';
-      });
-    });
-
-    // Save
-    document.getElementById('saveEnrollBtn').addEventListener('click', () => {
-      const checks = document.querySelectorAll('#studentCheckList input[name="sid"]');
-      const selected = new Set();
-      checks.forEach(ch => { if (ch.checked) selected.add(ch.value); });
-
-      let added = 0, removed = 0;
-      // Enroll new students
-      selected.forEach(sid => {
-        if (!enrolledIds.has(sid)) {
-          DB.enroll(courseId, sid);
-          added++;
-        }
-      });
-      // Unenroll unchecked students
-      enrolledIds.forEach(sid => {
-        if (!selected.has(sid)) {
-          DB.unenroll(courseId, sid);
-          removed++;
-        }
-      });
-
-      UI.toast(`Selesai: ${added} ditambahkan, ${removed} dihapus.`);
-      UI.modal.close();
-      renderCourses(container);
-    });
-  }
-
-  /* ========== ADMIN CBT MANAGEMENT ========== */
-  function renderAdminCbt(container, user) {
-    const SUBTESTS = ['Penalaran Umum (PU)', 'Pengetahuan dan Pemahaman Umum (PPU)', 'Kemampuan Memahami Bacaan dan Menulis (PBM)', 'Pengetahuan Kuantitatif (PK)', 'Literasi dalam Bahasa Indonesia', 'Literasi dalam Bahasa Inggris', 'Penalaran Matematika'];
-    const allQuestions = DB.getQuestions();
-    const cbts = DB.getCbts();
-    const courses = DB.getCourses();
-
-    container.innerHTML = `
-      <div class="card">
-        <div class="card-header">
-          <h3>Semua Ujian CBT (${cbts.length})</h3>
-          <button class="btn btn-primary btn-sm" id="adminCreateCbtBtn">+ Buat Ujian Baru</button>
-        </div>
-        ${cbts.length === 0 ? emptyState('Belum ada ujian CBT.') : `
-        <div class="table-wrap"><table class="table">
-          <thead><tr><th>Ujian</th><th>Kelas</th><th>Soal</th><th>Subtest</th><th>Mulai</th><th>Peserta</th><th>Aksi</th></tr></thead>
-          <tbody>${cbts.map(c => {
-            const course = DB.getCourse(c.courseId);
-            const attempts = DB.getCbtAttemptsByCbt(c.id).filter(a => a.submittedAt);
-            return `<tr>
-              <td><strong>${UI.esc(c.title)}</strong></td>
-              <td>${UI.esc(course ? course.title : '-')}</td>
-              <td>${(c.questionIds || []).length}</td>
-              <td><span class="badge badge-info">${UI.esc(c.subtestMode || 'Custom')}</span></td>
-              <td>${UI.fmtDateTime(c.startAt)}</td>
-              <td>${attempts.length}</td>
-              <td class="actions">
-                <button class="btn btn-sm btn-danger" data-del-cbt="${c.id}">Hapus</button>
-              </td>
-            </tr>`;
-          }).join('')}</tbody>
-        </table></div>`}
-      </div>
-    `;
-
-    document.getElementById('adminCreateCbtBtn').addEventListener('click', () => openAdminCbtForm(container, user));
-    container.querySelectorAll('[data-del-cbt]').forEach(b => b.addEventListener('click', () => {
-      if (!UI.confirmDialog('Hapus ujian ini dan semua hasil?')) return;
-      DB.deleteCbt(b.dataset.delCbt);
-      UI.toast('Ujian dihapus.');
-      renderAdminCbt(container, user);
-    }));
-  }
-
-  function openAdminCbtForm(container, user) {
-    const SUBTESTS = ['Penalaran Umum (PU)', 'Pengetahuan dan Pemahaman Umum (PPU)', 'Kemampuan Memahami Bacaan dan Menulis (PBM)', 'Pengetahuan Kuantitatif (PK)', 'Literasi dalam Bahasa Indonesia', 'Literasi dalam Bahasa Inggris', 'Penalaran Matematika'];
-    const courses = DB.getCourses();
-    const allQuestions = DB.getQuestions();
-
-    const body = `
-      <form id="adminCbtForm" class="form">
-        <div class="form-group"><label>Judul Ujian</label>
-          <input name="title" required placeholder="mis. Try Out UTBK Batch 1" /></div>
-        <div class="form-group"><label>Kelas Tujuan</label>
-          <select name="courseId" required>
-            <option value="">-- Pilih Kelas --</option>
-            ${courses.map(c => `<option value="${c.id}">${UI.esc(c.title)}</option>`).join('')}
-          </select>
-        </div>
-        <div class="form-group"><label>Mode Subtest</label>
-          <select name="subtestMode" id="subtestMode">
-            <option value="single">Per 1 Subtest</option>
-            <option value="full">Gabungan 7 Subtest (Full UTBK)</option>
-            <option value="custom">Custom (Pilih Manual)</option>
-          </select>
-        </div>
-        <div class="form-group" id="subtestSelect" style="display:none;"><label>Pilih Subtest</label>
-          <select name="selectedSubtest">
-            ${SUBTESTS.map(s => `<option value="${s}">${s}</option>`).join('')}
-          </select>
-        </div>
-        <div class="form-row">
-          <div class="form-group"><label>Mulai</label>
-            <input name="startAt" type="datetime-local" required value="${UI.toDateTimeLocalInput(Date.now())}" /></div>
-          <div class="form-group"><label>Selesai</label>
-            <input name="endAt" type="datetime-local" required value="${UI.toDateTimeLocalInput(Date.now() + 7 * 86400000)}" /></div>
-        </div>
-        <div class="form-group"><label>Durasi (menit)</label>
-          <input name="duration" type="number" min="5" max="300" value="60" /></div>
-        <div class="muted small mb-1">Zona waktu: <strong>${UI.getTimezone()}</strong></div>
-        <div id="questionPickerBox"></div>
-        <div class="flex-gap" style="justify-content:flex-end;">
-          <button type="button" class="btn btn-secondary" id="cancelBtn">Batal</button>
-          <button type="submit" class="btn btn-primary">Buat Ujian</button>
-        </div>
-      </form>`;
-    UI.modal.open('Buat Ujian CBT (Admin)', body);
-    document.getElementById('cancelBtn').addEventListener('click', () => UI.modal.close());
-
-    const modeSelect = document.getElementById('subtestMode');
-    const subtestSel = document.getElementById('subtestSelect');
-    const pickerBox = document.getElementById('questionPickerBox');
-
-    function updatePicker() {
-      const mode = modeSelect.value;
-      subtestSel.style.display = mode === 'single' ? '' : 'none';
-      let filtered;
-      if (mode === 'full') {
-        filtered = allQuestions;
-      } else if (mode === 'single') {
-        const sub = document.querySelector('[name="selectedSubtest"]').value;
-        filtered = allQuestions.filter(q => q.subject === sub);
-      } else {
-        filtered = allQuestions;
-      }
-      pickerBox.innerHTML = `
-        <label class="muted small">${filtered.length} soal tersedia — centang yang ingin dimasukkan:</label>
-        <div style="max-height:200px;overflow-y:auto;border:1px solid var(--gray-200);border-radius:6px;padding:6px;">
-          ${filtered.map(q => `
-            <label style="display:flex;gap:6px;padding:4px 6px;border-bottom:1px solid var(--gray-100);font-size:12px;">
-              <input type="checkbox" name="qid" value="${q.id}" checked />
-              <span>${UI.esc(q.text.slice(0, 60))}${q.text.length > 60 ? '...' : ''}</span>
-              <span class="badge badge-gray" style="margin-left:auto;">${UI.esc(q.subject?.slice(0, 15) || '-')}</span>
-            </label>`).join('')}
-        </div>`;
-    }
-    modeSelect.addEventListener('change', updatePicker);
-    if (document.querySelector('[name="selectedSubtest"]')) {
-      document.querySelector('[name="selectedSubtest"]').addEventListener('change', updatePicker);
-    }
-    updatePicker();
-
-    document.getElementById('adminCbtForm').addEventListener('submit', (e) => {
-      e.preventDefault();
-      const fd = new FormData(e.target);
-      const qids = fd.getAll('qid');
-      if (qids.length === 0) { UI.toast('Pilih minimal 1 soal.', 'error'); return; }
-      const payload = {
-        courseId: fd.get('courseId'),
-        title: fd.get('title').trim(),
-        subtestMode: fd.get('subtestMode'),
-        startAt: UI.tzInputToUtc(fd.get('startAt')),
-        endAt: UI.tzInputToUtc(fd.get('endAt')),
-        durationMinutes: Number(fd.get('duration')),
-        questionIds: qids
-      };
-      DB.addCbt(payload);
-      UI.toast('Ujian CBT dibuat!');
-      UI.modal.close();
-      renderAdminCbt(container, user);
-    });
-  }
-
-  /* ========== ADMIN BANK SOAL ========== */
-  function renderAdminBankSoal(container, user) {
-    const SUBTESTS = ['Penalaran Umum (PU)', 'Pengetahuan dan Pemahaman Umum (PPU)', 'Kemampuan Memahami Bacaan dan Menulis (PBM)', 'Pengetahuan Kuantitatif (PK)', 'Literasi dalam Bahasa Indonesia', 'Literasi dalam Bahasa Inggris', 'Penalaran Matematika'];
-    const QTYPES = ['Pilihan Ganda', 'Pilihan Lebih dari Satu', 'Esai', 'Benar/Salah', 'Majemuk Kompleks'];
-    const allQuestions = DB.getQuestions();
-    let filterSubtest = '';
-
-    renderList();
-
-    function renderList() {
-      const filtered = filterSubtest ? allQuestions.filter(q => q.subject === filterSubtest) : allQuestions;
-      container.innerHTML = `
-        <div class="card">
-          <div class="card-header">
-            <h3>Bank Soal Global (${allQuestions.length})</h3>
-            <div class="flex-gap">
-              <select id="bankSubtestFilter" class="att-input" style="max-width:200px;">
-                <option value="">Semua Subtest</option>
-                ${SUBTESTS.map(s => `<option value="${s}" ${filterSubtest === s ? 'selected' : ''}>${s.length > 25 ? s.slice(0, 25) + '...' : s}</option>`).join('')}
-              </select>
-              <button class="btn btn-primary btn-sm" id="addBankSoalBtn">+ Tambah Soal</button>
-            </div>
-          </div>
-          ${filtered.length === 0 ? emptyState('Tidak ada soal dengan filter ini.') : `
-          <div class="table-wrap"><table class="table">
-            <thead><tr><th>Soal</th><th>Subtest</th><th>Tipe</th><th>Tingkat</th><th>Pembuat</th><th>Aksi</th></tr></thead>
-            <tbody>${filtered.slice(0, 50).map(q => {
-              const author = DB.getUser(q.authorId);
-              return `<tr>
-                <td style="max-width:250px;"><strong>${UI.esc(q.text.slice(0, 60))}${q.text.length > 60 ? '...' : ''}</strong></td>
-                <td><span class="badge badge-info" style="font-size:9px;">${UI.esc(q.subject?.slice(0, 20) || '-')}</span></td>
-                <td><span class="badge badge-gray">${UI.esc(q.questionType || 'Pilihan Ganda')}</span></td>
-                <td>${UI.esc(q.difficulty || 'sedang')}</td>
-                <td class="muted small">${UI.esc(author?.name || '-')}</td>
-                <td class="actions">
-                  <button class="btn btn-sm btn-danger" data-del-q="${q.id}">Hapus</button>
-                </td>
-              </tr>`;
-            }).join('')}</tbody>
-          </table></div>
-          ${filtered.length > 50 ? `<div class="muted small mt-1">Menampilkan 50 dari ${filtered.length} soal.</div>` : ''}`}
-        </div>
-      `;
-
-      document.getElementById('bankSubtestFilter').addEventListener('change', (e) => { filterSubtest = e.target.value; renderList(); });
-      document.getElementById('addBankSoalBtn').addEventListener('click', () => openAdminQuestionForm(container, user));
-      container.querySelectorAll('[data-del-q]').forEach(b => b.addEventListener('click', () => {
-        if (!UI.confirmDialog('Hapus soal ini?')) return;
-        DB.deleteQuestion(b.dataset.delQ);
-        UI.toast('Soal dihapus.');
-        renderList();
-      }));
-    }
-  }
-
-  function openAdminQuestionForm(container, user) {
-    const SUBTESTS = ['Penalaran Umum (PU)', 'Pengetahuan dan Pemahaman Umum (PPU)', 'Kemampuan Memahami Bacaan dan Menulis (PBM)', 'Pengetahuan Kuantitatif (PK)', 'Literasi dalam Bahasa Indonesia', 'Literasi dalam Bahasa Inggris', 'Penalaran Matematika'];
-    const QTYPES = ['Pilihan Ganda', 'Pilihan Lebih dari Satu', 'Esai', 'Benar/Salah', 'Majemuk Kompleks'];
-
-    const body = `
-      <form id="adminQForm" class="form">
-        <div class="form-row">
-          <div class="form-group"><label>Subtest</label>
-            <select name="subject" required>
-              <option value="">-- Pilih --</option>
-              ${SUBTESTS.map(s => `<option value="${s}">${s}</option>`).join('')}
-            </select>
-          </div>
-          <div class="form-group"><label>Tipe Soal</label>
-            <select name="questionType" id="qTypeSelect">
-              ${QTYPES.map(t => `<option value="${t}">${t}</option>`).join('')}
-            </select>
-          </div>
-        </div>
-        <div class="form-group"><label>Tingkat Kesulitan</label>
-          <select name="difficulty">
-            <option value="mudah">Mudah</option>
-            <option value="sedang" selected>Sedang</option>
-            <option value="sulit">Sulit</option>
-          </select>
-        </div>
-        <div class="form-group"><label>Pertanyaan</label>
-          <textarea name="text" required rows="3" placeholder="Tulis soal..."></textarea></div>
-        <div id="optionsBox">
-          <div class="form-group"><label>Pilihan A</label><input name="opt0" required /></div>
-          <div class="form-group"><label>Pilihan B</label><input name="opt1" required /></div>
-          <div class="form-group"><label>Pilihan C</label><input name="opt2" required /></div>
-          <div class="form-group"><label>Pilihan D</label><input name="opt3" required /></div>
-          <div class="form-group"><label>Jawaban Benar (A=0, B=1, C=2, D=3)</label>
-            <select name="correctIndex"><option value="0">A</option><option value="1">B</option><option value="2">C</option><option value="3">D</option></select></div>
-        </div>
-        <div class="form-group"><label>Pembahasan (opsional)</label>
-          <textarea name="explanation" rows="2"></textarea></div>
-        <div class="flex-gap" style="justify-content:flex-end;">
-          <button type="button" class="btn btn-secondary" id="cancelBtn">Batal</button>
-          <button type="submit" class="btn btn-primary">Simpan Soal</button>
-        </div>
-      </form>`;
-    UI.modal.open('Tambah Soal ke Bank Soal', body);
-    document.getElementById('cancelBtn').addEventListener('click', () => UI.modal.close());
-
-    // Dynamically adjust form based on question type
-    document.getElementById('qTypeSelect').addEventListener('change', (e) => {
-      const type = e.target.value;
-      const box = document.getElementById('optionsBox');
-      if (type === 'Esai') {
-        box.innerHTML = '<div class="muted small">Soal esai tidak memerlukan pilihan. Jawaban dinilai manual.</div>';
-      } else if (type === 'Benar/Salah') {
-        box.innerHTML = `
-          <div class="form-group"><label>Jawaban Benar</label>
-            <select name="correctIndex"><option value="0">Benar</option><option value="1">Salah</option></select></div>`;
-      } else {
-        box.innerHTML = `
-          <div class="form-group"><label>Pilihan A</label><input name="opt0" required /></div>
-          <div class="form-group"><label>Pilihan B</label><input name="opt1" required /></div>
-          <div class="form-group"><label>Pilihan C</label><input name="opt2" required /></div>
-          <div class="form-group"><label>Pilihan D</label><input name="opt3" required /></div>
-          <div class="form-group"><label>Pilihan E (opsional)</label><input name="opt4" /></div>
-          <div class="form-group"><label>Jawaban Benar</label>
-            <select name="correctIndex"><option value="0">A</option><option value="1">B</option><option value="2">C</option><option value="3">D</option><option value="4">E</option></select></div>`;
-      }
-    });
-
-    document.getElementById('adminQForm').addEventListener('submit', (e) => {
-      e.preventDefault();
-      const fd = new FormData(e.target);
-      const qType = fd.get('questionType');
-      const options = [0, 1, 2, 3, 4].map(i => fd.get('opt' + i)).filter(Boolean);
-      const payload = {
-        authorId: user.id,
-        subject: fd.get('subject'),
-        questionType: qType,
-        difficulty: fd.get('difficulty'),
-        text: fd.get('text').trim(),
-        options: qType === 'Esai' ? [] : (qType === 'Benar/Salah' ? ['Benar', 'Salah'] : options),
-        correctIndex: qType === 'Esai' ? null : Number(fd.get('correctIndex') || 0),
-        explanation: fd.get('explanation').trim()
-      };
-      DB.addQuestion(payload);
-      UI.toast('Soal ditambahkan ke Bank Soal!');
-      UI.modal.close();
-      renderAdminBankSoal(container, user);
-    });
-  }
-
-  /* ========== JADWAL KELAS AKTIF ========== */
-  function renderJadwalKelas(container) {
-    const events = DB.getEvents().filter(e => e.category === 'Jadwal Kelas');
-    const today = UI.todayYMD();
-    const upcoming = events.filter(e => e.date >= today).sort((a, b) => a.date.localeCompare(b.date));
-    const past = events.filter(e => e.date < today).sort((a, b) => b.date.localeCompare(a.date));
-    const todayEvents = events.filter(e => e.date === today);
-
-    container.innerHTML = `
-      <div class="stats-grid">
-        <div class="stat-card accent-success"><div class="label">Hari Ini</div><div class="value">${todayEvents.length}</div><div class="sub">jadwal aktif</div></div>
-        <div class="stat-card accent-primary"><div class="label">Akan Datang</div><div class="value">${upcoming.length}</div></div>
-        <div class="stat-card accent-warning"><div class="label">Selesai</div><div class="value">${past.length}</div></div>
-      </div>
-
-      <div class="subtabs">
-        <button class="subtab-btn active" data-jtab="today">Hari Ini (${todayEvents.length})</button>
-        <button class="subtab-btn" data-jtab="upcoming">Akan Datang (${upcoming.length})</button>
-        <button class="subtab-btn" data-jtab="past">Selesai (${past.length})</button>
-      </div>
-
-      <div class="card">
-        <div class="card-header">
-          <h3 id="jadwalTitle">Jadwal Hari Ini</h3>
-          <button class="btn btn-primary btn-sm" id="addJadwalBtn">+ Tambah Jadwal</button>
-        </div>
-        <div id="jadwalBox"></div>
-      </div>
-    `;
-
-    let currentTab = 'today';
-    const renderTab = () => {
-      const box = document.getElementById('jadwalBox');
-      const titleEl = document.getElementById('jadwalTitle');
-      let list;
-      if (currentTab === 'today') { list = todayEvents; titleEl.textContent = 'Jadwal Hari Ini'; }
-      else if (currentTab === 'upcoming') { list = upcoming; titleEl.textContent = 'Jadwal Akan Datang'; }
-      else { list = past.slice(0, 30); titleEl.textContent = 'Jadwal Selesai'; }
-
-      if (list.length === 0) { box.innerHTML = '<div class="empty"><div class="empty-icon">🗓️</div>Tidak ada jadwal.</div>'; return; }
-      box.innerHTML = list.map(ev => `
-        <div class="list-item">
-          <div class="flex-between">
-            <div class="title">${UI.esc(ev.title)}</div>
-            <span class="muted small">${UI.fmtYMD(ev.date)}${ev.time ? ' • ' + UI.esc(ev.time) : ''}</span>
-          </div>
-          ${ev.description ? `<div class="content">${UI.esc(ev.description)}</div>` : ''}
-        </div>`).join('');
-    };
-
-    container.querySelectorAll('[data-jtab]').forEach(b => b.addEventListener('click', () => {
-      container.querySelectorAll('[data-jtab]').forEach(x => x.classList.remove('active'));
-      b.classList.add('active');
-      currentTab = b.dataset.jtab;
-      renderTab();
-    }));
-
-    document.getElementById('addJadwalBtn').addEventListener('click', () => {
-      // Reuse calendar event form but preset category
-      const body = `
-        <form id="jadwalForm" class="form">
-          <div class="form-group"><label>Judul Jadwal</label>
-            <input name="title" required placeholder="mis. Kelas Matematika - Sesi 5" /></div>
-          <div class="form-row">
-            <div class="form-group"><label>Tanggal</label>
-              <input name="date" type="date" required value="${today}" /></div>
-            <div class="form-group"><label>Waktu</label>
-              <input name="time" type="time" /></div>
-          </div>
-          <div class="form-group"><label>Deskripsi</label>
-            <textarea name="description" rows="2"></textarea></div>
-          <div class="flex-gap" style="justify-content:flex-end;">
-            <button type="button" class="btn btn-secondary" id="cancelBtn">Batal</button>
-            <button type="submit" class="btn btn-primary">Simpan</button>
-          </div>
-        </form>`;
-      UI.modal.open('Tambah Jadwal Kelas', body);
-      document.getElementById('cancelBtn').addEventListener('click', () => UI.modal.close());
-      document.getElementById('jadwalForm').addEventListener('submit', (e) => {
-        e.preventDefault();
-        const fd = new FormData(e.target);
-        DB.addEvent({
-          title: fd.get('title').trim(),
-          date: fd.get('date'),
-          time: fd.get('time') || '',
-          category: 'Jadwal Kelas',
-          color: '#dcfce7',
-          description: fd.get('description').trim(),
-          authorId: 'u_admin'
-        });
-        UI.toast('Jadwal ditambahkan!');
-        UI.modal.close();
-        renderJadwalKelas(container);
-      });
-    });
-
-    renderTab();
-  }
-
-  /* ========== TAHUN AKADEMIK / BATCH ========== */
-  function renderBatch(container) {
-    const batches = DB.getBatches().sort((a, b) => (b.startDate || '').localeCompare(a.startDate || ''));
-    const today = UI.todayYMD();
-
-    container.innerHTML = `
-      <div class="card">
-        <div class="card-header">
-          <h3>Tahun Akademik / Batch (${batches.length})</h3>
-          <button class="btn btn-primary btn-sm" id="addBatchBtn">+ Tambah Batch</button>
-        </div>
-        ${batches.length === 0 ? emptyState('Belum ada tahun akademik. Buat yang pertama!') : `
-        <div class="table-wrap"><table class="table">
-          <thead><tr><th>Nama Batch</th><th>Mulai</th><th>Berakhir</th><th>Siswa</th><th>Status</th><th>Aksi</th></tr></thead>
-          <tbody>
-            ${batches.map(b => {
-              const isExpired = b.endDate && b.endDate < today;
-              const isActive = b.startDate <= today && (!b.endDate || b.endDate >= today);
-              const students = DB.getUsers().filter(u => u.role === 'siswa' && u.batchId === b.id);
-              const statusLabel = isExpired ? 'Selesai' : (isActive ? 'Aktif' : 'Akan Datang');
-              const statusBadge = isExpired ? 'badge-gray' : (isActive ? 'badge-success' : 'badge-info');
-              return `<tr>
-                <td><strong>${UI.esc(b.name)}</strong>${b.description ? `<div class="muted small">${UI.esc(b.description)}</div>` : ''}</td>
-                <td>${UI.fmtYMD(b.startDate)}</td>
-                <td>${UI.fmtYMD(b.endDate)}</td>
-                <td>${students.length}</td>
-                <td><span class="badge ${statusBadge}">${statusLabel}</span></td>
-                <td class="actions">
-                  <button class="btn btn-sm btn-secondary" data-edit-batch="${b.id}">Edit</button>
-                  ${isExpired ? `<button class="btn btn-sm btn-warning" data-graduate="${b.id}">Lulus → Alumni</button>` : ''}
-                  <button class="btn btn-sm btn-danger" data-del-batch="${b.id}">Hapus</button>
-                </td>
-              </tr>`;
-            }).join('')}
-          </tbody>
-        </table></div>`}
-      </div>
-
-      <div class="card">
-        <div class="card-header"><h3>Assign Siswa ke Batch</h3></div>
-        <p class="muted small">Pilih batch lalu assign siswa yang belum memiliki batch.</p>
-        <div class="form-row" style="max-width:500px;">
-          <div class="form-group"><label>Batch</label>
-            <select id="assignBatch">
-              <option value="">-- Pilih --</option>
-              ${batches.filter(b => !(b.endDate && b.endDate < today)).map(b => `<option value="${b.id}">${UI.esc(b.name)}</option>`).join('')}
-            </select>
-          </div>
-          <div class="form-group" style="display:flex;align-items:flex-end;">
-            <button class="btn btn-primary btn-sm" id="openAssignBtn">Kelola</button>
-          </div>
-        </div>
-      </div>
-    `;
-
-    document.getElementById('addBatchBtn').addEventListener('click', () => openBatchForm(container));
-    container.querySelectorAll('[data-edit-batch]').forEach(b => b.addEventListener('click', () => openBatchForm(container, b.dataset.editBatch)));
-    container.querySelectorAll('[data-del-batch]').forEach(b => b.addEventListener('click', () => {
-      if (!UI.confirmDialog('Hapus batch ini? Siswa di batch ini akan kehilangan assignment batch.')) return;
-      // Remove batchId from students
-      DB.getUsers().filter(u => u.batchId === b.dataset.delBatch).forEach(u => DB.updateUser(u.id, { batchId: null }));
-      DB.deleteBatch(b.dataset.delBatch);
-      UI.toast('Batch dihapus.');
-      renderBatch(container);
-    }));
-    container.querySelectorAll('[data-graduate]').forEach(b => b.addEventListener('click', () => {
-      const batchId = b.dataset.graduate;
-      const batch = DB.getBatch(batchId);
-      if (!UI.confirmDialog(`Luluskan semua siswa di batch "${batch.name}" ke Alumni?`)) return;
-      const students = DB.getUsers().filter(u => u.role === 'siswa' && u.batchId === batchId);
-      students.forEach(u => DB.updateUser(u.id, { status: 'Alumni', batchId: batchId }));
-      UI.toast(`${students.length} siswa dipindahkan ke Alumni.`);
-      renderBatch(container);
-    }));
-
-    document.getElementById('openAssignBtn').addEventListener('click', () => {
-      const batchId = document.getElementById('assignBatch').value;
-      if (!batchId) { UI.toast('Pilih batch dulu.', 'error'); return; }
-      openBatchAssign(container, batchId);
-    });
-  }
-
-  function openBatchForm(container, editId) {
-    const editing = editId ? DB.getBatch(editId) : null;
-    const body = `
-      <form id="batchForm" class="form">
-        <div class="form-group"><label>Nama Batch / Tahun Akademik</label>
-          <input name="name" required value="${UI.esc(editing?.name || '')}" placeholder="mis. Batch 2025/2026" /></div>
-        <div class="form-row">
-          <div class="form-group"><label>Tanggal Mulai</label>
-            <input name="startDate" type="date" required value="${editing?.startDate || UI.todayYMD()}" /></div>
-          <div class="form-group"><label>Tanggal Berakhir</label>
-            <input name="endDate" type="date" required value="${editing?.endDate || ''}" /></div>
-        </div>
-        <div class="form-group"><label>Deskripsi (opsional)</label>
-          <textarea name="description" rows="2">${UI.esc(editing?.description || '')}</textarea></div>
-        <div class="flex-gap" style="justify-content:flex-end;">
-          <button type="button" class="btn btn-secondary" id="cancelBtn">Batal</button>
-          <button type="submit" class="btn btn-primary">Simpan</button>
-        </div>
-      </form>`;
-    UI.modal.open(editing ? 'Edit Batch' : 'Tambah Tahun Akademik', body);
-    document.getElementById('cancelBtn').addEventListener('click', () => UI.modal.close());
-    document.getElementById('batchForm').addEventListener('submit', (e) => {
-      e.preventDefault();
-      const fd = new FormData(e.target);
-      const payload = {
-        name: fd.get('name').trim(),
-        startDate: fd.get('startDate'),
-        endDate: fd.get('endDate'),
-        description: fd.get('description').trim()
-      };
-      if (editing) DB.updateBatch(editing.id, payload);
-      else DB.addBatch(payload);
-      UI.toast('Batch disimpan.');
-      UI.modal.close();
-      renderBatch(container);
-    });
-  }
-
-  function openBatchAssign(container, batchId) {
-    const batch = DB.getBatch(batchId);
-    const allStudents = DB.getUsers().filter(u => u.role === 'siswa' && (u.status || 'Aktif') === 'Aktif');
-    const inBatch = new Set(allStudents.filter(u => u.batchId === batchId).map(u => u.id));
-
-    const body = `
-      <div class="muted small mb-1">Centang siswa untuk batch <strong>${UI.esc(batch.name)}</strong></div>
-      <div style="max-height:350px;overflow-y:auto;border:1px solid var(--gray-200);border-radius:6px;">
-        ${allStudents.map(s => `
-          <label style="display:flex;align-items:center;gap:8px;padding:8px 12px;border-bottom:1px solid var(--gray-100);cursor:pointer;">
-            <input type="checkbox" name="sid" value="${s.id}" ${inBatch.has(s.id) ? 'checked' : ''} />
-            <div style="flex:1;">
-              <div style="font-size:13px;font-weight:500;">${UI.esc(s.name)}</div>
-              <div class="muted small">${UI.esc(s.kelas || '-')}${s.batchId && s.batchId !== batchId ? ' • Batch lain' : ''}</div>
-            </div>
-          </label>`).join('')}
-      </div>
-      <div class="flex-gap mt-2" style="justify-content:flex-end;">
-        <button type="button" class="btn btn-secondary" id="cancelBtn">Batal</button>
-        <button type="button" class="btn btn-primary" id="saveBatchAssign">Simpan</button>
-      </div>`;
-    UI.modal.open('Assign Siswa ke Batch', body);
-    document.getElementById('cancelBtn').addEventListener('click', () => UI.modal.close());
-    document.getElementById('saveBatchAssign').addEventListener('click', () => {
-      const checks = document.querySelectorAll('#modalBody input[name="sid"]');
-      checks.forEach(ch => {
-        const user = DB.getUser(ch.value);
-        if (ch.checked && user.batchId !== batchId) {
-          DB.updateUser(ch.value, { batchId });
-        } else if (!ch.checked && user.batchId === batchId) {
-          DB.updateUser(ch.value, { batchId: null });
-        }
-      });
-      UI.toast('Assignment batch disimpan.');
-      UI.modal.close();
-      renderBatch(container);
-    });
-  }
-
-  /* ========== ALUMNI ========== */
-  function renderAlumni(container) {
-    const alumni = DB.getUsers().filter(u => u.role === 'siswa' && u.status === 'Alumni');
-    const batches = DB.getBatches();
-
-    container.innerHTML = `
-      <div class="card">
-        <div class="card-header"><h3>Daftar Alumni (${alumni.length})</h3></div>
-        ${alumni.length === 0 ? emptyState('Belum ada alumni. Siswa otomatis masuk alumni saat batch-nya selesai dan diluluskan.') : `
-        <div class="table-wrap"><table class="table">
-          <thead><tr><th>Nama</th><th>Email</th><th>Batch</th><th>Universitas Tujuan</th><th>Jurusan</th><th>Aksi</th></tr></thead>
-          <tbody>
-            ${alumni.map(u => {
-              const batch = batches.find(b => b.id === u.batchId);
-              return `<tr>
-                <td><strong>${UI.esc(u.name)}</strong></td>
-                <td>${UI.esc(u.email || '-')}</td>
-                <td>${UI.esc(batch ? batch.name : '-')}</td>
-                <td>${UI.esc(u.targetUniv || '-')}</td>
-                <td>${UI.esc(u.targetMajor || '-')}</td>
-                <td><button class="btn btn-sm btn-secondary" data-reactivate="${u.id}">Aktifkan Kembali</button></td>
-              </tr>`;
-            }).join('')}
-          </tbody>
-        </table></div>`}
-      </div>
-    `;
-    container.querySelectorAll('[data-reactivate]').forEach(b => b.addEventListener('click', () => {
-      if (!UI.confirmDialog('Aktifkan kembali siswa ini? Status akan berubah ke Aktif.')) return;
-      DB.updateUser(b.dataset.reactivate, { status: 'Aktif' });
-      UI.toast('Siswa diaktifkan kembali.');
-      renderAlumni(container);
-    }));
   }
 
   function renderSettings(container) {
-    const classOpts = DB.getClassOptions();
     container.innerHTML = `
-      <div class="card">
-        <div class="card-header"><h3>Daftar Nama Kelas</h3></div>
-        <p class="muted small">Kelas yang tersedia di dropdown formulir siswa. Klik + untuk menambah, x untuk menghapus.</p>
-        <div id="classOptList" style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px;">
-          ${classOpts.map((c, i) => `<span class="badge badge-info" style="padding:6px 10px;font-size:13px;">${UI.esc(c)} <button type="button" data-rm-class="${i}" style="border:none;background:none;cursor:pointer;font-weight:700;color:var(--danger);margin-left:4px;">&times;</button></span>`).join('')}
-        </div>
-        <div class="flex-gap">
-          <input id="newClassName" placeholder="Nama kelas baru..." style="padding:8px 12px;border:1px solid var(--gray-300);border-radius:6px;font-size:13px;" />
-          <button class="btn btn-sm btn-primary" id="addClassBtn">+ Tambah</button>
-        </div>
-      </div>
-
       <div class="card">
         <div class="card-header"><h3>Pengaturan Sistem</h3></div>
         <p class="muted">Data LMS disimpan di browser Anda (localStorage). Gunakan tombol di bawah untuk mereset ke data contoh.</p>
@@ -1170,30 +260,10 @@
       </div>
       <div class="card">
         <div class="card-header"><h3>Tentang</h3></div>
-        <p><strong>LMS Rubela</strong> v2.0 — Learning Management System berbasis web dengan fitur lengkap.</p>
+        <p><strong>LMS Rubela</strong> v1.0 — Learning Management System sederhana berbasis web.</p>
         <p class="muted small">Dibuat dengan HTML, CSS, dan JavaScript murni.</p>
       </div>
     `;
-    // Class management
-    document.getElementById('addClassBtn').addEventListener('click', () => {
-      const inp = document.getElementById('newClassName');
-      const val = inp.value.trim();
-      if (!val) return;
-      const opts = DB.getClassOptions();
-      if (opts.includes(val)) { UI.toast('Kelas sudah ada.', 'error'); return; }
-      opts.push(val);
-      DB.setClassOptions(opts);
-      UI.toast('Kelas ditambahkan.');
-      renderSettings(container);
-    });
-    container.querySelectorAll('[data-rm-class]').forEach(b => b.addEventListener('click', () => {
-      const opts = DB.getClassOptions();
-      opts.splice(Number(b.dataset.rmClass), 1);
-      DB.setClassOptions(opts);
-      UI.toast('Kelas dihapus.');
-      renderSettings(container);
-    }));
-
     document.getElementById('resetBtn').addEventListener('click', () => {
       if (!UI.confirmDialog('Reset SEMUA data? Akun dan kelas akan kembali ke default.')) return;
       DB.resetAll();
