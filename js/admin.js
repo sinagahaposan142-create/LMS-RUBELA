@@ -389,35 +389,170 @@
 
   function renderCourses(container) {
     const courses = DB.getCourses();
+    const gurus = DB.getUsers().filter(u => u.role === 'guru');
     container.innerHTML = `
       <div class="card">
-        <div class="card-header"><h3>Semua Kelas (${courses.length})</h3></div>
+        <div class="card-header">
+          <h3>Semua Kelas (${courses.length})</h3>
+          <button class="btn btn-primary btn-sm" id="adminAddCourseBtn">+ Buat Kelas Baru</button>
+        </div>
         ${courses.length === 0 ? emptyState('Belum ada kelas.') : `
         <div class="table-wrap"><table class="table">
           <thead><tr><th>Judul</th><th>Kategori</th><th>Guru</th><th>Materi</th><th>Tugas</th><th>Siswa</th><th>Aksi</th></tr></thead>
           <tbody>
             ${courses.map(c => {
               const t = DB.getUser(c.teacherId);
+              const enrollCount = DB.getEnrollmentsByCourse(c.id).length;
               return `<tr>
                 <td><strong>${UI.esc(c.title)}</strong><div class="small muted">${UI.esc(c.description)}</div></td>
                 <td><span class="badge badge-info">${UI.esc(c.category || '-')}</span></td>
                 <td>${UI.esc(t ? t.name : '-')}</td>
                 <td>${DB.getMaterialsByCourse(c.id).length}</td>
                 <td>${DB.getAssignmentsByCourse(c.id).length}</td>
-                <td>${DB.getEnrollmentsByCourse(c.id).length}</td>
-                <td><button class="btn btn-sm btn-danger" data-del="${c.id}">Hapus</button></td>
+                <td>${enrollCount}</td>
+                <td class="actions">
+                  <button class="btn btn-sm btn-primary" data-manage-students="${c.id}">Kelola Siswa</button>
+                  <button class="btn btn-sm btn-secondary" data-edit-course="${c.id}">Edit</button>
+                  <button class="btn btn-sm btn-danger" data-del="${c.id}">Hapus</button>
+                </td>
               </tr>`;
             }).join('')}
           </tbody>
         </table></div>`}
       </div>
     `;
+
+    // Add course
+    document.getElementById('adminAddCourseBtn').addEventListener('click', () => openAdminCourseForm(container));
+    // Edit course
+    container.querySelectorAll('[data-edit-course]').forEach(b => b.addEventListener('click', () => openAdminCourseForm(container, b.dataset.editCourse)));
+    // Delete course
     container.querySelectorAll('[data-del]').forEach(b => b.addEventListener('click', () => {
       if (!UI.confirmDialog('Hapus kelas dan semua data terkait (materi, tugas, submission)?')) return;
       DB.deleteCourse(b.dataset.del);
       UI.toast('Kelas dihapus.');
       renderCourses(container);
     }));
+    // Manage students
+    container.querySelectorAll('[data-manage-students]').forEach(b => b.addEventListener('click', () => {
+      openBulkEnrollModal(b.dataset.manageStudents, container);
+    }));
+  }
+
+  function openAdminCourseForm(container, editId) {
+    const editing = editId ? DB.getCourse(editId) : null;
+    const gurus = DB.getUsers().filter(u => u.role === 'guru' && (u.status || 'Aktif') === 'Aktif');
+    const body = `
+      <form id="adminCourseForm" class="form">
+        <div class="form-group"><label>Judul Kelas</label>
+          <input name="title" required value="${UI.esc(editing?.title || '')}" /></div>
+        <div class="form-row">
+          <div class="form-group"><label>Kategori</label>
+            <input name="category" value="${UI.esc(editing?.category || '')}" placeholder="mis. Matematika" /></div>
+          <div class="form-group"><label>Biaya / SPP (Rp)</label>
+            <input name="price" type="number" min="0" value="${editing?.price || 0}" /></div>
+        </div>
+        <div class="form-group"><label>Guru Pengajar</label>
+          <select name="teacherId" required>
+            <option value="">-- Pilih Guru --</option>
+            ${gurus.map(g => `<option value="${g.id}" ${editing?.teacherId === g.id ? 'selected' : ''}>${UI.esc(g.name)} (${UI.esc(g.subject || '-')})</option>`).join('')}
+          </select>
+        </div>
+        <div class="form-group"><label>Deskripsi</label>
+          <textarea name="description" required>${UI.esc(editing?.description || '')}</textarea></div>
+        <div class="flex-gap" style="justify-content:flex-end;">
+          <button type="button" class="btn btn-secondary" id="cancelBtn">Batal</button>
+          <button type="submit" class="btn btn-primary">Simpan</button>
+        </div>
+      </form>`;
+    UI.modal.open(editing ? 'Edit Kelas' : 'Buat Kelas Baru', body);
+    document.getElementById('cancelBtn').addEventListener('click', () => UI.modal.close());
+    document.getElementById('adminCourseForm').addEventListener('submit', (e) => {
+      e.preventDefault();
+      const fd = new FormData(e.target);
+      const payload = {
+        title: fd.get('title').trim(),
+        category: fd.get('category').trim(),
+        price: Number(fd.get('price') || 0),
+        description: fd.get('description').trim(),
+        teacherId: fd.get('teacherId')
+      };
+      if (editing) {
+        DB.updateCourse(editing.id, payload);
+        UI.toast('Kelas diperbarui.');
+      } else {
+        DB.addCourse(payload);
+        UI.toast('Kelas dibuat.');
+      }
+      UI.modal.close();
+      renderCourses(container);
+    });
+  }
+
+  function openBulkEnrollModal(courseId, container) {
+    const course = DB.getCourse(courseId);
+    const allStudents = DB.getUsers().filter(u => u.role === 'siswa' && (u.status || 'Aktif') === 'Aktif');
+    const enrolled = DB.getEnrollmentsByCourse(courseId);
+    const enrolledIds = new Set(enrolled.map(e => e.studentId));
+
+    const body = `
+      <div class="muted small mb-1">Centang siswa yang ingin didaftarkan ke kelas <strong>${UI.esc(course.title)}</strong>. Perubahan disimpan saat klik "Simpan".</div>
+      <div class="form" style="margin-bottom:12px;">
+        <input id="studentSearch" placeholder="Cari nama siswa..." style="width:100%;padding:8px 12px;border:1px solid var(--gray-300);border-radius:6px;" />
+      </div>
+      <div id="studentCheckList" style="max-height:350px;overflow-y:auto;border:1px solid var(--gray-200);border-radius:6px;padding:4px;">
+        ${allStudents.map(s => `
+          <label style="display:flex;align-items:center;gap:8px;padding:8px 12px;border-bottom:1px solid var(--gray-100);cursor:pointer;" data-name="${s.name.toLowerCase()}">
+            <input type="checkbox" name="sid" value="${s.id}" ${enrolledIds.has(s.id) ? 'checked' : ''} />
+            <div style="flex:1;">
+              <div style="font-size:13px;font-weight:500;">${UI.esc(s.name)}</div>
+              <div class="muted small">${UI.esc(s.kelas || '-')} • ${UI.esc(s.email || '-')}</div>
+            </div>
+            ${enrolledIds.has(s.id) ? '<span class="badge badge-success" style="font-size:10px;">Terdaftar</span>' : ''}
+          </label>`).join('')}
+      </div>
+      <div class="muted small mt-1">${allStudents.length} siswa tersedia, ${enrolledIds.size} sudah terdaftar</div>
+      <div class="flex-gap mt-2" style="justify-content:flex-end;">
+        <button type="button" class="btn btn-secondary" id="cancelBtn">Batal</button>
+        <button type="button" class="btn btn-primary" id="saveEnrollBtn">Simpan Perubahan</button>
+      </div>`;
+    UI.modal.open('Kelola Siswa di Kelas', body);
+    document.getElementById('cancelBtn').addEventListener('click', () => UI.modal.close());
+
+    // Search filter
+    document.getElementById('studentSearch').addEventListener('input', (e) => {
+      const q = e.target.value.toLowerCase();
+      document.querySelectorAll('#studentCheckList label').forEach(el => {
+        el.style.display = el.dataset.name.includes(q) ? '' : 'none';
+      });
+    });
+
+    // Save
+    document.getElementById('saveEnrollBtn').addEventListener('click', () => {
+      const checks = document.querySelectorAll('#studentCheckList input[name="sid"]');
+      const selected = new Set();
+      checks.forEach(ch => { if (ch.checked) selected.add(ch.value); });
+
+      let added = 0, removed = 0;
+      // Enroll new students
+      selected.forEach(sid => {
+        if (!enrolledIds.has(sid)) {
+          DB.enroll(courseId, sid);
+          added++;
+        }
+      });
+      // Unenroll unchecked students
+      enrolledIds.forEach(sid => {
+        if (!selected.has(sid)) {
+          DB.unenroll(courseId, sid);
+          removed++;
+        }
+      });
+
+      UI.toast(`Selesai: ${added} ditambahkan, ${removed} dihapus.`);
+      UI.modal.close();
+      renderCourses(container);
+    });
   }
 
   function renderSettings(container) {
