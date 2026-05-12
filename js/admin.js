@@ -7,6 +7,9 @@
     if (section === 'guru') return renderUsers(container, 'guru');
     if (section === 'siswa') return renderUsers(container, 'siswa');
     if (section === 'courses') return renderCourses(container);
+    if (section === 'admin-cbt') return renderAdminCbt(container, user);
+    if (section === 'admin-bank-soal') return renderAdminBankSoal(container, user);
+    if (section === 'jadwal-kelas') return renderJadwalKelas(container);
     if (section === 'batch') return renderBatch(container);
     if (section === 'alumni') return renderAlumni(container);
     if (section === 'attendance') return renderAttendance(container);
@@ -560,6 +563,393 @@
       UI.modal.close();
       renderCourses(container);
     });
+  }
+
+  /* ========== ADMIN CBT MANAGEMENT ========== */
+  function renderAdminCbt(container, user) {
+    const SUBTESTS = ['Penalaran Umum (PU)', 'Pengetahuan dan Pemahaman Umum (PPU)', 'Kemampuan Memahami Bacaan dan Menulis (PBM)', 'Pengetahuan Kuantitatif (PK)', 'Literasi dalam Bahasa Indonesia', 'Literasi dalam Bahasa Inggris', 'Penalaran Matematika'];
+    const allQuestions = DB.getQuestions();
+    const cbts = DB.getCbts();
+    const courses = DB.getCourses();
+
+    container.innerHTML = `
+      <div class="card">
+        <div class="card-header">
+          <h3>Semua Ujian CBT (${cbts.length})</h3>
+          <button class="btn btn-primary btn-sm" id="adminCreateCbtBtn">+ Buat Ujian Baru</button>
+        </div>
+        ${cbts.length === 0 ? emptyState('Belum ada ujian CBT.') : `
+        <div class="table-wrap"><table class="table">
+          <thead><tr><th>Ujian</th><th>Kelas</th><th>Soal</th><th>Subtest</th><th>Mulai</th><th>Peserta</th><th>Aksi</th></tr></thead>
+          <tbody>${cbts.map(c => {
+            const course = DB.getCourse(c.courseId);
+            const attempts = DB.getCbtAttemptsByCbt(c.id).filter(a => a.submittedAt);
+            return `<tr>
+              <td><strong>${UI.esc(c.title)}</strong></td>
+              <td>${UI.esc(course ? course.title : '-')}</td>
+              <td>${(c.questionIds || []).length}</td>
+              <td><span class="badge badge-info">${UI.esc(c.subtestMode || 'Custom')}</span></td>
+              <td>${UI.fmtDateTime(c.startAt)}</td>
+              <td>${attempts.length}</td>
+              <td class="actions">
+                <button class="btn btn-sm btn-danger" data-del-cbt="${c.id}">Hapus</button>
+              </td>
+            </tr>`;
+          }).join('')}</tbody>
+        </table></div>`}
+      </div>
+    `;
+
+    document.getElementById('adminCreateCbtBtn').addEventListener('click', () => openAdminCbtForm(container, user));
+    container.querySelectorAll('[data-del-cbt]').forEach(b => b.addEventListener('click', () => {
+      if (!UI.confirmDialog('Hapus ujian ini dan semua hasil?')) return;
+      DB.deleteCbt(b.dataset.delCbt);
+      UI.toast('Ujian dihapus.');
+      renderAdminCbt(container, user);
+    }));
+  }
+
+  function openAdminCbtForm(container, user) {
+    const SUBTESTS = ['Penalaran Umum (PU)', 'Pengetahuan dan Pemahaman Umum (PPU)', 'Kemampuan Memahami Bacaan dan Menulis (PBM)', 'Pengetahuan Kuantitatif (PK)', 'Literasi dalam Bahasa Indonesia', 'Literasi dalam Bahasa Inggris', 'Penalaran Matematika'];
+    const courses = DB.getCourses();
+    const allQuestions = DB.getQuestions();
+
+    const body = `
+      <form id="adminCbtForm" class="form">
+        <div class="form-group"><label>Judul Ujian</label>
+          <input name="title" required placeholder="mis. Try Out UTBK Batch 1" /></div>
+        <div class="form-group"><label>Kelas Tujuan</label>
+          <select name="courseId" required>
+            <option value="">-- Pilih Kelas --</option>
+            ${courses.map(c => `<option value="${c.id}">${UI.esc(c.title)}</option>`).join('')}
+          </select>
+        </div>
+        <div class="form-group"><label>Mode Subtest</label>
+          <select name="subtestMode" id="subtestMode">
+            <option value="single">Per 1 Subtest</option>
+            <option value="full">Gabungan 7 Subtest (Full UTBK)</option>
+            <option value="custom">Custom (Pilih Manual)</option>
+          </select>
+        </div>
+        <div class="form-group" id="subtestSelect" style="display:none;"><label>Pilih Subtest</label>
+          <select name="selectedSubtest">
+            ${SUBTESTS.map(s => `<option value="${s}">${s}</option>`).join('')}
+          </select>
+        </div>
+        <div class="form-row">
+          <div class="form-group"><label>Mulai</label>
+            <input name="startAt" type="datetime-local" required value="${UI.toDateTimeLocalInput(Date.now())}" /></div>
+          <div class="form-group"><label>Selesai</label>
+            <input name="endAt" type="datetime-local" required value="${UI.toDateTimeLocalInput(Date.now() + 7 * 86400000)}" /></div>
+        </div>
+        <div class="form-group"><label>Durasi (menit)</label>
+          <input name="duration" type="number" min="5" max="300" value="60" /></div>
+        <div class="muted small mb-1">Zona waktu: <strong>${UI.getTimezone()}</strong></div>
+        <div id="questionPickerBox"></div>
+        <div class="flex-gap" style="justify-content:flex-end;">
+          <button type="button" class="btn btn-secondary" id="cancelBtn">Batal</button>
+          <button type="submit" class="btn btn-primary">Buat Ujian</button>
+        </div>
+      </form>`;
+    UI.modal.open('Buat Ujian CBT (Admin)', body);
+    document.getElementById('cancelBtn').addEventListener('click', () => UI.modal.close());
+
+    const modeSelect = document.getElementById('subtestMode');
+    const subtestSel = document.getElementById('subtestSelect');
+    const pickerBox = document.getElementById('questionPickerBox');
+
+    function updatePicker() {
+      const mode = modeSelect.value;
+      subtestSel.style.display = mode === 'single' ? '' : 'none';
+      let filtered;
+      if (mode === 'full') {
+        filtered = allQuestions;
+      } else if (mode === 'single') {
+        const sub = document.querySelector('[name="selectedSubtest"]').value;
+        filtered = allQuestions.filter(q => q.subject === sub);
+      } else {
+        filtered = allQuestions;
+      }
+      pickerBox.innerHTML = `
+        <label class="muted small">${filtered.length} soal tersedia — centang yang ingin dimasukkan:</label>
+        <div style="max-height:200px;overflow-y:auto;border:1px solid var(--gray-200);border-radius:6px;padding:6px;">
+          ${filtered.map(q => `
+            <label style="display:flex;gap:6px;padding:4px 6px;border-bottom:1px solid var(--gray-100);font-size:12px;">
+              <input type="checkbox" name="qid" value="${q.id}" checked />
+              <span>${UI.esc(q.text.slice(0, 60))}${q.text.length > 60 ? '...' : ''}</span>
+              <span class="badge badge-gray" style="margin-left:auto;">${UI.esc(q.subject?.slice(0, 15) || '-')}</span>
+            </label>`).join('')}
+        </div>`;
+    }
+    modeSelect.addEventListener('change', updatePicker);
+    if (document.querySelector('[name="selectedSubtest"]')) {
+      document.querySelector('[name="selectedSubtest"]').addEventListener('change', updatePicker);
+    }
+    updatePicker();
+
+    document.getElementById('adminCbtForm').addEventListener('submit', (e) => {
+      e.preventDefault();
+      const fd = new FormData(e.target);
+      const qids = fd.getAll('qid');
+      if (qids.length === 0) { UI.toast('Pilih minimal 1 soal.', 'error'); return; }
+      const payload = {
+        courseId: fd.get('courseId'),
+        title: fd.get('title').trim(),
+        subtestMode: fd.get('subtestMode'),
+        startAt: UI.tzInputToUtc(fd.get('startAt')),
+        endAt: UI.tzInputToUtc(fd.get('endAt')),
+        durationMinutes: Number(fd.get('duration')),
+        questionIds: qids
+      };
+      DB.addCbt(payload);
+      UI.toast('Ujian CBT dibuat!');
+      UI.modal.close();
+      renderAdminCbt(container, user);
+    });
+  }
+
+  /* ========== ADMIN BANK SOAL ========== */
+  function renderAdminBankSoal(container, user) {
+    const SUBTESTS = ['Penalaran Umum (PU)', 'Pengetahuan dan Pemahaman Umum (PPU)', 'Kemampuan Memahami Bacaan dan Menulis (PBM)', 'Pengetahuan Kuantitatif (PK)', 'Literasi dalam Bahasa Indonesia', 'Literasi dalam Bahasa Inggris', 'Penalaran Matematika'];
+    const QTYPES = ['Pilihan Ganda', 'Pilihan Lebih dari Satu', 'Esai', 'Benar/Salah', 'Majemuk Kompleks'];
+    const allQuestions = DB.getQuestions();
+    let filterSubtest = '';
+
+    renderList();
+
+    function renderList() {
+      const filtered = filterSubtest ? allQuestions.filter(q => q.subject === filterSubtest) : allQuestions;
+      container.innerHTML = `
+        <div class="card">
+          <div class="card-header">
+            <h3>Bank Soal Global (${allQuestions.length})</h3>
+            <div class="flex-gap">
+              <select id="bankSubtestFilter" class="att-input" style="max-width:200px;">
+                <option value="">Semua Subtest</option>
+                ${SUBTESTS.map(s => `<option value="${s}" ${filterSubtest === s ? 'selected' : ''}>${s.length > 25 ? s.slice(0, 25) + '...' : s}</option>`).join('')}
+              </select>
+              <button class="btn btn-primary btn-sm" id="addBankSoalBtn">+ Tambah Soal</button>
+            </div>
+          </div>
+          ${filtered.length === 0 ? emptyState('Tidak ada soal dengan filter ini.') : `
+          <div class="table-wrap"><table class="table">
+            <thead><tr><th>Soal</th><th>Subtest</th><th>Tipe</th><th>Tingkat</th><th>Pembuat</th><th>Aksi</th></tr></thead>
+            <tbody>${filtered.slice(0, 50).map(q => {
+              const author = DB.getUser(q.authorId);
+              return `<tr>
+                <td style="max-width:250px;"><strong>${UI.esc(q.text.slice(0, 60))}${q.text.length > 60 ? '...' : ''}</strong></td>
+                <td><span class="badge badge-info" style="font-size:9px;">${UI.esc(q.subject?.slice(0, 20) || '-')}</span></td>
+                <td><span class="badge badge-gray">${UI.esc(q.questionType || 'Pilihan Ganda')}</span></td>
+                <td>${UI.esc(q.difficulty || 'sedang')}</td>
+                <td class="muted small">${UI.esc(author?.name || '-')}</td>
+                <td class="actions">
+                  <button class="btn btn-sm btn-danger" data-del-q="${q.id}">Hapus</button>
+                </td>
+              </tr>`;
+            }).join('')}</tbody>
+          </table></div>
+          ${filtered.length > 50 ? `<div class="muted small mt-1">Menampilkan 50 dari ${filtered.length} soal.</div>` : ''}`}
+        </div>
+      `;
+
+      document.getElementById('bankSubtestFilter').addEventListener('change', (e) => { filterSubtest = e.target.value; renderList(); });
+      document.getElementById('addBankSoalBtn').addEventListener('click', () => openAdminQuestionForm(container, user));
+      container.querySelectorAll('[data-del-q]').forEach(b => b.addEventListener('click', () => {
+        if (!UI.confirmDialog('Hapus soal ini?')) return;
+        DB.deleteQuestion(b.dataset.delQ);
+        UI.toast('Soal dihapus.');
+        renderList();
+      }));
+    }
+  }
+
+  function openAdminQuestionForm(container, user) {
+    const SUBTESTS = ['Penalaran Umum (PU)', 'Pengetahuan dan Pemahaman Umum (PPU)', 'Kemampuan Memahami Bacaan dan Menulis (PBM)', 'Pengetahuan Kuantitatif (PK)', 'Literasi dalam Bahasa Indonesia', 'Literasi dalam Bahasa Inggris', 'Penalaran Matematika'];
+    const QTYPES = ['Pilihan Ganda', 'Pilihan Lebih dari Satu', 'Esai', 'Benar/Salah', 'Majemuk Kompleks'];
+
+    const body = `
+      <form id="adminQForm" class="form">
+        <div class="form-row">
+          <div class="form-group"><label>Subtest</label>
+            <select name="subject" required>
+              <option value="">-- Pilih --</option>
+              ${SUBTESTS.map(s => `<option value="${s}">${s}</option>`).join('')}
+            </select>
+          </div>
+          <div class="form-group"><label>Tipe Soal</label>
+            <select name="questionType" id="qTypeSelect">
+              ${QTYPES.map(t => `<option value="${t}">${t}</option>`).join('')}
+            </select>
+          </div>
+        </div>
+        <div class="form-group"><label>Tingkat Kesulitan</label>
+          <select name="difficulty">
+            <option value="mudah">Mudah</option>
+            <option value="sedang" selected>Sedang</option>
+            <option value="sulit">Sulit</option>
+          </select>
+        </div>
+        <div class="form-group"><label>Pertanyaan</label>
+          <textarea name="text" required rows="3" placeholder="Tulis soal..."></textarea></div>
+        <div id="optionsBox">
+          <div class="form-group"><label>Pilihan A</label><input name="opt0" required /></div>
+          <div class="form-group"><label>Pilihan B</label><input name="opt1" required /></div>
+          <div class="form-group"><label>Pilihan C</label><input name="opt2" required /></div>
+          <div class="form-group"><label>Pilihan D</label><input name="opt3" required /></div>
+          <div class="form-group"><label>Jawaban Benar (A=0, B=1, C=2, D=3)</label>
+            <select name="correctIndex"><option value="0">A</option><option value="1">B</option><option value="2">C</option><option value="3">D</option></select></div>
+        </div>
+        <div class="form-group"><label>Pembahasan (opsional)</label>
+          <textarea name="explanation" rows="2"></textarea></div>
+        <div class="flex-gap" style="justify-content:flex-end;">
+          <button type="button" class="btn btn-secondary" id="cancelBtn">Batal</button>
+          <button type="submit" class="btn btn-primary">Simpan Soal</button>
+        </div>
+      </form>`;
+    UI.modal.open('Tambah Soal ke Bank Soal', body);
+    document.getElementById('cancelBtn').addEventListener('click', () => UI.modal.close());
+
+    // Dynamically adjust form based on question type
+    document.getElementById('qTypeSelect').addEventListener('change', (e) => {
+      const type = e.target.value;
+      const box = document.getElementById('optionsBox');
+      if (type === 'Esai') {
+        box.innerHTML = '<div class="muted small">Soal esai tidak memerlukan pilihan. Jawaban dinilai manual.</div>';
+      } else if (type === 'Benar/Salah') {
+        box.innerHTML = `
+          <div class="form-group"><label>Jawaban Benar</label>
+            <select name="correctIndex"><option value="0">Benar</option><option value="1">Salah</option></select></div>`;
+      } else {
+        box.innerHTML = `
+          <div class="form-group"><label>Pilihan A</label><input name="opt0" required /></div>
+          <div class="form-group"><label>Pilihan B</label><input name="opt1" required /></div>
+          <div class="form-group"><label>Pilihan C</label><input name="opt2" required /></div>
+          <div class="form-group"><label>Pilihan D</label><input name="opt3" required /></div>
+          <div class="form-group"><label>Pilihan E (opsional)</label><input name="opt4" /></div>
+          <div class="form-group"><label>Jawaban Benar</label>
+            <select name="correctIndex"><option value="0">A</option><option value="1">B</option><option value="2">C</option><option value="3">D</option><option value="4">E</option></select></div>`;
+      }
+    });
+
+    document.getElementById('adminQForm').addEventListener('submit', (e) => {
+      e.preventDefault();
+      const fd = new FormData(e.target);
+      const qType = fd.get('questionType');
+      const options = [0, 1, 2, 3, 4].map(i => fd.get('opt' + i)).filter(Boolean);
+      const payload = {
+        authorId: user.id,
+        subject: fd.get('subject'),
+        questionType: qType,
+        difficulty: fd.get('difficulty'),
+        text: fd.get('text').trim(),
+        options: qType === 'Esai' ? [] : (qType === 'Benar/Salah' ? ['Benar', 'Salah'] : options),
+        correctIndex: qType === 'Esai' ? null : Number(fd.get('correctIndex') || 0),
+        explanation: fd.get('explanation').trim()
+      };
+      DB.addQuestion(payload);
+      UI.toast('Soal ditambahkan ke Bank Soal!');
+      UI.modal.close();
+      renderAdminBankSoal(container, user);
+    });
+  }
+
+  /* ========== JADWAL KELAS AKTIF ========== */
+  function renderJadwalKelas(container) {
+    const events = DB.getEvents().filter(e => e.category === 'Jadwal Kelas');
+    const today = UI.todayYMD();
+    const upcoming = events.filter(e => e.date >= today).sort((a, b) => a.date.localeCompare(b.date));
+    const past = events.filter(e => e.date < today).sort((a, b) => b.date.localeCompare(a.date));
+    const todayEvents = events.filter(e => e.date === today);
+
+    container.innerHTML = `
+      <div class="stats-grid">
+        <div class="stat-card accent-success"><div class="label">Hari Ini</div><div class="value">${todayEvents.length}</div><div class="sub">jadwal aktif</div></div>
+        <div class="stat-card accent-primary"><div class="label">Akan Datang</div><div class="value">${upcoming.length}</div></div>
+        <div class="stat-card accent-warning"><div class="label">Selesai</div><div class="value">${past.length}</div></div>
+      </div>
+
+      <div class="subtabs">
+        <button class="subtab-btn active" data-jtab="today">Hari Ini (${todayEvents.length})</button>
+        <button class="subtab-btn" data-jtab="upcoming">Akan Datang (${upcoming.length})</button>
+        <button class="subtab-btn" data-jtab="past">Selesai (${past.length})</button>
+      </div>
+
+      <div class="card">
+        <div class="card-header">
+          <h3 id="jadwalTitle">Jadwal Hari Ini</h3>
+          <button class="btn btn-primary btn-sm" id="addJadwalBtn">+ Tambah Jadwal</button>
+        </div>
+        <div id="jadwalBox"></div>
+      </div>
+    `;
+
+    let currentTab = 'today';
+    const renderTab = () => {
+      const box = document.getElementById('jadwalBox');
+      const titleEl = document.getElementById('jadwalTitle');
+      let list;
+      if (currentTab === 'today') { list = todayEvents; titleEl.textContent = 'Jadwal Hari Ini'; }
+      else if (currentTab === 'upcoming') { list = upcoming; titleEl.textContent = 'Jadwal Akan Datang'; }
+      else { list = past.slice(0, 30); titleEl.textContent = 'Jadwal Selesai'; }
+
+      if (list.length === 0) { box.innerHTML = '<div class="empty"><div class="empty-icon">🗓️</div>Tidak ada jadwal.</div>'; return; }
+      box.innerHTML = list.map(ev => `
+        <div class="list-item">
+          <div class="flex-between">
+            <div class="title">${UI.esc(ev.title)}</div>
+            <span class="muted small">${UI.fmtYMD(ev.date)}${ev.time ? ' • ' + UI.esc(ev.time) : ''}</span>
+          </div>
+          ${ev.description ? `<div class="content">${UI.esc(ev.description)}</div>` : ''}
+        </div>`).join('');
+    };
+
+    container.querySelectorAll('[data-jtab]').forEach(b => b.addEventListener('click', () => {
+      container.querySelectorAll('[data-jtab]').forEach(x => x.classList.remove('active'));
+      b.classList.add('active');
+      currentTab = b.dataset.jtab;
+      renderTab();
+    }));
+
+    document.getElementById('addJadwalBtn').addEventListener('click', () => {
+      // Reuse calendar event form but preset category
+      const body = `
+        <form id="jadwalForm" class="form">
+          <div class="form-group"><label>Judul Jadwal</label>
+            <input name="title" required placeholder="mis. Kelas Matematika - Sesi 5" /></div>
+          <div class="form-row">
+            <div class="form-group"><label>Tanggal</label>
+              <input name="date" type="date" required value="${today}" /></div>
+            <div class="form-group"><label>Waktu</label>
+              <input name="time" type="time" /></div>
+          </div>
+          <div class="form-group"><label>Deskripsi</label>
+            <textarea name="description" rows="2"></textarea></div>
+          <div class="flex-gap" style="justify-content:flex-end;">
+            <button type="button" class="btn btn-secondary" id="cancelBtn">Batal</button>
+            <button type="submit" class="btn btn-primary">Simpan</button>
+          </div>
+        </form>`;
+      UI.modal.open('Tambah Jadwal Kelas', body);
+      document.getElementById('cancelBtn').addEventListener('click', () => UI.modal.close());
+      document.getElementById('jadwalForm').addEventListener('submit', (e) => {
+        e.preventDefault();
+        const fd = new FormData(e.target);
+        DB.addEvent({
+          title: fd.get('title').trim(),
+          date: fd.get('date'),
+          time: fd.get('time') || '',
+          category: 'Jadwal Kelas',
+          color: '#dcfce7',
+          description: fd.get('description').trim(),
+          authorId: 'u_admin'
+        });
+        UI.toast('Jadwal ditambahkan!');
+        UI.modal.close();
+        renderJadwalKelas(container);
+      });
+    });
+
+    renderTab();
   }
 
   /* ========== TAHUN AKADEMIK / BATCH ========== */
