@@ -17,6 +17,7 @@
       { key: 'pengumuman', label: 'Pengumuman', icon: '📢' },
       { key: 'feedback', label: 'Kritik & Saran', icon: '💬' },
       { key: 'chat', label: 'Chat', icon: '💭' },
+      { key: 'ai-analytics', label: 'AI Analytics', icon: '🤖' },
       { key: 'keuangan', label: 'Keuangan', icon: '💰' },
       { key: 'settings', label: 'Pengaturan', icon: '⚙️' }
     ],
@@ -33,6 +34,7 @@
       { key: 'pengumuman', label: 'Pengumuman', icon: '📢' },
       { key: 'feedback', label: 'Kritik & Saran', icon: '💬' },
       { key: 'chat', label: 'Chat', icon: '💭' },
+      { key: 'ai-analytics', label: 'AI Analytics', icon: '🤖' },
       { key: 'keuangan', label: 'Honor Saya', icon: '💰' },
       { key: 'profile', label: 'Profil', icon: '👤' }
     ],
@@ -46,6 +48,7 @@
       { key: 'assignments', label: 'Tugas', icon: '📝' },
       { key: 'grades', label: 'Nilai', icon: '🏆' },
       { key: 'absensi', label: 'Absensi Saya', icon: '📋' },
+      { key: 'ai-tools', label: 'AI Tools', icon: '🤖' },
       { key: 'kalender', label: 'Kalender', icon: '📅' },
       { key: 'pengumuman', label: 'Pengumuman', icon: '📢' },
       { key: 'feedback', label: 'Kritik & Saran', icon: '💬' },

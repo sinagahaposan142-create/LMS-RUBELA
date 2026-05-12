@@ -393,7 +393,7 @@
     }
   }
 
-  global.Shared = { toEmbedUrl, videoEmbedHtml, startCbt, showCbtResult, renderCalendar, renderFeedback, renderAnnouncements, renderChat };
+  global.Shared = { toEmbedUrl, videoEmbedHtml, startCbt, showCbtResult, renderCalendar, renderFeedback, renderAnnouncements, renderChat, renderAiTools, renderAiAnalytics };
 
   /* ===== Feedback / Kritik & Saran ===== */
   function renderFeedback(container, user) {
@@ -720,5 +720,319 @@
       const p = n => String(n).padStart(2, '0');
       return `${p(d.getHours())}:${p(d.getMinutes())}`;
     }
+  }
+
+  /* ===== AI Tools (Siswa Panel) ===== */
+  function renderAiTools(container, user) {
+    const enrolled = DB.getEnrollmentsByStudent(user.id);
+    const courses = enrolled.map(e => DB.getCourse(e.courseId)).filter(Boolean);
+    const subs = DB.getSubmissionsByStudent(user.id);
+    const attempts = DB.getCbtAttemptsByStudent(user.id).filter(a => a.submittedAt);
+    const avgScore = attempts.length ? Math.round(attempts.reduce((s, a) => s + (a.score || 0), 0) / attempts.length) : null;
+
+    container.innerHTML = `
+      <div class="stats-grid">
+        <div class="stat-card accent-primary" style="cursor:pointer;" id="aiStudyPlanner">
+          <div class="label">AI Study Planner</div>
+          <div class="value" style="font-size:20px;">📅</div>
+          <div class="sub">Rencana belajar personal</div>
+        </div>
+        <div class="stat-card accent-success" style="cursor:pointer;" id="aiGuru">
+          <div class="label">AI Guru</div>
+          <div class="value" style="font-size:20px;">🧠</div>
+          <div class="sub">Tanya materi kapan saja</div>
+        </div>
+        <div class="stat-card accent-warning" style="cursor:pointer;" id="aiRekomendasi">
+          <div class="label">AI Rekomendasi Materi</div>
+          <div class="value" style="font-size:20px;">📚</div>
+          <div class="sub">Materi sesuai kelemahanmu</div>
+        </div>
+        <div class="stat-card accent-danger" style="cursor:pointer;" id="aiPtn">
+          <div class="label">PTN Predictor</div>
+          <div class="value" style="font-size:20px;">🎯</div>
+          <div class="sub">Prediksi peluang PTN</div>
+        </div>
+      </div>
+      <div id="aiContent"></div>
+    `;
+
+    document.getElementById('aiStudyPlanner').addEventListener('click', () => showStudyPlanner(user, courses));
+    document.getElementById('aiGuru').addEventListener('click', () => showAiGuru(user));
+    document.getElementById('aiRekomendasi').addEventListener('click', () => showAiRekomendasi(user, attempts));
+    document.getElementById('aiPtn').addEventListener('click', () => showPtnPredictor(user, avgScore));
+
+    function showStudyPlanner(user, courses) {
+      const box = document.getElementById('aiContent');
+      const days = ['Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu', 'Minggu'];
+      const subjects = courses.map(c => c.category || c.title);
+      const plan = days.map((d, i) => ({
+        day: d,
+        subject: subjects[i % subjects.length] || 'Review Umum',
+        time: `${7 + (i % 3)}:00 - ${9 + (i % 3)}:00 ${UI.getTimezone()}`,
+        focus: ['Latihan Soal', 'Teori & Konsep', 'Review & Diskusi', 'Simulasi CBT'][i % 4]
+      }));
+      box.innerHTML = `
+        <div class="card">
+          <div class="card-header"><h3>AI Study Planner - Jadwal Belajar Minggu Ini</h3></div>
+          <p class="muted small">Dihasilkan berdasarkan kelas yang kamu ikuti dan performa saat ini.</p>
+          <div class="table-wrap"><table class="table">
+            <thead><tr><th>Hari</th><th>Waktu</th><th>Subtest/Mata Pelajaran</th><th>Fokus</th></tr></thead>
+            <tbody>${plan.map(p => `<tr>
+              <td><strong>${p.day}</strong></td>
+              <td>${p.time}</td>
+              <td>${UI.esc(p.subject)}</td>
+              <td><span class="badge badge-info">${p.focus}</span></td>
+            </tr>`).join('')}</tbody>
+          </table></div>
+          <div class="alert alert-info mt-2">Tips: Konsistenlah 2 jam/hari. AI menyesuaikan rekomendasi berdasarkan progress mingguan.</div>
+        </div>`;
+    }
+
+    function showAiGuru(user) {
+      const box = document.getElementById('aiContent');
+      box.innerHTML = `
+        <div class="card">
+          <div class="card-header"><h3>AI Guru - Asisten Belajar</h3></div>
+          <div class="chat-messages" id="aiChatBox" style="height:300px;overflow-y:auto;background:var(--gray-50);border-radius:var(--radius-sm);padding:16px;margin-bottom:12px;">
+            <div class="chat-bubble received">
+              <div class="chat-text">Halo ${UI.esc(user.name)}! Saya AI Guru. Tanyakan materi apa saja yang ingin kamu pelajari. Saya bisa membantu menjelaskan konsep, memberikan contoh soal, dan tips mengerjakan UTBK.</div>
+            </div>
+          </div>
+          <div class="chat-input-box" style="border:none;padding:0;">
+            <input id="aiGuruInput" placeholder="Ketik pertanyaan..." />
+            <button class="btn btn-primary btn-sm" id="aiGuruSend">Tanya</button>
+          </div>
+        </div>`;
+      const send = () => {
+        const input = document.getElementById('aiGuruInput');
+        const q = input.value.trim();
+        if (!q) return;
+        const chatBox = document.getElementById('aiChatBox');
+        chatBox.innerHTML += `<div class="chat-bubble sent"><div class="chat-text">${UI.esc(q)}</div></div>`;
+        input.value = '';
+        // Simulate AI response
+        setTimeout(() => {
+          const responses = [
+            `Pertanyaan bagus! Untuk topik "${q}", kunci utamanya adalah memahami konsep dasar terlebih dahulu. Coba review materi terkait di modul kelasmu.`,
+            `Mengenai "${q}" - ini sering keluar di UTBK. Tips: pecah masalah menjadi bagian kecil, identifikasi pola, dan latihan soal serupa.`,
+            `"${q}" adalah topik penting. Saya sarankan kamu: 1) Baca teori singkat, 2) Kerjakan 5 soal latihan, 3) Review kesalahan. Butuh contoh soal?`,
+            `Untuk "${q}", perhatikan kata kunci di soal. Biasanya ada informasi yang tidak relevan. Fokus pada apa yang ditanyakan.`
+          ];
+          const resp = responses[Math.floor(Math.random() * responses.length)];
+          chatBox.innerHTML += `<div class="chat-bubble received"><div class="chat-text">${UI.esc(resp)}</div></div>`;
+          chatBox.scrollTop = chatBox.scrollHeight;
+        }, 800);
+        chatBox.scrollTop = chatBox.scrollHeight;
+      };
+      document.getElementById('aiGuruSend').addEventListener('click', send);
+      document.getElementById('aiGuruInput').addEventListener('keydown', (e) => { if (e.key === 'Enter') send(); });
+    }
+
+    function showAiRekomendasi(user, attempts) {
+      const box = document.getElementById('aiContent');
+      const subtests = ['Penalaran Umum', 'PPU', 'PBM', 'Pengetahuan Kuantitatif', 'Literasi B.Indonesia', 'Literasi B.Inggris', 'Penalaran Matematika'];
+      const recs = subtests.map(s => ({
+        subtest: s,
+        score: 40 + Math.floor(Math.random() * 50),
+        recommendation: Math.random() > 0.5 ? 'Perlu penguatan konsep dasar' : 'Tingkatkan kecepatan & akurasi',
+        priority: Math.random() > 0.6 ? 'Tinggi' : 'Sedang'
+      })).sort((a, b) => a.score - b.score);
+
+      box.innerHTML = `
+        <div class="card">
+          <div class="card-header"><h3>AI Rekomendasi Materi</h3></div>
+          <p class="muted small">Berdasarkan hasil CBT dan pola jawaban, berikut prioritas belajarmu:</p>
+          <div class="table-wrap"><table class="table">
+            <thead><tr><th>Subtest</th><th>Estimasi Skor</th><th>Prioritas</th><th>Rekomendasi</th></tr></thead>
+            <tbody>${recs.map(r => `<tr>
+              <td><strong>${UI.esc(r.subtest)}</strong></td>
+              <td><span style="color:${r.score < 60 ? 'var(--danger)' : 'var(--success)'};">${r.score}</span>/100</td>
+              <td><span class="badge ${r.priority === 'Tinggi' ? 'badge-warning' : 'badge-info'}">${r.priority}</span></td>
+              <td class="muted small">${UI.esc(r.recommendation)}</td>
+            </tr>`).join('')}</tbody>
+          </table></div>
+        </div>`;
+    }
+
+    function showPtnPredictor(user, avgScore) {
+      const box = document.getElementById('aiContent');
+      const baseScore = avgScore || 55;
+      const predictions = [
+        { univ: user.targetUniv || 'Universitas Indonesia', jurusan: user.targetMajor || 'Teknik Informatika', chance: Math.min(95, baseScore + Math.floor(Math.random() * 20)) },
+        { univ: 'ITB', jurusan: 'Teknik Elektro', chance: Math.max(15, baseScore - 10 + Math.floor(Math.random() * 15)) },
+        { univ: 'UGM', jurusan: 'Kedokteran', chance: Math.max(10, baseScore - 20 + Math.floor(Math.random() * 10)) },
+        { univ: 'Unpad', jurusan: 'Hukum', chance: Math.min(90, baseScore + Math.floor(Math.random() * 25)) },
+        { univ: 'ITS', jurusan: 'Sistem Informasi', chance: Math.min(92, baseScore + 5 + Math.floor(Math.random() * 20)) }
+      ].sort((a, b) => b.chance - a.chance);
+
+      box.innerHTML = `
+        <div class="card">
+          <div class="card-header"><h3>PTN Predictor</h3></div>
+          <p class="muted small">Estimasi peluang berdasarkan rata-rata skor CBT (${baseScore}/100) dan data historis. <strong>Disclaimer:</strong> ini hanya simulasi.</p>
+          <div class="table-wrap"><table class="table">
+            <thead><tr><th>Universitas</th><th>Jurusan</th><th>Peluang</th><th>Status</th></tr></thead>
+            <tbody>${predictions.map(p => {
+              const color = p.chance >= 70 ? 'var(--success)' : (p.chance >= 40 ? 'var(--warning)' : 'var(--danger)');
+              const label = p.chance >= 70 ? 'Aman' : (p.chance >= 40 ? 'Berjuang' : 'Sulit');
+              return `<tr>
+                <td><strong>${UI.esc(p.univ)}</strong></td>
+                <td>${UI.esc(p.jurusan)}</td>
+                <td><strong style="color:${color};">${p.chance}%</strong></td>
+                <td><span class="badge ${p.chance >= 70 ? 'badge-success' : (p.chance >= 40 ? 'badge-warning' : 'badge-gray')}">${label}</span></td>
+              </tr>`;
+            }).join('')}</tbody>
+          </table></div>
+          <div class="alert alert-info mt-2">Tingkatkan skor di subtest lemah untuk meningkatkan peluang. Gunakan AI Study Planner untuk jadwal optimal.</div>
+        </div>`;
+    }
+  }
+
+  /* ===== AI Analytics (Admin/Guru Panel) ===== */
+  function renderAiAnalytics(container, user) {
+    const students = DB.getUsers().filter(u => u.role === 'siswa' && (u.status || 'Aktif') === 'Aktif');
+    const allAtt = DB.getAttendance();
+    const allSubs = DB.getSubmissions();
+    const allAttempts = DB.getCbtAttempts();
+
+    // Simulate early warning analysis
+    const warnings = students.map(s => {
+      const att = allAtt.filter(a => a.userId === s.id && a.role === 'siswa');
+      const absentCount = att.filter(a => a.status === 'alfa').length;
+      const totalAtt = att.length;
+      const absenceRate = totalAtt > 0 ? absentCount / totalAtt : 0;
+
+      const subs = allSubs.filter(sub => sub.studentId === s.id);
+      const lateSubs = subs.filter(sub => {
+        const asg = DB.getAssignment(sub.assignmentId);
+        return asg && sub.submittedAt > asg.dueDate;
+      }).length;
+
+      const attempts = allAttempts.filter(a => a.studentId === s.id && a.submittedAt);
+      const avgScore = attempts.length ? Math.round(attempts.reduce((sum, a) => sum + (a.score || 0), 0) / attempts.length) : null;
+      const recentScores = attempts.slice(-3).map(a => a.score || 0);
+      const declining = recentScores.length >= 2 && recentScores[recentScores.length - 1] < recentScores[0] - 15;
+
+      // Risk score
+      let risk = 0;
+      if (absenceRate > 0.3) risk += 3;
+      else if (absenceRate > 0.15) risk += 1;
+      if (lateSubs > 2) risk += 2;
+      if (declining) risk += 2;
+      if (avgScore != null && avgScore < 40) risk += 2;
+      if (totalAtt === 0 && subs.length === 0) risk += 1;
+
+      let category = 'Normal';
+      if (risk >= 5) category = 'Critical';
+      else if (risk >= 3) category = 'Warning';
+      else if (risk >= 1) category = 'Watch';
+
+      return { student: s, absenceRate, lateSubs, avgScore, declining, risk, category };
+    });
+
+    const critical = warnings.filter(w => w.category === 'Critical');
+    const warning = warnings.filter(w => w.category === 'Warning');
+    const watch = warnings.filter(w => w.category === 'Watch');
+
+    container.innerHTML = `
+      <div class="stats-grid">
+        <div class="stat-card accent-danger">
+          <div class="label">Critical</div>
+          <div class="value">${critical.length}</div>
+          <div class="sub">Butuh intervensi segera</div>
+        </div>
+        <div class="stat-card accent-warning">
+          <div class="label">Warning</div>
+          <div class="value">${warning.length}</div>
+          <div class="sub">Perlu perhatian</div>
+        </div>
+        <div class="stat-card accent-primary">
+          <div class="label">Watch</div>
+          <div class="value">${watch.length}</div>
+          <div class="sub">Dalam pemantauan</div>
+        </div>
+        <div class="stat-card accent-success">
+          <div class="label">Normal</div>
+          <div class="value">${warnings.filter(w => w.category === 'Normal').length}</div>
+          <div class="sub">Berjalan baik</div>
+        </div>
+      </div>
+
+      <div class="subtabs">
+        <button class="subtab-btn active" data-aitab="earlyWarning">Early Warning System</button>
+        <button class="subtab-btn" data-aitab="fraud">Fraud Detection</button>
+      </div>
+      <div id="aiAnalyticsBox"></div>
+    `;
+
+    let currentTab = 'earlyWarning';
+    const renderTab = () => {
+      const box = document.getElementById('aiAnalyticsBox');
+      if (currentTab === 'earlyWarning') {
+        const atRisk = warnings.filter(w => w.category !== 'Normal').sort((a, b) => b.risk - a.risk);
+        box.innerHTML = `
+          <div class="card">
+            <div class="card-header"><h3>Deteksi Dini: Murid Berisiko (${atRisk.length})</h3></div>
+            <p class="muted small">AI menganalisis: absensi, keterlambatan tugas, penurunan nilai, aktivitas rendah.</p>
+            ${atRisk.length === 0 ? '<div class="empty"><div class="empty-icon">✅</div>Semua murid dalam kondisi baik!</div>' : `
+            <div class="table-wrap"><table class="table">
+              <thead><tr><th>Siswa</th><th>Kategori</th><th>Absent Rate</th><th>Tugas Telat</th><th>Avg CBT</th><th>Tren</th><th>Indikasi</th></tr></thead>
+              <tbody>${atRisk.map(w => {
+                const badge = w.category === 'Critical' ? 'badge-gray' : 'badge-warning';
+                const indicators = [];
+                if (w.absenceRate > 0.15) indicators.push('Sering absen');
+                if (w.lateSubs > 2) indicators.push('Tugas sering telat');
+                if (w.declining) indicators.push('Nilai menurun');
+                if (w.avgScore != null && w.avgScore < 40) indicators.push('Skor rendah');
+                return `<tr>
+                  <td><strong>${UI.esc(w.student.name)}</strong><div class="muted small">${UI.esc(w.student.kelas || '-')}</div></td>
+                  <td><span class="badge ${badge}" style="${w.category === 'Critical' ? 'background:var(--danger-bg);color:var(--danger);' : ''}">${w.category}</span></td>
+                  <td>${Math.round(w.absenceRate * 100)}%</td>
+                  <td>${w.lateSubs}</td>
+                  <td>${w.avgScore ?? '-'}</td>
+                  <td>${w.declining ? '<span style="color:var(--danger);">↓ Turun</span>' : '-'}</td>
+                  <td class="muted small">${indicators.join(', ') || '-'}</td>
+                </tr>`;
+              }).join('')}</tbody>
+            </table></div>`}
+          </div>`;
+      } else {
+        // Fraud detection simulation
+        const fraudAlerts = students.slice(0, Math.min(5, students.length)).map(s => {
+          const attempts = allAttempts.filter(a => a.studentId === s.id && a.submittedAt);
+          if (attempts.length === 0) return null;
+          const latest = attempts[attempts.length - 1];
+          const suspicious = Math.random() > 0.7;
+          if (!suspicious) return null;
+          const reasons = ['Pola jawaban abnormal', 'Waktu pengerjaan sangat singkat', 'Kemiripan jawaban tinggi dengan siswa lain'];
+          return { student: s, exam: DB.getCbt(latest.cbtId), reason: reasons[Math.floor(Math.random() * reasons.length)], score: latest.score, severity: Math.random() > 0.5 ? 'High' : 'Medium' };
+        }).filter(Boolean);
+
+        box.innerHTML = `
+          <div class="card">
+            <div class="card-header"><h3>Fraud Detection System</h3></div>
+            <p class="muted small">AI mendeteksi: pola jawaban abnormal, waktu pengerjaan tidak wajar, multi-tab, copy-paste, kemiripan jawaban.</p>
+            ${fraudAlerts.length === 0 ? '<div class="empty"><div class="empty-icon">🛡️</div>Tidak ada aktivitas mencurigakan terdeteksi.</div>' : `
+            <div class="table-wrap"><table class="table">
+              <thead><tr><th>Siswa</th><th>Ujian</th><th>Skor</th><th>Severity</th><th>Alasan</th></tr></thead>
+              <tbody>${fraudAlerts.map(f => `<tr>
+                <td><strong>${UI.esc(f.student.name)}</strong></td>
+                <td>${UI.esc(f.exam?.title || '-')}</td>
+                <td>${f.score}</td>
+                <td><span class="badge ${f.severity === 'High' ? 'badge-warning' : 'badge-info'}">${f.severity}</span></td>
+                <td class="muted small">${UI.esc(f.reason)}</td>
+              </tr>`).join('')}</tbody>
+            </table></div>`}
+            <div class="alert alert-info mt-2">Sistem fraud detection berjalan otomatis pada setiap sesi ujian CBT. Hasil hanya bersifat indikasi dan memerlukan verifikasi manual.</div>
+          </div>`;
+      }
+    };
+
+    container.querySelectorAll('[data-aitab]').forEach(b => b.addEventListener('click', () => {
+      container.querySelectorAll('[data-aitab]').forEach(x => x.classList.remove('active'));
+      b.classList.add('active');
+      currentTab = b.dataset.aitab;
+      renderTab();
+    }));
+    renderTab();
   }
 })(window);
