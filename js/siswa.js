@@ -11,8 +11,13 @@
       return renderMyCourses(container, user);
     }
     if (section === 'browse') return renderBrowse(container, user);
+    if (section === 'modul') return renderModulSection(container, user);
+    if (section === 'rekaman') return renderRekamanSection(container, user);
+    if (section === 'cbt') return renderCbtSection(container, user);
     if (section === 'assignments') return renderAssignments(container, user);
     if (section === 'grades') return renderGrades(container, user);
+    if (section === 'absensi') return renderAbsensiSection(container, user);
+    if (section === 'keuangan') return renderPaymentsSection(container, user);
     if (section === 'profile') return renderProfile(container, user);
   }
 
@@ -199,7 +204,11 @@
 
       <div class="tabs">
         <button class="tab-btn active" data-tab="materials">Materi (${materials.length})</button>
+        <button class="tab-btn" data-tab="modules">Modul (${DB.getModulesByCourse(course.id).length})</button>
+        <button class="tab-btn" data-tab="recordings">Rekaman (${DB.getRecordingsByCourse(course.id).length})</button>
         <button class="tab-btn" data-tab="assignments">Tugas (${assignments.length})</button>
+        <button class="tab-btn" data-tab="cbts">CBT (${DB.getCbtsByCourse(course.id).length})</button>
+        <button class="tab-btn" data-tab="attendance">Absensi</button>
       </div>
       <div id="tabContent"></div>
     `;
@@ -217,8 +226,14 @@
     document.querySelectorAll('.tab-btn').forEach(btn => btn.addEventListener('click', () => {
       document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
       btn.classList.add('active');
-      if (btn.dataset.tab === 'materials') renderCourseMaterials(document.getElementById('tabContent'), course);
-      else renderCourseAssignments(document.getElementById('tabContent'), course, user);
+      const tab = btn.dataset.tab;
+      const el = document.getElementById('tabContent');
+      if (tab === 'materials') renderCourseMaterials(el, course);
+      else if (tab === 'modules') renderCourseModules(el, course);
+      else if (tab === 'recordings') renderCourseRecordings(el, course);
+      else if (tab === 'assignments') renderCourseAssignments(el, course, user);
+      else if (tab === 'cbts') renderCourseCbts(el, course, user);
+      else if (tab === 'attendance') renderCourseAttendance(el, course, user);
     }));
     renderCourseMaterials(document.getElementById('tabContent'), course);
   }
@@ -423,6 +438,331 @@
 
   function emptyState(msg) {
     return `<div class="empty"><div class="empty-icon">📭</div>${msg}</div>`;
+  }
+
+  /* ========== Course detail extra tabs ========== */
+  function renderCourseModules(el, course) {
+    const modules = DB.getModulesByCourse(course.id);
+    el.innerHTML = `
+      <div class="card">
+        <div class="card-header"><h3>Modul Pembelajaran</h3></div>
+        ${modules.length === 0 ? emptyState('Belum ada modul.') : modules.map(m => `
+          <div class="module-card">
+            <div class="module-head">
+              <h4>${UI.esc(m.title)}</h4>
+              <div class="meta">${UI.esc(m.description || '')} • ${(m.sections || []).length} bagian</div>
+            </div>
+            <div class="module-body">
+              ${(m.sections || []).map(s => `
+                <div class="module-section">
+                  <div class="module-section-title">${UI.esc(s.title)}</div>
+                  <div class="module-section-content">${UI.esc(s.content)}</div>
+                </div>`).join('') || '<div class="module-section muted">Belum ada bagian.</div>'}
+              ${m.link ? `<div class="module-section"><a href="${UI.esc(m.link)}" target="_blank" rel="noopener">Buka tautan modul →</a></div>` : ''}
+            </div>
+          </div>`).join('')}
+      </div>
+    `;
+  }
+
+  function renderCourseRecordings(el, course) {
+    const recs = DB.getRecordingsByCourse(course.id).slice().sort((a, b) => b.recordedAt - a.recordedAt);
+    el.innerHTML = `
+      <div class="card">
+        <div class="card-header"><h3>Rekaman Kelas</h3></div>
+        ${recs.length === 0 ? emptyState('Belum ada rekaman.') : recs.map(r => `
+          <div class="list-item">
+            <div class="flex-between">
+              <div class="title">${UI.esc(r.title)}</div>
+              <span class="muted small">${UI.fmtDate(r.recordedAt)} • ${UI.fmtDuration(r.duration)}</span>
+            </div>
+            ${Shared.videoEmbedHtml(r.url)}
+            ${r.notes ? `<div class="content">${UI.esc(r.notes)}</div>` : ''}
+          </div>`).join('')}
+      </div>
+    `;
+  }
+
+  function renderCourseCbts(el, course, user) {
+    const cbts = DB.getCbtsByCourse(course.id);
+    el.innerHTML = `
+      <div class="card">
+        <div class="card-header"><h3>Ujian Online</h3></div>
+        ${cbts.length === 0 ? emptyState('Belum ada ujian.') : cbts.map(c => cbtRowHtml(c, user)).join('')}
+      </div>
+    `;
+    bindCbtRowActions(el, user);
+  }
+
+  function cbtRowHtml(c, user) {
+    const attempt = DB.getCbtAttemptByStudent(c.id, user.id);
+    const now = Date.now();
+    const before = now < c.startAt;
+    const after = now > c.endAt;
+    const done = attempt && attempt.submittedAt;
+    let badge = '<span class="badge badge-info">Tersedia</span>';
+    let btn = `<button class="btn btn-sm btn-primary" data-start="${c.id}">Mulai Ujian</button>`;
+    if (before) { badge = `<span class="badge badge-gray">Belum Dibuka (${UI.fmtDateTime(c.startAt)})</span>`; btn = '<button class="btn btn-sm btn-secondary" disabled>Belum Dibuka</button>'; }
+    else if (done) { badge = `<span class="badge badge-success">Skor: ${attempt.score}</span>`; btn = `<button class="btn btn-sm btn-secondary" data-view="${c.id}">Lihat Hasil</button>`; }
+    else if (attempt && !done) { badge = '<span class="badge badge-warning">Sedang Dikerjakan</span>'; btn = `<button class="btn btn-sm btn-primary" data-start="${c.id}">Lanjutkan</button>`; }
+    else if (after) { badge = '<span class="badge badge-warning">Sudah Ditutup</span>'; btn = '<button class="btn btn-sm btn-secondary" disabled>Ditutup</button>'; }
+    return `<div class="list-item">
+      <div class="flex-between">
+        <div class="title">${UI.esc(c.title)}</div>
+        ${badge}
+      </div>
+      <div class="meta">${(c.questionIds || []).length} soal • ${c.durationMinutes} menit • ${UI.fmtDateTime(c.startAt)} s.d. ${UI.fmtDateTime(c.endAt)}</div>
+      <div class="content">${UI.esc(c.description || '')}</div>
+      <div class="flex-gap mt-1">${btn}</div>
+    </div>`;
+  }
+
+  function bindCbtRowActions(el, user) {
+    el.querySelectorAll('[data-start]').forEach(b => b.addEventListener('click', () => {
+      const cbt = DB.getCbt(b.dataset.start);
+      Shared.startCbt(cbt, user);
+    }));
+    el.querySelectorAll('[data-view]').forEach(b => b.addEventListener('click', () => {
+      const cbt = DB.getCbt(b.dataset.view);
+      const attempt = DB.getCbtAttemptByStudent(cbt.id, user.id);
+      if (attempt && attempt.submittedAt) Shared.showCbtResult(cbt, attempt);
+    }));
+  }
+
+  function renderCourseAttendance(el, course, user) {
+    const att = DB.getAttendanceByCourse(course.id)
+      .filter(a => a.userId === user.id)
+      .slice().sort((a, b) => b.date.localeCompare(a.date));
+    const counts = { hadir: 0, izin: 0, sakit: 0, alfa: 0 };
+    att.forEach(a => { counts[a.status] = (counts[a.status] || 0) + 1; });
+    const total = att.length;
+    const pct = total ? Math.round(counts.hadir / total * 100) : 0;
+    el.innerHTML = `
+      <div class="stats-grid">
+        <div class="stat-card accent-success"><div class="label">Hadir</div><div class="value">${counts.hadir}</div></div>
+        <div class="stat-card accent-warning"><div class="label">Izin</div><div class="value">${counts.izin}</div></div>
+        <div class="stat-card accent-warning"><div class="label">Sakit</div><div class="value">${counts.sakit}</div></div>
+        <div class="stat-card accent-danger"><div class="label">Alfa</div><div class="value">${counts.alfa}</div></div>
+        <div class="stat-card accent-primary"><div class="label">Kehadiran</div><div class="value">${pct}%</div></div>
+      </div>
+      <div class="card">
+        <div class="card-header"><h3>Riwayat Absensi di Kelas Ini</h3></div>
+        ${total === 0 ? emptyState('Belum ada data absensi.') : `
+        <div class="table-wrap"><table class="table">
+          <thead><tr><th>Tanggal</th><th>Status</th><th>Catatan</th></tr></thead>
+          <tbody>${att.map(a => `<tr>
+            <td>${UI.fmtYMD(a.date)}</td>
+            <td><span class="status-${a.status}">${a.status.toUpperCase()}</span></td>
+            <td>${UI.esc(a.note || '-')}</td>
+          </tr>`).join('')}</tbody>
+        </table></div>`}
+      </div>
+    `;
+  }
+
+  /* ========== Global sections ========== */
+  function renderModulSection(container, user) {
+    const enrolled = DB.getEnrollmentsByStudent(user.id).map(e => e.courseId);
+    const courses = enrolled.map(cid => DB.getCourse(cid)).filter(Boolean);
+    const modules = DB.getModules().filter(m => enrolled.includes(m.courseId));
+    container.innerHTML = `
+      <div class="card">
+        <div class="card-header">
+          <h3>Modul dari Kelas Saya (${modules.length})</h3>
+          <select id="modFilter" class="form" style="max-width:220px;">
+            <option value="">Semua Kelas</option>
+            ${courses.map(c => `<option value="${c.id}">${UI.esc(c.title)}</option>`).join('')}
+          </select>
+        </div>
+        <div id="modList"></div>
+      </div>
+    `;
+    const render = (cid) => {
+      const list = document.getElementById('modList');
+      const filtered = cid ? modules.filter(m => m.courseId === cid) : modules;
+      if (filtered.length === 0) { list.innerHTML = emptyState('Belum ada modul.'); return; }
+      list.innerHTML = filtered.map(m => {
+        const c = DB.getCourse(m.courseId);
+        return `
+          <div class="module-card">
+            <div class="module-head">
+              <h4>${UI.esc(m.title)}</h4>
+              <div class="meta">${UI.esc(c ? c.title : '-')} • ${(m.sections || []).length} bagian</div>
+            </div>
+            <div class="module-body">
+              ${(m.sections || []).map(s => `
+                <div class="module-section">
+                  <div class="module-section-title">${UI.esc(s.title)}</div>
+                  <div class="module-section-content">${UI.esc(s.content)}</div>
+                </div>`).join('') || '<div class="module-section muted">Belum ada bagian.</div>'}
+              ${m.link ? `<div class="module-section"><a href="${UI.esc(m.link)}" target="_blank" rel="noopener">Buka tautan →</a></div>` : ''}
+            </div>
+          </div>`;
+      }).join('');
+    };
+    document.getElementById('modFilter').addEventListener('change', (e) => render(e.target.value));
+    render('');
+  }
+
+  function renderRekamanSection(container, user) {
+    const enrolled = DB.getEnrollmentsByStudent(user.id).map(e => e.courseId);
+    const courses = enrolled.map(cid => DB.getCourse(cid)).filter(Boolean);
+    const recs = DB.getRecordings().filter(r => enrolled.includes(r.courseId)).sort((a, b) => b.recordedAt - a.recordedAt);
+    container.innerHTML = `
+      <div class="card">
+        <div class="card-header">
+          <h3>Rekaman Kelas (${recs.length})</h3>
+          <select id="recFilter" class="form" style="max-width:220px;">
+            <option value="">Semua Kelas</option>
+            ${courses.map(c => `<option value="${c.id}">${UI.esc(c.title)}</option>`).join('')}
+          </select>
+        </div>
+        <div id="recList"></div>
+      </div>
+    `;
+    const render = (cid) => {
+      const list = document.getElementById('recList');
+      const filtered = cid ? recs.filter(r => r.courseId === cid) : recs;
+      if (filtered.length === 0) { list.innerHTML = emptyState('Belum ada rekaman.'); return; }
+      list.innerHTML = filtered.map(r => {
+        const c = DB.getCourse(r.courseId);
+        return `<div class="list-item">
+          <div class="flex-between">
+            <div class="title">${UI.esc(r.title)}</div>
+            <span class="muted small">${UI.esc(c ? c.title : '-')} • ${UI.fmtDate(r.recordedAt)}</span>
+          </div>
+          ${Shared.videoEmbedHtml(r.url)}
+          ${r.notes ? `<div class="content">${UI.esc(r.notes)}</div>` : ''}
+        </div>`;
+      }).join('');
+    };
+    document.getElementById('recFilter').addEventListener('change', (e) => render(e.target.value));
+    render('');
+  }
+
+  function renderCbtSection(container, user) {
+    const enrolled = DB.getEnrollmentsByStudent(user.id).map(e => e.courseId);
+    const cbts = DB.getCbts().filter(c => enrolled.includes(c.courseId));
+    const attempts = DB.getCbtAttemptsByStudent(user.id);
+    const doneIds = new Set(attempts.filter(a => a.submittedAt).map(a => a.cbtId));
+    const pending = cbts.filter(c => !doneIds.has(c.id));
+    const avg = attempts.filter(a => a.submittedAt).length
+      ? Math.round(attempts.filter(a => a.submittedAt).reduce((s, a) => s + (a.score || 0), 0) / attempts.filter(a => a.submittedAt).length)
+      : null;
+    container.innerHTML = `
+      <div class="stats-grid">
+        <div class="stat-card accent-primary"><div class="label">Total Ujian</div><div class="value">${cbts.length}</div></div>
+        <div class="stat-card accent-success"><div class="label">Selesai</div><div class="value">${doneIds.size}</div></div>
+        <div class="stat-card accent-warning"><div class="label">Tersedia</div><div class="value">${pending.length}</div></div>
+        <div class="stat-card accent-danger"><div class="label">Rata-rata</div><div class="value">${avg ?? '-'}</div></div>
+      </div>
+      <div class="card">
+        <div class="card-header"><h3>Daftar Ujian</h3></div>
+        ${cbts.length === 0 ? emptyState('Belum ada ujian tersedia.') : cbts.map(c => cbtRowHtml(c, user)).join('')}
+      </div>
+    `;
+    bindCbtRowActions(container, user);
+  }
+
+  function renderAbsensiSection(container, user) {
+    const enrolled = DB.getEnrollmentsByStudent(user.id).map(e => e.courseId);
+    const courses = enrolled.map(cid => DB.getCourse(cid)).filter(Boolean);
+    const myAtt = DB.getAttendanceByUser(user.id).slice().sort((a, b) => b.date.localeCompare(a.date));
+    const counts = { hadir: 0, izin: 0, sakit: 0, alfa: 0 };
+    myAtt.forEach(a => { counts[a.status] = (counts[a.status] || 0) + 1; });
+    const total = myAtt.length;
+    const pct = total ? Math.round(counts.hadir / total * 100) : 0;
+
+    // Per-kelas summary
+    const perCourse = courses.map(c => {
+      const list = myAtt.filter(a => a.courseId === c.id);
+      const local = { hadir: 0, izin: 0, sakit: 0, alfa: 0 };
+      list.forEach(a => { local[a.status] = (local[a.status] || 0) + 1; });
+      return { c, list, local, total: list.length };
+    });
+
+    container.innerHTML = `
+      <div class="stats-grid">
+        <div class="stat-card accent-success"><div class="label">Hadir</div><div class="value">${counts.hadir}</div></div>
+        <div class="stat-card accent-warning"><div class="label">Izin</div><div class="value">${counts.izin}</div></div>
+        <div class="stat-card accent-warning"><div class="label">Sakit</div><div class="value">${counts.sakit}</div></div>
+        <div class="stat-card accent-danger"><div class="label">Alfa</div><div class="value">${counts.alfa}</div></div>
+        <div class="stat-card accent-primary"><div class="label">Kehadiran</div><div class="value">${pct}%</div></div>
+      </div>
+
+      <div class="card">
+        <div class="card-header"><h3>Rekap per Kelas</h3></div>
+        ${perCourse.length === 0 ? emptyState('Belum ada kelas.') : `
+        <div class="table-wrap"><table class="table">
+          <thead><tr><th>Kelas</th><th>Hadir</th><th>Izin</th><th>Sakit</th><th>Alfa</th><th>Total</th><th>%</th></tr></thead>
+          <tbody>${perCourse.map(r => `<tr>
+            <td><strong>${UI.esc(r.c.title)}</strong></td>
+            <td>${r.local.hadir}</td><td>${r.local.izin}</td><td>${r.local.sakit}</td><td>${r.local.alfa}</td>
+            <td>${r.total}</td>
+            <td><strong>${r.total ? Math.round(r.local.hadir / r.total * 100) : 0}%</strong></td>
+          </tr>`).join('')}</tbody>
+        </table></div>`}
+      </div>
+
+      <div class="card">
+        <div class="card-header"><h3>Riwayat Lengkap</h3></div>
+        ${total === 0 ? emptyState('Belum ada data absensi.') : `
+        <div class="table-wrap"><table class="table">
+          <thead><tr><th>Tanggal</th><th>Kelas</th><th>Status</th><th>Catatan</th></tr></thead>
+          <tbody>${myAtt.map(a => {
+            const c = DB.getCourse(a.courseId);
+            return `<tr>
+              <td>${UI.fmtYMD(a.date)}</td>
+              <td>${UI.esc(c ? c.title : '-')}</td>
+              <td><span class="status-${a.status}">${a.status.toUpperCase()}</span></td>
+              <td>${UI.esc(a.note || '-')}</td>
+            </tr>`;
+          }).join('')}</tbody>
+        </table></div>`}
+      </div>
+    `;
+  }
+
+  function renderPaymentsSection(container, user) {
+    const payments = DB.getPaymentsByStudent(user.id).slice().sort((a, b) => b.createdAt - a.createdAt);
+    const paid = payments.filter(p => p.status === 'lunas').reduce((s, p) => s + (p.amount || 0), 0);
+    const pending = payments.filter(p => p.status !== 'lunas').reduce((s, p) => s + (p.amount || 0), 0);
+
+    container.innerHTML = `
+      <div class="finance-summary">
+        <div class="fin-card income">
+          <div class="label">Total Terbayar</div>
+          <div class="value">${UI.fmtRp(paid)}</div>
+        </div>
+        <div class="fin-card expense">
+          <div class="label">Belum Lunas</div>
+          <div class="value">${UI.fmtRp(pending)}</div>
+        </div>
+        <div class="fin-card profit">
+          <div class="label">Total Transaksi</div>
+          <div class="value">${payments.length}</div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-header"><h3>Riwayat Pembayaran</h3></div>
+        ${payments.length === 0 ? emptyState('Belum ada pembayaran.') : `
+        <div class="table-wrap"><table class="table">
+          <thead><tr><th>Tanggal</th><th>Kelas/Keterangan</th><th>Jumlah</th><th>Metode</th><th>Status</th><th>Catatan</th></tr></thead>
+          <tbody>${payments.map(p => {
+            const c = p.courseId ? DB.getCourse(p.courseId) : null;
+            return `<tr>
+              <td>${UI.fmtDate(p.paidAt || p.createdAt)}</td>
+              <td>${UI.esc(c ? c.title : 'Umum')}</td>
+              <td><strong>${UI.fmtRp(p.amount)}</strong></td>
+              <td>${UI.esc(p.method || '-')}</td>
+              <td>${p.status === 'lunas' ? '<span class="badge badge-success">Lunas</span>' : '<span class="badge badge-warning">' + UI.esc(p.status) + '</span>'}</td>
+              <td class="muted small">${UI.esc(p.note || '-')}</td>
+            </tr>`;
+          }).join('')}</tbody>
+        </table></div>`}
+      </div>
+    `;
   }
 
   global.SiswaPanel = { render };
