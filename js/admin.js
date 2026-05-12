@@ -124,19 +124,24 @@
         ${list.length === 0 ? emptyState('Belum ada data.') : `
         <div class="table-wrap"><table class="table">
           <thead><tr>
-            <th>Nama</th><th>Username</th><th>Email</th><th>${isGuru ? 'Mapel' : 'Kelas'}</th><th>Aksi</th>
+            <th>Nama</th><th>Username</th><th>${isGuru ? 'Subtest' : 'Kelas'}</th><th>${isGuru ? 'WhatsApp' : 'Telepon'}</th><th>Status</th><th>Aksi</th>
           </tr></thead>
           <tbody>
-            ${list.map(u => `<tr>
-              <td><strong>${UI.esc(u.name)}</strong></td>
+            ${list.map(u => {
+              const statusBadge = (u.status || 'Aktif') === 'Aktif' ? 'badge-success'
+                : (u.status === 'Nonaktif' ? 'badge-warning' : 'badge-gray');
+              return `<tr>
+              <td><strong>${UI.esc(u.name)}</strong><div class="muted small">${UI.esc(u.email || '-')}</div></td>
               <td>${UI.esc(u.username)}</td>
-              <td>${UI.esc(u.email || '-')}</td>
               <td>${UI.esc(isGuru ? (u.subject || '-') : (u.kelas || '-'))}</td>
+              <td>${UI.esc(isGuru ? (u.whatsapp || '-') : (u.phone || '-'))}</td>
+              <td><span class="badge ${statusBadge}">${UI.esc(u.status || 'Aktif')}</span></td>
               <td class="actions">
                 <button class="btn btn-sm btn-secondary" data-edit="${u.id}">Edit</button>
                 <button class="btn btn-sm btn-danger" data-del="${u.id}">Hapus</button>
               </td>
-            </tr>`).join('')}
+            </tr>`;
+            }).join('')}
           </tbody>
         </table></div>`}
       </div>
@@ -156,28 +161,103 @@
     const isGuru = role === 'guru';
     const editing = editId ? DB.getUser(editId) : null;
     const title = editing ? `Edit ${isGuru ? 'Guru' : 'Siswa'}` : `Tambah ${isGuru ? 'Guru' : 'Siswa'}`;
-    const body = `
-      <form id="userForm" class="form">
-        <div class="form-group"><label>Nama Lengkap</label>
-          <input name="name" required value="${UI.esc(editing?.name || '')}" /></div>
-        <div class="form-row">
-          <div class="form-group"><label>Username</label>
-            <input name="username" required value="${UI.esc(editing?.username || '')}" ${editing ? 'readonly' : ''} /></div>
-          <div class="form-group"><label>Email</label>
-            <input type="email" name="email" required value="${UI.esc(editing?.email || '')}" /></div>
-        </div>
-        <div class="form-group"><label>${isGuru ? 'Mata Pelajaran' : 'Kelas'}</label>
-          <input name="extra" value="${UI.esc(isGuru ? (editing?.subject || '') : (editing?.kelas || ''))}" /></div>
-        ${isGuru ? `<div class="form-group"><label>Tarif Gaji per Bulan (Rp)</label>
-          <input name="salaryRate" type="number" min="0" value="${editing?.salaryRate || 0}" /></div>` : ''}
-        <div class="form-group"><label>Password ${editing ? '(kosongkan jika tidak diubah)' : ''}</label>
-          <input type="password" name="password" ${editing ? '' : 'required minlength="6"'} /></div>
-        <div id="userFormError" class="alert alert-error hidden"></div>
-        <div class="flex-gap" style="justify-content:flex-end;">
-          <button type="button" class="btn btn-secondary" id="cancelBtn">Batal</button>
-          <button type="submit" class="btn btn-primary">Simpan</button>
-        </div>
-      </form>`;
+
+    // Subtest options for guru
+    const SUBTESTS = [
+      'Penalaran Umum (PU)',
+      'Pengetahuan dan Pemahaman Umum (PPU)',
+      'Kemampuan Memahami Bacaan dan Menulis (PBM)',
+      'Pengetahuan Kuantitatif (PK)',
+      'Literasi dalam Bahasa Indonesia',
+      'Literasi dalam Bahasa Inggris',
+      'Penalaran Matematika'
+    ];
+
+    // Status options
+    const STATUSES = ['Aktif', 'Nonaktif', 'Dikeluarkan'];
+
+    // Class options from settings (admin-configurable)
+    const CLASS_OPTIONS = DB.getClassOptions ? DB.getClassOptions() : ['X-A', 'X-B', 'XI-A', 'XI-B', 'XII-A', 'XII-B'];
+
+    let body;
+    if (isGuru) {
+      body = `
+        <form id="userForm" class="form">
+          <div class="form-group"><label>Nama Lengkap</label>
+            <input name="name" required value="${UI.esc(editing?.name || '')}" /></div>
+          <div class="form-row">
+            <div class="form-group"><label>Username</label>
+              <input name="username" required value="${UI.esc(editing?.username || '')}" ${editing ? 'readonly' : ''} /></div>
+            <div class="form-group"><label>Email</label>
+              <input type="email" name="email" required value="${UI.esc(editing?.email || '')}" /></div>
+          </div>
+          <div class="form-row">
+            <div class="form-group"><label>No. WhatsApp</label>
+              <input name="whatsapp" type="tel" placeholder="08xxxxxxxxxx" value="${UI.esc(editing?.whatsapp || '')}" /></div>
+            <div class="form-group"><label>Status</label>
+              <select name="status">
+                ${STATUSES.map(s => `<option value="${s}" ${(editing?.status || 'Aktif') === s ? 'selected' : ''}>${s}</option>`).join('')}
+              </select>
+            </div>
+          </div>
+          <div class="form-group"><label>Guru Subtest</label>
+            <select name="subject" required>
+              <option value="">-- Pilih Subtest --</option>
+              ${SUBTESTS.map(s => `<option value="${s}" ${editing?.subject === s ? 'selected' : ''}>${s}</option>`).join('')}
+            </select>
+          </div>
+          <div class="form-group"><label>Tarif Gaji per Bulan (Rp)</label>
+            <input name="salaryRate" type="number" min="0" value="${editing?.salaryRate || 0}" /></div>
+          <div class="form-group"><label>Password ${editing ? '(kosongkan jika tidak diubah)' : ''}</label>
+            <input type="password" name="password" ${editing ? '' : 'required minlength="6"'} /></div>
+          <div id="userFormError" class="alert alert-error hidden"></div>
+          <div class="flex-gap" style="justify-content:flex-end;">
+            <button type="button" class="btn btn-secondary" id="cancelBtn">Batal</button>
+            <button type="submit" class="btn btn-primary">Simpan</button>
+          </div>
+        </form>`;
+    } else {
+      body = `
+        <form id="userForm" class="form">
+          <div class="form-group"><label>Nama Lengkap</label>
+            <input name="name" required value="${UI.esc(editing?.name || '')}" /></div>
+          <div class="form-row">
+            <div class="form-group"><label>Username</label>
+              <input name="username" required value="${UI.esc(editing?.username || '')}" ${editing ? 'readonly' : ''} /></div>
+            <div class="form-group"><label>Email</label>
+              <input type="email" name="email" required value="${UI.esc(editing?.email || '')}" /></div>
+          </div>
+          <div class="form-row">
+            <div class="form-group"><label>No. Telepon</label>
+              <input name="phone" type="tel" placeholder="08xxxxxxxxxx" value="${UI.esc(editing?.phone || '')}" /></div>
+            <div class="form-group"><label>Status</label>
+              <select name="status">
+                ${STATUSES.map(s => `<option value="${s}" ${(editing?.status || 'Aktif') === s ? 'selected' : ''}>${s}</option>`).join('')}
+              </select>
+            </div>
+          </div>
+          <div class="form-row">
+            <div class="form-group"><label>Kelas</label>
+              <select name="kelas">
+                <option value="">-- Pilih Kelas --</option>
+                ${CLASS_OPTIONS.map(c => `<option value="${c}" ${editing?.kelas === c ? 'selected' : ''}>${c}</option>`).join('')}
+              </select>
+            </div>
+            <div class="form-group"><label>Tujuan Universitas</label>
+              <input name="targetUniv" value="${UI.esc(editing?.targetUniv || '')}" placeholder="Nama universitas tujuan" /></div>
+          </div>
+          <div class="form-group"><label>Jurusan Tujuan</label>
+            <input name="targetMajor" value="${UI.esc(editing?.targetMajor || '')}" placeholder="Jurusan yang dituju" /></div>
+          <div class="form-group"><label>Password ${editing ? '(kosongkan jika tidak diubah)' : ''}</label>
+            <input type="password" name="password" ${editing ? '' : 'required minlength="6"'} /></div>
+          <div id="userFormError" class="alert alert-error hidden"></div>
+          <div class="flex-gap" style="justify-content:flex-end;">
+            <button type="button" class="btn btn-secondary" id="cancelBtn">Batal</button>
+            <button type="submit" class="btn btn-primary">Simpan</button>
+          </div>
+        </form>`;
+    }
+
     UI.modal.open(title, body);
     document.getElementById('cancelBtn').addEventListener('click', () => UI.modal.close());
     document.getElementById('userForm').addEventListener('submit', (e) => {
@@ -186,8 +266,8 @@
       const name = fd.get('name').trim();
       const username = fd.get('username').trim();
       const email = fd.get('email').trim();
-      const extra = fd.get('extra').trim();
       const password = fd.get('password');
+      const status = fd.get('status');
       const err = document.getElementById('userFormError');
       err.classList.add('hidden');
 
@@ -197,15 +277,31 @@
           err.classList.remove('hidden');
           return;
         }
-        const record = { id: DB.uid('u'), role, name, username, email, password };
-        if (isGuru) { record.subject = extra; record.salaryRate = Number(fd.get('salaryRate') || 0); }
-        else record.kelas = extra;
+        const record = { id: DB.uid('u'), role, name, username, email, password, status };
+        if (isGuru) {
+          record.subject = fd.get('subject');
+          record.whatsapp = fd.get('whatsapp').trim();
+          record.salaryRate = Number(fd.get('salaryRate') || 0);
+        } else {
+          record.kelas = fd.get('kelas');
+          record.phone = fd.get('phone').trim();
+          record.targetUniv = fd.get('targetUniv').trim();
+          record.targetMajor = fd.get('targetMajor').trim();
+        }
         DB.addUser(record);
         UI.toast('Berhasil menambahkan.');
       } else {
-        const patch = { name, email };
-        if (isGuru) { patch.subject = extra; patch.salaryRate = Number(fd.get('salaryRate') || 0); }
-        else patch.kelas = extra;
+        const patch = { name, email, status };
+        if (isGuru) {
+          patch.subject = fd.get('subject');
+          patch.whatsapp = fd.get('whatsapp').trim();
+          patch.salaryRate = Number(fd.get('salaryRate') || 0);
+        } else {
+          patch.kelas = fd.get('kelas');
+          patch.phone = fd.get('phone').trim();
+          patch.targetUniv = fd.get('targetUniv').trim();
+          patch.targetMajor = fd.get('targetMajor').trim();
+        }
         if (password) patch.password = password;
         DB.updateUser(editing.id, patch);
         UI.toast('Perubahan disimpan.');
@@ -250,7 +346,20 @@
   }
 
   function renderSettings(container) {
+    const classOpts = DB.getClassOptions();
     container.innerHTML = `
+      <div class="card">
+        <div class="card-header"><h3>Daftar Nama Kelas</h3></div>
+        <p class="muted small">Kelas yang tersedia di dropdown formulir siswa. Klik + untuk menambah, x untuk menghapus.</p>
+        <div id="classOptList" style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px;">
+          ${classOpts.map((c, i) => `<span class="badge badge-info" style="padding:6px 10px;font-size:13px;">${UI.esc(c)} <button type="button" data-rm-class="${i}" style="border:none;background:none;cursor:pointer;font-weight:700;color:var(--danger);margin-left:4px;">&times;</button></span>`).join('')}
+        </div>
+        <div class="flex-gap">
+          <input id="newClassName" placeholder="Nama kelas baru..." style="padding:8px 12px;border:1px solid var(--gray-300);border-radius:6px;font-size:13px;" />
+          <button class="btn btn-sm btn-primary" id="addClassBtn">+ Tambah</button>
+        </div>
+      </div>
+
       <div class="card">
         <div class="card-header"><h3>Pengaturan Sistem</h3></div>
         <p class="muted">Data LMS disimpan di browser Anda (localStorage). Gunakan tombol di bawah untuk mereset ke data contoh.</p>
@@ -260,10 +369,30 @@
       </div>
       <div class="card">
         <div class="card-header"><h3>Tentang</h3></div>
-        <p><strong>LMS Rubela</strong> v1.0 — Learning Management System sederhana berbasis web.</p>
+        <p><strong>LMS Rubela</strong> v2.0 — Learning Management System berbasis web dengan fitur lengkap.</p>
         <p class="muted small">Dibuat dengan HTML, CSS, dan JavaScript murni.</p>
       </div>
     `;
+    // Class management
+    document.getElementById('addClassBtn').addEventListener('click', () => {
+      const inp = document.getElementById('newClassName');
+      const val = inp.value.trim();
+      if (!val) return;
+      const opts = DB.getClassOptions();
+      if (opts.includes(val)) { UI.toast('Kelas sudah ada.', 'error'); return; }
+      opts.push(val);
+      DB.setClassOptions(opts);
+      UI.toast('Kelas ditambahkan.');
+      renderSettings(container);
+    });
+    container.querySelectorAll('[data-rm-class]').forEach(b => b.addEventListener('click', () => {
+      const opts = DB.getClassOptions();
+      opts.splice(Number(b.dataset.rmClass), 1);
+      DB.setClassOptions(opts);
+      UI.toast('Kelas dihapus.');
+      renderSettings(container);
+    }));
+
     document.getElementById('resetBtn').addEventListener('click', () => {
       if (!UI.confirmDialog('Reset SEMUA data? Akun dan kelas akan kembali ke default.')) return;
       DB.resetAll();

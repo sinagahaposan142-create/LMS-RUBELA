@@ -418,9 +418,20 @@
     updateSalary: (id, p) => update(KEYS.salaries, id, p),
     deleteSalary: (id) => remove(KEYS.salaries, id),
 
+    /* ===== Class Options (admin-configurable list of kelas names) ===== */
+    getClassOptions: () => {
+      const stored = localStorage.getItem('lms_class_options');
+      if (stored) try { return JSON.parse(stored); } catch(e) {}
+      return ['X-A', 'X-B', 'XI-A', 'XI-B', 'XII-A', 'XII-B'];
+    },
+    setClassOptions: (list) => {
+      localStorage.setItem('lms_class_options', JSON.stringify(list));
+    },
+
     resetAll: () => {
       Object.values(KEYS).forEach(k => localStorage.removeItem(k));
       localStorage.removeItem('lms_seeded_v1');
+      localStorage.removeItem('lms_class_options');
       seedIfNeeded();
     }
   };
