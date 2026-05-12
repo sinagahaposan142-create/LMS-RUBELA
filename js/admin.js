@@ -7,6 +7,8 @@
     if (section === 'guru') return renderUsers(container, 'guru');
     if (section === 'siswa') return renderUsers(container, 'siswa');
     if (section === 'courses') return renderCourses(container);
+    if (section === 'batch') return renderBatch(container);
+    if (section === 'alumni') return renderAlumni(container);
     if (section === 'attendance') return renderAttendance(container);
     if (section === 'rekap') return renderRekap(container);
     if (section === 'kalender') return Shared.renderCalendar(container, user);
@@ -554,6 +556,200 @@
       UI.modal.close();
       renderCourses(container);
     });
+  }
+
+  /* ========== TAHUN AKADEMIK / BATCH ========== */
+  function renderBatch(container) {
+    const batches = DB.getBatches().sort((a, b) => (b.startDate || '').localeCompare(a.startDate || ''));
+    const today = UI.todayYMD();
+
+    container.innerHTML = `
+      <div class="card">
+        <div class="card-header">
+          <h3>Tahun Akademik / Batch (${batches.length})</h3>
+          <button class="btn btn-primary btn-sm" id="addBatchBtn">+ Tambah Batch</button>
+        </div>
+        ${batches.length === 0 ? emptyState('Belum ada tahun akademik. Buat yang pertama!') : `
+        <div class="table-wrap"><table class="table">
+          <thead><tr><th>Nama Batch</th><th>Mulai</th><th>Berakhir</th><th>Siswa</th><th>Status</th><th>Aksi</th></tr></thead>
+          <tbody>
+            ${batches.map(b => {
+              const isExpired = b.endDate && b.endDate < today;
+              const isActive = b.startDate <= today && (!b.endDate || b.endDate >= today);
+              const students = DB.getUsers().filter(u => u.role === 'siswa' && u.batchId === b.id);
+              const statusLabel = isExpired ? 'Selesai' : (isActive ? 'Aktif' : 'Akan Datang');
+              const statusBadge = isExpired ? 'badge-gray' : (isActive ? 'badge-success' : 'badge-info');
+              return `<tr>
+                <td><strong>${UI.esc(b.name)}</strong>${b.description ? `<div class="muted small">${UI.esc(b.description)}</div>` : ''}</td>
+                <td>${UI.fmtYMD(b.startDate)}</td>
+                <td>${UI.fmtYMD(b.endDate)}</td>
+                <td>${students.length}</td>
+                <td><span class="badge ${statusBadge}">${statusLabel}</span></td>
+                <td class="actions">
+                  <button class="btn btn-sm btn-secondary" data-edit-batch="${b.id}">Edit</button>
+                  ${isExpired ? `<button class="btn btn-sm btn-warning" data-graduate="${b.id}">Lulus → Alumni</button>` : ''}
+                  <button class="btn btn-sm btn-danger" data-del-batch="${b.id}">Hapus</button>
+                </td>
+              </tr>`;
+            }).join('')}
+          </tbody>
+        </table></div>`}
+      </div>
+
+      <div class="card">
+        <div class="card-header"><h3>Assign Siswa ke Batch</h3></div>
+        <p class="muted small">Pilih batch lalu assign siswa yang belum memiliki batch.</p>
+        <div class="form-row" style="max-width:500px;">
+          <div class="form-group"><label>Batch</label>
+            <select id="assignBatch">
+              <option value="">-- Pilih --</option>
+              ${batches.filter(b => !(b.endDate && b.endDate < today)).map(b => `<option value="${b.id}">${UI.esc(b.name)}</option>`).join('')}
+            </select>
+          </div>
+          <div class="form-group" style="display:flex;align-items:flex-end;">
+            <button class="btn btn-primary btn-sm" id="openAssignBtn">Kelola</button>
+          </div>
+        </div>
+      </div>
+    `;
+
+    document.getElementById('addBatchBtn').addEventListener('click', () => openBatchForm(container));
+    container.querySelectorAll('[data-edit-batch]').forEach(b => b.addEventListener('click', () => openBatchForm(container, b.dataset.editBatch)));
+    container.querySelectorAll('[data-del-batch]').forEach(b => b.addEventListener('click', () => {
+      if (!UI.confirmDialog('Hapus batch ini? Siswa di batch ini akan kehilangan assignment batch.')) return;
+      // Remove batchId from students
+      DB.getUsers().filter(u => u.batchId === b.dataset.delBatch).forEach(u => DB.updateUser(u.id, { batchId: null }));
+      DB.deleteBatch(b.dataset.delBatch);
+      UI.toast('Batch dihapus.');
+      renderBatch(container);
+    }));
+    container.querySelectorAll('[data-graduate]').forEach(b => b.addEventListener('click', () => {
+      const batchId = b.dataset.graduate;
+      const batch = DB.getBatch(batchId);
+      if (!UI.confirmDialog(`Luluskan semua siswa di batch "${batch.name}" ke Alumni?`)) return;
+      const students = DB.getUsers().filter(u => u.role === 'siswa' && u.batchId === batchId);
+      students.forEach(u => DB.updateUser(u.id, { status: 'Alumni', batchId: batchId }));
+      UI.toast(`${students.length} siswa dipindahkan ke Alumni.`);
+      renderBatch(container);
+    }));
+
+    document.getElementById('openAssignBtn').addEventListener('click', () => {
+      const batchId = document.getElementById('assignBatch').value;
+      if (!batchId) { UI.toast('Pilih batch dulu.', 'error'); return; }
+      openBatchAssign(container, batchId);
+    });
+  }
+
+  function openBatchForm(container, editId) {
+    const editing = editId ? DB.getBatch(editId) : null;
+    const body = `
+      <form id="batchForm" class="form">
+        <div class="form-group"><label>Nama Batch / Tahun Akademik</label>
+          <input name="name" required value="${UI.esc(editing?.name || '')}" placeholder="mis. Batch 2025/2026" /></div>
+        <div class="form-row">
+          <div class="form-group"><label>Tanggal Mulai</label>
+            <input name="startDate" type="date" required value="${editing?.startDate || UI.todayYMD()}" /></div>
+          <div class="form-group"><label>Tanggal Berakhir</label>
+            <input name="endDate" type="date" required value="${editing?.endDate || ''}" /></div>
+        </div>
+        <div class="form-group"><label>Deskripsi (opsional)</label>
+          <textarea name="description" rows="2">${UI.esc(editing?.description || '')}</textarea></div>
+        <div class="flex-gap" style="justify-content:flex-end;">
+          <button type="button" class="btn btn-secondary" id="cancelBtn">Batal</button>
+          <button type="submit" class="btn btn-primary">Simpan</button>
+        </div>
+      </form>`;
+    UI.modal.open(editing ? 'Edit Batch' : 'Tambah Tahun Akademik', body);
+    document.getElementById('cancelBtn').addEventListener('click', () => UI.modal.close());
+    document.getElementById('batchForm').addEventListener('submit', (e) => {
+      e.preventDefault();
+      const fd = new FormData(e.target);
+      const payload = {
+        name: fd.get('name').trim(),
+        startDate: fd.get('startDate'),
+        endDate: fd.get('endDate'),
+        description: fd.get('description').trim()
+      };
+      if (editing) DB.updateBatch(editing.id, payload);
+      else DB.addBatch(payload);
+      UI.toast('Batch disimpan.');
+      UI.modal.close();
+      renderBatch(container);
+    });
+  }
+
+  function openBatchAssign(container, batchId) {
+    const batch = DB.getBatch(batchId);
+    const allStudents = DB.getUsers().filter(u => u.role === 'siswa' && (u.status || 'Aktif') === 'Aktif');
+    const inBatch = new Set(allStudents.filter(u => u.batchId === batchId).map(u => u.id));
+
+    const body = `
+      <div class="muted small mb-1">Centang siswa untuk batch <strong>${UI.esc(batch.name)}</strong></div>
+      <div style="max-height:350px;overflow-y:auto;border:1px solid var(--gray-200);border-radius:6px;">
+        ${allStudents.map(s => `
+          <label style="display:flex;align-items:center;gap:8px;padding:8px 12px;border-bottom:1px solid var(--gray-100);cursor:pointer;">
+            <input type="checkbox" name="sid" value="${s.id}" ${inBatch.has(s.id) ? 'checked' : ''} />
+            <div style="flex:1;">
+              <div style="font-size:13px;font-weight:500;">${UI.esc(s.name)}</div>
+              <div class="muted small">${UI.esc(s.kelas || '-')}${s.batchId && s.batchId !== batchId ? ' • Batch lain' : ''}</div>
+            </div>
+          </label>`).join('')}
+      </div>
+      <div class="flex-gap mt-2" style="justify-content:flex-end;">
+        <button type="button" class="btn btn-secondary" id="cancelBtn">Batal</button>
+        <button type="button" class="btn btn-primary" id="saveBatchAssign">Simpan</button>
+      </div>`;
+    UI.modal.open('Assign Siswa ke Batch', body);
+    document.getElementById('cancelBtn').addEventListener('click', () => UI.modal.close());
+    document.getElementById('saveBatchAssign').addEventListener('click', () => {
+      const checks = document.querySelectorAll('#modalBody input[name="sid"]');
+      checks.forEach(ch => {
+        const user = DB.getUser(ch.value);
+        if (ch.checked && user.batchId !== batchId) {
+          DB.updateUser(ch.value, { batchId });
+        } else if (!ch.checked && user.batchId === batchId) {
+          DB.updateUser(ch.value, { batchId: null });
+        }
+      });
+      UI.toast('Assignment batch disimpan.');
+      UI.modal.close();
+      renderBatch(container);
+    });
+  }
+
+  /* ========== ALUMNI ========== */
+  function renderAlumni(container) {
+    const alumni = DB.getUsers().filter(u => u.role === 'siswa' && u.status === 'Alumni');
+    const batches = DB.getBatches();
+
+    container.innerHTML = `
+      <div class="card">
+        <div class="card-header"><h3>Daftar Alumni (${alumni.length})</h3></div>
+        ${alumni.length === 0 ? emptyState('Belum ada alumni. Siswa otomatis masuk alumni saat batch-nya selesai dan diluluskan.') : `
+        <div class="table-wrap"><table class="table">
+          <thead><tr><th>Nama</th><th>Email</th><th>Batch</th><th>Universitas Tujuan</th><th>Jurusan</th><th>Aksi</th></tr></thead>
+          <tbody>
+            ${alumni.map(u => {
+              const batch = batches.find(b => b.id === u.batchId);
+              return `<tr>
+                <td><strong>${UI.esc(u.name)}</strong></td>
+                <td>${UI.esc(u.email || '-')}</td>
+                <td>${UI.esc(batch ? batch.name : '-')}</td>
+                <td>${UI.esc(u.targetUniv || '-')}</td>
+                <td>${UI.esc(u.targetMajor || '-')}</td>
+                <td><button class="btn btn-sm btn-secondary" data-reactivate="${u.id}">Aktifkan Kembali</button></td>
+              </tr>`;
+            }).join('')}
+          </tbody>
+        </table></div>`}
+      </div>
+    `;
+    container.querySelectorAll('[data-reactivate]').forEach(b => b.addEventListener('click', () => {
+      if (!UI.confirmDialog('Aktifkan kembali siswa ini? Status akan berubah ke Aktif.')) return;
+      DB.updateUser(b.dataset.reactivate, { status: 'Aktif' });
+      UI.toast('Siswa diaktifkan kembali.');
+      renderAlumni(container);
+    }));
   }
 
   function renderSettings(container) {

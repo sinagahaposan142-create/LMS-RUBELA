@@ -428,6 +428,34 @@
       localStorage.setItem('lms_class_options', JSON.stringify(list));
     },
 
+    /* ===== Academic Batches (Tahun Akademik) ===== */
+    getBatches: () => {
+      try { return JSON.parse(localStorage.getItem('lms_batches') || '[]'); } catch(e) { return []; }
+    },
+    getBatch: (id) => {
+      return (JSON.parse(localStorage.getItem('lms_batches') || '[]')).find(b => b.id === id) || null;
+    },
+    addBatch: (b) => {
+      const list = JSON.parse(localStorage.getItem('lms_batches') || '[]');
+      if (!b.id) b.id = uid('batch');
+      b.createdAt = Date.now();
+      list.push(b);
+      localStorage.setItem('lms_batches', JSON.stringify(list));
+      return b;
+    },
+    updateBatch: (id, patch) => {
+      const list = JSON.parse(localStorage.getItem('lms_batches') || '[]');
+      const idx = list.findIndex(b => b.id === id);
+      if (idx === -1) return null;
+      list[idx] = Object.assign({}, list[idx], patch);
+      localStorage.setItem('lms_batches', JSON.stringify(list));
+      return list[idx];
+    },
+    deleteBatch: (id) => {
+      const list = JSON.parse(localStorage.getItem('lms_batches') || '[]').filter(b => b.id !== id);
+      localStorage.setItem('lms_batches', JSON.stringify(list));
+    },
+
     /* ===== Calendar Events ===== */
     getEvents: () => {
       try { return JSON.parse(localStorage.getItem('lms_events') || '[]'); } catch(e) { return []; }
@@ -461,6 +489,7 @@
       localStorage.removeItem('lms_seeded_v1');
       localStorage.removeItem('lms_class_options');
       localStorage.removeItem('lms_events');
+      localStorage.removeItem('lms_batches');
       seedIfNeeded();
     }
   };

@@ -9,6 +9,8 @@
       { key: 'guru', label: 'Kelola Guru', icon: '👨‍🏫' },
       { key: 'siswa', label: 'Kelola Siswa', icon: '👨‍🎓' },
       { key: 'courses', label: 'Semua Kelas', icon: '📚' },
+      { key: 'batch', label: 'Tahun Akademik', icon: '🎓' },
+      { key: 'alumni', label: 'Alumni', icon: '🏛️' },
       { key: 'attendance', label: 'Absensi', icon: '📋' },
       { key: 'rekap', label: 'Rekapan', icon: '📈' },
       { key: 'kalender', label: 'Kalender', icon: '📅' },
