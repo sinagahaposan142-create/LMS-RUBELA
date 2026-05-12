@@ -12,6 +12,8 @@
     if (section === 'attendance') return renderAttendance(container);
     if (section === 'rekap') return renderRekap(container);
     if (section === 'kalender') return Shared.renderCalendar(container, user);
+    if (section === 'pengumuman') return Shared.renderAnnouncements(container, user);
+    if (section === 'feedback') return Shared.renderFeedback(container, user);
     if (section === 'keuangan') return renderKeuangan(container);
     if (section === 'settings') return renderSettings(container);
   }

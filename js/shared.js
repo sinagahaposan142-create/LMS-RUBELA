@@ -393,5 +393,203 @@
     }
   }
 
-  global.Shared = { toEmbedUrl, videoEmbedHtml, startCbt, showCbtResult, renderCalendar };
+  global.Shared = { toEmbedUrl, videoEmbedHtml, startCbt, showCbtResult, renderCalendar, renderFeedback, renderAnnouncements };
+
+  /* ===== Feedback / Kritik & Saran ===== */
+  function renderFeedback(container, user) {
+    const allFeedbacks = DB.getFeedbacks().sort((a, b) => b.createdAt - a.createdAt);
+    // Users see all (transparency) or filter for self
+    const canDelete = user.role === 'admin';
+
+    container.innerHTML = `
+      <div class="card">
+        <div class="card-header">
+          <h3>Kirim Kritik & Saran</h3>
+        </div>
+        <form id="feedbackForm" class="form">
+          <div class="form-row">
+            <div class="form-group"><label>Tujuan</label>
+              <select name="target">
+                <option value="admin">Ke Admin / Manajemen</option>
+                <option value="kelas">Ke Kelas Tertentu</option>
+                <option value="individu">Ke Individu</option>
+              </select>
+            </div>
+            <div class="form-group"><label>Penerima (opsional)</label>
+              <input name="targetName" placeholder="Nama kelas/individu..." /></div>
+          </div>
+          <div class="form-group"><label>Pesan</label>
+            <textarea name="message" required rows="3" placeholder="Tulis kritik atau saran Anda..."></textarea></div>
+          <div class="form-row">
+            <div class="form-group"><label>
+              <input type="checkbox" name="anonymous" /> Kirim anonim
+            </label></div>
+            <div class="form-group" style="text-align:right;">
+              <button type="submit" class="btn btn-primary">Kirim</button>
+            </div>
+          </div>
+        </form>
+      </div>
+
+      <div class="card">
+        <div class="card-header"><h3>Semua Kritik & Saran (${allFeedbacks.length})</h3></div>
+        ${allFeedbacks.length === 0 ? '<div class="empty"><div class="empty-icon">💬</div>Belum ada feedback.</div>' :
+          allFeedbacks.map(fb => {
+            const sender = fb.anonymous ? 'Anonim' : (DB.getUser(fb.senderId)?.name || '-');
+            return `<div class="list-item">
+              <div class="flex-between">
+                <div>
+                  <strong>${UI.esc(sender)}</strong>
+                  <span class="badge badge-info" style="margin-left:6px;">${UI.esc(fb.target || 'admin')}</span>
+                  ${fb.targetName ? `<span class="muted small"> → ${UI.esc(fb.targetName)}</span>` : ''}
+                </div>
+                <div class="flex-gap">
+                  <span class="muted small">${UI.fmtDateTime(fb.createdAt)}</span>
+                  ${canDelete ? `<button class="btn btn-sm btn-danger" data-del-fb="${fb.id}">Hapus</button>` : ''}
+                </div>
+              </div>
+              <div class="content mt-1">${UI.esc(fb.message)}</div>
+            </div>`;
+          }).join('')}
+      </div>
+    `;
+
+    document.getElementById('feedbackForm').addEventListener('submit', (e) => {
+      e.preventDefault();
+      const fd = new FormData(e.target);
+      DB.addFeedback({
+        senderId: user.id,
+        target: fd.get('target'),
+        targetName: fd.get('targetName').trim(),
+        message: fd.get('message').trim(),
+        anonymous: !!fd.get('anonymous')
+      });
+      UI.toast('Feedback terkirim!');
+      renderFeedback(container, user);
+    });
+    container.querySelectorAll('[data-del-fb]').forEach(b => b.addEventListener('click', () => {
+      DB.deleteFeedback(b.dataset.delFb);
+      UI.toast('Feedback dihapus.');
+      renderFeedback(container, user);
+    }));
+  }
+
+  /* ===== Announcements / Pengumuman ===== */
+  function renderAnnouncements(container, user) {
+    const canEdit = user.role === 'admin' || user.role === 'guru';
+    const all = DB.getAnnouncements().sort((a, b) => b.createdAt - a.createdAt);
+    // Filter: siswa only see announcements targeted to them or all
+    const visible = user.role === 'admin' ? all : all.filter(a => {
+      if (a.targetType === 'semua') return true;
+      if (a.targetType === 'individu' && a.targetIds && a.targetIds.includes(user.id)) return true;
+      if (a.targetType === 'kelas') {
+        const enrolled = DB.getEnrollmentsByStudent ? DB.getEnrollmentsByStudent(user.id) : [];
+        return enrolled.some(e => a.targetIds && a.targetIds.includes(e.courseId));
+      }
+      if (a.targetType === 'role' && a.targetRole === user.role) return true;
+      return false;
+    });
+
+    container.innerHTML = `
+      <div class="card">
+        <div class="card-header">
+          <h3>Pengumuman (${visible.length})</h3>
+          ${canEdit ? '<button class="btn btn-primary btn-sm" id="addAnnBtn">+ Buat Pengumuman</button>' : ''}
+        </div>
+        ${visible.length === 0 ? '<div class="empty"><div class="empty-icon">📢</div>Tidak ada pengumuman.</div>' :
+          visible.map(a => {
+            const author = DB.getUser(a.authorId);
+            return `<div class="list-item">
+              <div class="flex-between">
+                <div class="title">${UI.esc(a.title)}</div>
+                <div class="flex-gap">
+                  <span class="badge ${a.targetType === 'semua' ? 'badge-success' : 'badge-info'}">${UI.esc(a.targetType)}</span>
+                  ${canEdit && a.authorId === user.id ? `<button class="btn btn-sm btn-danger" data-del-ann="${a.id}">Hapus</button>` : ''}
+                </div>
+              </div>
+              <div class="meta">${UI.esc(author?.name || '-')} • ${UI.fmtDateTime(a.createdAt)}</div>
+              <div class="content">${UI.esc(a.content)}</div>
+            </div>`;
+          }).join('')}
+      </div>
+    `;
+
+    if (canEdit) {
+      const addBtn = document.getElementById('addAnnBtn');
+      if (addBtn) addBtn.addEventListener('click', () => openAnnouncementForm(container, user));
+    }
+    container.querySelectorAll('[data-del-ann]').forEach(b => b.addEventListener('click', () => {
+      DB.deleteAnnouncement(b.dataset.delAnn);
+      UI.toast('Pengumuman dihapus.');
+      renderAnnouncements(container, user);
+    }));
+  }
+
+  function openAnnouncementForm(container, user) {
+    const courses = DB.getCourses();
+    const body = `
+      <form id="annForm" class="form">
+        <div class="form-group"><label>Judul</label>
+          <input name="title" required placeholder="Judul pengumuman..." /></div>
+        <div class="form-group"><label>Isi Pengumuman</label>
+          <textarea name="content" required rows="4" placeholder="Tulis pengumuman..."></textarea></div>
+        <div class="form-group"><label>Ditujukan Kepada</label>
+          <select name="targetType" id="annTarget">
+            <option value="semua">Semua (Guru + Siswa)</option>
+            <option value="role">Peran Tertentu</option>
+            <option value="kelas">Kelas Tertentu</option>
+            <option value="individu">Individu</option>
+          </select>
+        </div>
+        <div id="annTargetDetail" class="form-group hidden"></div>
+        <div class="flex-gap" style="justify-content:flex-end;">
+          <button type="button" class="btn btn-secondary" id="cancelBtn">Batal</button>
+          <button type="submit" class="btn btn-primary">Kirim</button>
+        </div>
+      </form>`;
+    UI.modal.open('Buat Pengumuman', body);
+    document.getElementById('cancelBtn').addEventListener('click', () => UI.modal.close());
+
+    const targetSel = document.getElementById('annTarget');
+    const detailBox = document.getElementById('annTargetDetail');
+    targetSel.addEventListener('change', () => {
+      const t = targetSel.value;
+      if (t === 'semua') { detailBox.classList.add('hidden'); detailBox.innerHTML = ''; return; }
+      detailBox.classList.remove('hidden');
+      if (t === 'role') {
+        detailBox.innerHTML = '<label>Peran</label><select name="targetRole"><option value="guru">Guru</option><option value="siswa">Siswa</option></select>';
+      } else if (t === 'kelas') {
+        detailBox.innerHTML = '<label>Kelas</label><div style="max-height:150px;overflow-y:auto;border:1px solid var(--gray-200);border-radius:6px;padding:6px;">' +
+          courses.map(c => `<label style="display:block;padding:4px;"><input type="checkbox" name="tid" value="${c.id}" /> ${UI.esc(c.title)}</label>`).join('') + '</div>';
+      } else {
+        const users = DB.getUsers().filter(u => u.role !== 'admin');
+        detailBox.innerHTML = '<label>Individu</label><input id="annIndSearch" placeholder="Cari..." style="margin-bottom:6px;padding:6px;border:1px solid var(--gray-300);border-radius:4px;width:100%;" /><div id="annIndList" style="max-height:150px;overflow-y:auto;border:1px solid var(--gray-200);border-radius:6px;padding:6px;">' +
+          users.map(u => `<label style="display:block;padding:4px;" data-n="${u.name.toLowerCase()}"><input type="checkbox" name="tid" value="${u.id}" /> ${UI.esc(u.name)} (${u.role})</label>`).join('') + '</div>';
+        setTimeout(() => {
+          const search = document.getElementById('annIndSearch');
+          if (search) search.addEventListener('input', (e) => {
+            const q = e.target.value.toLowerCase();
+            document.querySelectorAll('#annIndList label').forEach(l => { l.style.display = l.dataset.n.includes(q) ? '' : 'none'; });
+          });
+        }, 50);
+      }
+    });
+
+    document.getElementById('annForm').addEventListener('submit', (e) => {
+      e.preventDefault();
+      const fd = new FormData(e.target);
+      const payload = {
+        title: fd.get('title').trim(),
+        content: fd.get('content').trim(),
+        targetType: fd.get('targetType'),
+        targetRole: fd.get('targetRole') || null,
+        targetIds: fd.getAll('tid').length > 0 ? fd.getAll('tid') : null,
+        authorId: user.id
+      };
+      DB.addAnnouncement(payload);
+      UI.toast('Pengumuman dipublikasikan!');
+      UI.modal.close();
+      renderAnnouncements(container, user);
+    });
+  }
 })(window);

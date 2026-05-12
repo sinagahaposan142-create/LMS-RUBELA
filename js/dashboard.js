@@ -14,6 +14,8 @@
       { key: 'attendance', label: 'Absensi', icon: '📋' },
       { key: 'rekap', label: 'Rekapan', icon: '📈' },
       { key: 'kalender', label: 'Kalender', icon: '📅' },
+      { key: 'pengumuman', label: 'Pengumuman', icon: '📢' },
+      { key: 'feedback', label: 'Kritik & Saran', icon: '💬' },
       { key: 'keuangan', label: 'Keuangan', icon: '💰' },
       { key: 'settings', label: 'Pengaturan', icon: '⚙️' }
     ],
@@ -27,6 +29,8 @@
       { key: 'grading', label: 'Penilaian Tugas', icon: '✅' },
       { key: 'absensi', label: 'Absensi', icon: '📋' },
       { key: 'kalender', label: 'Kalender', icon: '📅' },
+      { key: 'pengumuman', label: 'Pengumuman', icon: '📢' },
+      { key: 'feedback', label: 'Kritik & Saran', icon: '💬' },
       { key: 'keuangan', label: 'Honor Saya', icon: '💰' },
       { key: 'profile', label: 'Profil', icon: '👤' }
     ],
@@ -41,6 +45,8 @@
       { key: 'grades', label: 'Nilai', icon: '🏆' },
       { key: 'absensi', label: 'Absensi Saya', icon: '📋' },
       { key: 'kalender', label: 'Kalender', icon: '📅' },
+      { key: 'pengumuman', label: 'Pengumuman', icon: '📢' },
+      { key: 'feedback', label: 'Kritik & Saran', icon: '💬' },
       { key: 'keuangan', label: 'Pembayaran', icon: '💰' },
       { key: 'profile', label: 'Profil', icon: '👤' }
     ]

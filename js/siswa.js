@@ -18,6 +18,8 @@
     if (section === 'grades') return renderGrades(container, user);
     if (section === 'absensi') return renderAbsensiSection(container, user);
     if (section === 'kalender') return Shared.renderCalendar(container, user);
+    if (section === 'pengumuman') return Shared.renderAnnouncements(container, user);
+    if (section === 'feedback') return Shared.renderFeedback(container, user);
     if (section === 'keuangan') return renderPaymentsSection(container, user);
     if (section === 'profile') return renderProfile(container, user);
   }

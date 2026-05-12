@@ -428,6 +428,51 @@
       localStorage.setItem('lms_class_options', JSON.stringify(list));
     },
 
+    /* ===== Feedback (Kritik & Saran) ===== */
+    getFeedbacks: () => {
+      try { return JSON.parse(localStorage.getItem('lms_feedbacks') || '[]'); } catch(e) { return []; }
+    },
+    addFeedback: (fb) => {
+      const list = JSON.parse(localStorage.getItem('lms_feedbacks') || '[]');
+      if (!fb.id) fb.id = uid('fb');
+      fb.createdAt = Date.now();
+      list.push(fb);
+      localStorage.setItem('lms_feedbacks', JSON.stringify(list));
+      return fb;
+    },
+    deleteFeedback: (id) => {
+      const list = JSON.parse(localStorage.getItem('lms_feedbacks') || '[]').filter(f => f.id !== id);
+      localStorage.setItem('lms_feedbacks', JSON.stringify(list));
+    },
+
+    /* ===== Announcements (Pengumuman) ===== */
+    getAnnouncements: () => {
+      try { return JSON.parse(localStorage.getItem('lms_announcements') || '[]'); } catch(e) { return []; }
+    },
+    getAnnouncement: (id) => {
+      return (JSON.parse(localStorage.getItem('lms_announcements') || '[]')).find(a => a.id === id) || null;
+    },
+    addAnnouncement: (a) => {
+      const list = JSON.parse(localStorage.getItem('lms_announcements') || '[]');
+      if (!a.id) a.id = uid('ann');
+      a.createdAt = Date.now();
+      list.push(a);
+      localStorage.setItem('lms_announcements', JSON.stringify(list));
+      return a;
+    },
+    updateAnnouncement: (id, patch) => {
+      const list = JSON.parse(localStorage.getItem('lms_announcements') || '[]');
+      const idx = list.findIndex(a => a.id === id);
+      if (idx === -1) return null;
+      list[idx] = Object.assign({}, list[idx], patch);
+      localStorage.setItem('lms_announcements', JSON.stringify(list));
+      return list[idx];
+    },
+    deleteAnnouncement: (id) => {
+      const list = JSON.parse(localStorage.getItem('lms_announcements') || '[]').filter(a => a.id !== id);
+      localStorage.setItem('lms_announcements', JSON.stringify(list));
+    },
+
     /* ===== Academic Batches (Tahun Akademik) ===== */
     getBatches: () => {
       try { return JSON.parse(localStorage.getItem('lms_batches') || '[]'); } catch(e) { return []; }
