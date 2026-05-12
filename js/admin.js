@@ -119,7 +119,13 @@
       <div class="card">
         <div class="card-header">
           <h3>${isGuru ? 'Daftar Guru' : 'Daftar Siswa'} (${list.length})</h3>
-          <button class="btn btn-primary btn-sm" id="addUserBtn">+ Tambah ${isGuru ? 'Guru' : 'Siswa'}</button>
+          <div class="flex-gap">
+            <button class="btn btn-sm btn-secondary" id="exportBtn">Export Excel</button>
+            <label class="btn btn-sm btn-secondary" style="cursor:pointer;">Import Excel
+              <input type="file" id="importFile" accept=".xlsx,.xls,.csv" style="display:none;" />
+            </label>
+            <button class="btn btn-primary btn-sm" id="addUserBtn">+ Tambah ${isGuru ? 'Guru' : 'Siswa'}</button>
+          </div>
         </div>
         ${list.length === 0 ? emptyState('Belum ada data.') : `
         <div class="table-wrap"><table class="table">
@@ -155,6 +161,75 @@
       UI.toast('Pengguna dihapus.');
       renderUsers(container, role);
     }));
+
+    // Export Excel
+    document.getElementById('exportBtn').addEventListener('click', () => {
+      const users = DB.getUsers().filter(u => u.role === role);
+      let rows;
+      if (isGuru) {
+        rows = users.map(u => ({
+          Nama: u.name, Username: u.username, Email: u.email || '',
+          WhatsApp: u.whatsapp || '', Subtest: u.subject || '',
+          'Tarif Gaji': u.salaryRate || 0, Status: u.status || 'Aktif'
+        }));
+      } else {
+        rows = users.map(u => ({
+          Nama: u.name, Username: u.username, Email: u.email || '',
+          Telepon: u.phone || '', Kelas: u.kelas || '',
+          'Universitas Tujuan': u.targetUniv || '', 'Jurusan Tujuan': u.targetMajor || '',
+          Status: u.status || 'Aktif'
+        }));
+      }
+      if (typeof XLSX === 'undefined') { UI.toast('Library Excel belum termuat. Coba reload halaman.', 'error'); return; }
+      const ws = XLSX.utils.json_to_sheet(rows);
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, isGuru ? 'Guru' : 'Siswa');
+      XLSX.writeFile(wb, `data_${role}_${UI.todayYMD()}.xlsx`);
+      UI.toast('File Excel berhasil diunduh.');
+    });
+
+    // Import Excel
+    document.getElementById('importFile').addEventListener('change', (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = (evt) => {
+        try {
+          if (typeof XLSX === 'undefined') { UI.toast('Library Excel belum termuat.', 'error'); return; }
+          const wb = XLSX.read(evt.target.result, { type: 'array' });
+          const ws = wb.Sheets[wb.SheetNames[0]];
+          const rows = XLSX.utils.sheet_to_json(ws);
+          if (rows.length === 0) { UI.toast('File kosong atau format tidak sesuai.', 'error'); return; }
+          let added = 0, skipped = 0;
+          rows.forEach(row => {
+            const name = (row.Nama || row.nama || '').trim();
+            const username = (row.Username || row.username || '').trim();
+            const email = (row.Email || row.email || '').trim();
+            if (!name || !username) { skipped++; return; }
+            if (DB.findUserByUsername(username)) { skipped++; return; }
+            const record = { id: DB.uid('u'), role, name, username, email, password: 'password123', status: (row.Status || row.status || 'Aktif') };
+            if (isGuru) {
+              record.subject = row.Subtest || row.subtest || row['Mata Pelajaran'] || '';
+              record.whatsapp = String(row.WhatsApp || row.whatsapp || row.WA || '');
+              record.salaryRate = Number(row['Tarif Gaji'] || row.salaryRate || 0);
+            } else {
+              record.kelas = row.Kelas || row.kelas || '';
+              record.phone = String(row.Telepon || row.telepon || row.Phone || row.phone || '');
+              record.targetUniv = row['Universitas Tujuan'] || row.targetUniv || '';
+              record.targetMajor = row['Jurusan Tujuan'] || row.targetMajor || '';
+            }
+            DB.addUser(record);
+            added++;
+          });
+          UI.toast(`Import selesai: ${added} ditambahkan, ${skipped} dilewati (duplikat/kosong).`, added > 0 ? 'success' : 'info');
+          renderUsers(container, role);
+        } catch (err) {
+          UI.toast('Gagal membaca file: ' + err.message, 'error');
+        }
+      };
+      reader.readAsArrayBuffer(file);
+      e.target.value = ''; // reset input
+    });
   }
 
   function openUserForm(role, editId) {
