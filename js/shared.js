@@ -393,8 +393,6 @@
     }
   }
 
-  global.Shared = { toEmbedUrl, videoEmbedHtml, startCbt, showCbtResult, renderCalendar, renderFeedback, renderAnnouncements, renderChat, renderAiTools, renderAiAnalytics };
-
   /* ===== Feedback / Kritik & Saran ===== */
   function renderFeedback(container, user) {
     const allFeedbacks = DB.getFeedbacks().sort((a, b) => b.createdAt - a.createdAt);
@@ -1035,4 +1033,571 @@
     }));
     renderTab();
   }
+
+  /* =======================================================================
+   * PASSWORD KELAS
+   * Admin dan guru pemilik kelas dapat mengatur password; siswa memasukkan
+   * password tersebut saat bergabung sendiri lewat "Jelajah Kelas".
+   * ===================================================================== */
+
+  /** Form pengaturan password kelas (dipakai admin & guru). */
+  function openCoursePasswordForm(courseId, onDone) {
+    const course = DB.getCourse(courseId);
+    if (!course) { UI.toast('Kelas tidak ditemukan.', 'error'); return; }
+    const current = course.password || '';
+    const body = `
+      <div class="muted small mb-2">Kelas: <strong>${UI.esc(course.title)}</strong></div>
+      <form id="coursePwForm" class="form">
+        <div class="form-group">
+          <label>Password Kelas</label>
+          <input name="password" id="coursePwInput" value="${UI.esc(current)}" placeholder="mis. mat2026" autocomplete="off" />
+          <p class="muted small" style="margin:6px 0 0;">Kosongkan untuk membuat kelas terbuka (tanpa password).</p>
+        </div>
+        <div class="alert alert-info">
+          Password ini hanya diminta ketika <strong>siswa bergabung sendiri</strong> dari halaman Jelajah Kelas.
+          Admin tetap dapat menambahkan siswa langsung tanpa password.
+        </div>
+        <div class="flex-gap" style="justify-content:space-between;">
+          <button type="button" class="btn btn-secondary" id="genPwBtn">🎲 Buat Otomatis</button>
+          <div class="flex-gap">
+            ${current ? '<button type="button" class="btn btn-danger" id="clearPwBtn">Hapus Password</button>' : ''}
+            <button type="submit" class="btn btn-primary">Simpan</button>
+          </div>
+        </div>
+      </form>`;
+    UI.modal.open('🔒 Password Kelas', body);
+
+    document.getElementById('genPwBtn').addEventListener('click', () => {
+      const slug = (course.title || 'kelas').toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 4) || 'kls';
+      const input = document.getElementById('coursePwInput');
+      input.value = slug + Math.floor(1000 + Math.random() * 9000);
+      if (window.Effects) Effects.pop(input);
+    });
+    const clearBtn = document.getElementById('clearPwBtn');
+    if (clearBtn) clearBtn.addEventListener('click', () => {
+      DB.updateCourse(courseId, { password: '' });
+      UI.toast('Password dihapus. Kelas kini terbuka.', 'info');
+      UI.modal.close();
+      if (typeof onDone === 'function') onDone();
+    });
+    document.getElementById('coursePwForm').addEventListener('submit', (e) => {
+      e.preventDefault();
+      const pw = (new FormData(e.target).get('password') || '').trim();
+      DB.updateCourse(courseId, { password: pw });
+      UI.toast(pw ? 'Password kelas disimpan. 🔒' : 'Kelas disetel terbuka tanpa password.');
+      UI.modal.close();
+      if (typeof onDone === 'function') onDone();
+    });
+  }
+
+  /** Gerbang password saat siswa ingin bergabung ke kelas terkunci. */
+  function openCoursePasswordGate(course, user, onSuccess) {
+    // Kelas terbuka -> langsung lolos
+    if (!DB.hasCoursePassword(course.id)) { onSuccess(); return; }
+    const teacher = DB.getUser(course.teacherId);
+    let attempts = 0;
+    const body = `
+      <div class="pw-gate">
+        <span class="lock-ic">🔐</span>
+        <h3 style="margin:0 0 4px;">${UI.esc(course.title)}</h3>
+        <p class="muted small">Kelas ini dilindungi password. Mintalah password kepada
+        <strong>${UI.esc(teacher ? teacher.name : 'guru pengajar')}</strong> atau admin.</p>
+      </div>
+      <form id="gateForm" class="form mt-2">
+        <div class="form-group">
+          <label>Password Kelas</label>
+          <input class="pw-input-big" type="password" name="pw" id="gatePw" autocomplete="off" required />
+        </div>
+        <div id="gateErr" class="alert alert-error hidden"></div>
+        <div class="flex-gap" style="justify-content:flex-end;">
+          <button type="button" class="btn btn-secondary" id="gateCancel">Batal</button>
+          <button type="submit" class="btn btn-primary">Buka & Gabung</button>
+        </div>
+      </form>`;
+    UI.modal.open('Masuk Kelas Terkunci', body);
+    document.getElementById('gateCancel').addEventListener('click', () => UI.modal.close());
+    document.getElementById('gateForm').addEventListener('submit', (e) => {
+      e.preventDefault();
+      const val = new FormData(e.target).get('pw');
+      const err = document.getElementById('gateErr');
+      if (DB.verifyCoursePassword(course.id, val)) {
+        UI.modal.close();
+        onSuccess();
+        return;
+      }
+      attempts++;
+      err.textContent = attempts >= 3
+        ? 'Password masih salah. Hubungi guru atau admin untuk mendapatkan password kelas.'
+        : 'Password kelas salah. Coba lagi.';
+      err.classList.remove('hidden');
+      const input = document.getElementById('gatePw');
+      input.value = '';
+      input.focus();
+      if (window.Effects) {
+        Effects.shake(document.querySelector('#genericModal .modal-content'));
+        Effects.pop(err);
+      }
+    });
+  }
+
+  /* =======================================================================
+   * GAMIFIKASI: poin, level, papan peringkat, lencana
+   * Semua dihitung dari data nyata (tugas, CBT, absensi) agar selalu sinkron.
+   * ===================================================================== */
+  function studentStats(studentId) {
+    const subs = DB.getSubmissionsByStudent(studentId);
+    const graded = subs.filter(s => s.grade != null);
+    const avgAsg = graded.length ? Math.round(graded.reduce((a, s) => a + s.grade, 0) / graded.length) : null;
+    const attempts = DB.getCbtAttemptsByStudent(studentId).filter(a => a.submittedAt);
+    const avgCbt = attempts.length ? Math.round(attempts.reduce((a, x) => a + (x.score || 0), 0) / attempts.length) : null;
+    const att = DB.getAttendanceByUser(studentId).filter(a => a.role === 'siswa');
+    const counts = { hadir: 0, izin: 0, sakit: 0, alfa: 0 };
+    att.forEach(a => { counts[a.status] = (counts[a.status] || 0) + 1; });
+    const attendancePct = att.length ? Math.round(counts.hadir / att.length * 100) : 0;
+    const enrolled = DB.getEnrollmentsByStudent(studentId);
+
+    // Poin: aktivitas nyata + kualitas hasil
+    const points = Math.max(0, Math.round(
+      counts.hadir * 5
+      + subs.length * 10
+      + graded.reduce((a, s) => a + s.grade, 0) / 10
+      + attempts.length * 15
+      + attempts.reduce((a, x) => a + (x.score || 0), 0) / 10
+      - counts.alfa * 4
+    ));
+    const level = Math.floor(points / 120) + 1;
+    const nextLevelAt = level * 120;
+    const levelProgress = Math.min(100, Math.round(((points - (level - 1) * 120) / 120) * 100));
+
+    // Tugas yang belum dikumpulkan dari kelas yang diikuti
+    const courseIds = enrolled.map(e => e.courseId);
+    const allAsg = DB.getAssignments().filter(a => courseIds.includes(a.courseId));
+    const submittedIds = new Set(subs.map(s => s.assignmentId));
+    const pendingAsg = allAsg.filter(a => !submittedIds.has(a.id));
+
+    return {
+      studentId, points, level, nextLevelAt, levelProgress,
+      submissions: subs.length, gradedCount: graded.length, avgAsg,
+      cbtDone: attempts.length, avgCbt,
+      attendanceCounts: counts, attendanceTotal: att.length, attendancePct,
+      courses: enrolled.length, assignmentsTotal: allAsg.length, pendingAsg
+    };
+  }
+
+  const ACHIEVEMENTS = [
+    { id: 'first_step', ic: '🌱', nm: 'Langkah Pertama', ds: 'Gabung kelas pertama', test: s => s.courses >= 1 },
+    { id: 'collector', ic: '📚', nm: 'Kolektor Kelas', ds: 'Ikuti 3 kelas', test: s => s.courses >= 3 },
+    { id: 'rajin', ic: '✍️', nm: 'Rajin Mengerjakan', ds: 'Kumpulkan 5 tugas', test: s => s.submissions >= 5 },
+    { id: 'perfect_att', ic: '🎯', nm: 'Disiplin', ds: 'Kehadiran ≥ 90%', test: s => s.attendanceTotal >= 3 && s.attendancePct >= 90 },
+    { id: 'cbt_master', ic: '🖥️', nm: 'Jagoan CBT', ds: 'Selesaikan 3 ujian', test: s => s.cbtDone >= 3 },
+    { id: 'high_score', ic: '⭐', nm: 'Nilai Cemerlang', ds: 'Rata-rata tugas ≥ 85', test: s => s.avgAsg != null && s.avgAsg >= 85 },
+    { id: 'cbt_ace', ic: '🧠', nm: 'Otak Encer', ds: 'Rata-rata CBT ≥ 80', test: s => s.avgCbt != null && s.avgCbt >= 80 },
+    { id: 'level5', ic: '🚀', nm: 'Level 5', ds: 'Capai level 5', test: s => s.level >= 5 },
+    { id: 'no_pending', ic: '✅', nm: 'Zero Tunggakan', ds: 'Tidak ada tugas tertunda', test: s => s.assignmentsTotal > 0 && s.pendingAsg.length === 0 }
+  ];
+
+  function achievementsFor(stats) {
+    return ACHIEVEMENTS.map(a => ({ ...a, unlocked: !!a.test(stats) }));
+  }
+
+  function achievementsHtml(stats) {
+    const list = achievementsFor(stats);
+    const got = list.filter(a => a.unlocked).length;
+    return `
+      <div class="card">
+        <div class="card-header">
+          ${UI.secHead('🏅', 'Lencana Pencapaian', `${got} dari ${list.length} lencana terbuka`)}
+        </div>
+        ${UI.progressHtml(Math.round(got / list.length * 100), 'Progres koleksi lencana')}
+        <div class="ach-grid mt-2">
+          ${list.map(a => `
+            <div class="ach ${a.unlocked ? 'unlocked' : 'locked'}" title="${UI.esc(a.ds)}">
+              <span class="ic">${a.unlocked ? a.ic : '🔒'}</span>
+              <div class="nm">${UI.esc(a.nm)}</div>
+              <div class="ds">${UI.esc(a.ds)}</div>
+            </div>`).join('')}
+        </div>
+      </div>`;
+  }
+
+  /** Papan peringkat siswa. Bisa difilter per kelas via chip (tanpa dropdown). */
+  function renderLeaderboard(container, user) {
+    const courses = DB.getCourses();
+    let activeCourse = '';
+
+    const build = () => {
+      let students = DB.getUsers().filter(u => u.role === 'siswa' && (u.status || 'Aktif') === 'Aktif');
+      if (activeCourse) {
+        const ids = new Set(DB.getEnrollmentsByCourse(activeCourse).map(e => e.studentId));
+        students = students.filter(s => ids.has(s.id));
+      }
+      const rows = students
+        .map(s => ({ s, st: studentStats(s.id) }))
+        .sort((a, b) => b.st.points - a.st.points || a.s.name.localeCompare(b.s.name));
+
+      const top = rows[0];
+      const myRank = rows.findIndex(r => r.s.id === user.id) + 1;
+      const avgPoints = rows.length ? Math.round(rows.reduce((a, r) => a + r.st.points, 0) / rows.length) : 0;
+
+      container.innerHTML = `
+        <div class="stats-grid">
+          <div class="stat-card accent-warning">
+            <div class="label">Juara Saat Ini</div>
+            <div class="value" style="font-size:20px;">${top ? UI.esc(top.s.name.split(' ')[0]) : '-'}</div>
+            <div class="sub">${top ? top.st.points + ' poin • Level ' + top.st.level : 'Belum ada data'}</div>
+          </div>
+          <div class="stat-card accent-primary">
+            <div class="label">Peserta</div>
+            <div class="value">${rows.length}</div>
+            <div class="sub">siswa aktif diperingkat</div>
+          </div>
+          <div class="stat-card accent-success">
+            <div class="label">Rata-rata Poin</div>
+            <div class="value">${avgPoints}</div>
+            <div class="sub">seluruh peserta</div>
+          </div>
+          ${user.role === 'siswa' ? `
+          <div class="stat-card accent-danger">
+            <div class="label">Peringkat Saya</div>
+            <div class="value">${myRank > 0 ? '#' + myRank : '-'}</div>
+            <div class="sub">${myRank > 0 ? rows[myRank - 1].st.points + ' poin' : 'Belum masuk peringkat'}</div>
+          </div>` : ''}
+        </div>
+
+        <div class="card">
+          <div class="card-header">
+            ${UI.secHead('🏆', 'Papan Peringkat', 'Poin dihitung dari kehadiran, tugas, dan hasil CBT')}
+          </div>
+          <div class="class-chips">
+            <button type="button" class="class-chip ${activeCourse === '' ? 'is-active' : ''}" data-lb-course="">
+              <span class="cc-dot"></span>
+              <span class="cc-title">Semua Kelas</span>
+              <span class="cc-meta">${DB.getUsers().filter(u => u.role === 'siswa').length} siswa</span>
+            </button>
+            ${courses.map(c => `
+              <button type="button" class="class-chip ${activeCourse === c.id ? 'is-active' : ''}" data-lb-course="${c.id}">
+                <span class="cc-dot"></span>
+                <span class="cc-title">${UI.esc(c.title)}</span>
+                <span class="cc-meta">${DB.getEnrollmentsByCourse(c.id).length} siswa</span>
+              </button>`).join('')}
+          </div>
+        </div>
+
+        <div class="card">
+          ${rows.length === 0
+            ? '<div class="empty"><div class="empty-icon">🏅</div>Belum ada siswa untuk diperingkat.</div>'
+            : `<div class="lb-list">${rows.map((r, i) => {
+                const medal = i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : (i + 1);
+                const cls = i === 0 ? 'top1' : i === 1 ? 'top2' : i === 2 ? 'top3' : '';
+                return `<div class="lb-row ${cls} ${r.s.id === user.id ? 'is-me' : ''}" style="animation-delay:${Math.min(0.4, i * 0.04)}s;">
+                  <div class="rank">${medal}</div>
+                  <div class="avatar">${UI.initials(r.s.name)}</div>
+                  <div class="who">
+                    <div class="nm">${UI.esc(r.s.name)}${r.s.id === user.id ? ' <span class="badge badge-info">Saya</span>' : ''}</div>
+                    <div class="mt">Level ${r.st.level} • ${UI.esc(r.s.kelas || '-')} • Kehadiran ${r.st.attendancePct}% • ${r.st.submissions} tugas • ${r.st.cbtDone} CBT</div>
+                  </div>
+                  <div class="pts">${r.st.points}<small>poin</small></div>
+                </div>`;
+              }).join('')}</div>`}
+        </div>
+      `;
+
+      container.querySelectorAll('[data-lb-course]').forEach(b => b.addEventListener('click', () => {
+        activeCourse = b.dataset.lbCourse;
+        build();
+        if (window.Effects) Effects.enhance(container);
+      }));
+      if (window.Effects) Effects.enhance(container);
+    };
+    build();
+  }
+
+  /* =======================================================================
+   * ABSENSI: lembar presensi dengan pilihan status berbentuk kotak/bulat
+   * yang berbaris ke samping (tanpa dropdown) — dipakai guru & admin.
+   * ===================================================================== */
+  const ATT_STATUSES = [
+    { key: 'hadir', label: 'Hadir', short: 'H', ic: '✓' },
+    { key: 'izin', label: 'Izin', short: 'I', ic: '✎' },
+    { key: 'sakit', label: 'Sakit', short: 'S', ic: '✚' },
+    { key: 'alfa', label: 'Alfa', short: 'A', ic: '✕' }
+  ];
+
+  /** Deretan kotak pemilih kelas (pengganti dropdown). */
+  function classChipsHtml(courses, activeId, attrName) {
+    const attr = attrName || 'data-course-chip';
+    if (!courses.length) return '';
+    return `<div class="class-chips">
+      ${courses.map(c => {
+        const teacher = DB.getUser(c.teacherId);
+        return `<button type="button" class="class-chip ${activeId === c.id ? 'is-active' : ''}" ${attr}="${c.id}">
+          <span class="cc-dot"></span>
+          <span class="cc-title">${UI.esc(c.title)}</span>
+          <span class="cc-meta">${DB.getEnrollmentsByCourse(c.id).length} siswa • ${UI.esc(teacher ? teacher.name.split(' ').slice(-1)[0] : '-')}</span>
+        </button>`;
+      }).join('')}
+    </div>`;
+  }
+
+  /**
+   * Lembar presensi interaktif.
+   * opts = { container, courseId, date, user, canMarkTeacher, round, onDateChange, onSaved }
+   * Setiap klik status langsung tersimpan (auto-save) sehingga absensi cepat.
+   */
+  function renderAttendanceSheet(opts) {
+    const { container, courseId, user } = opts;
+    const course = DB.getCourse(courseId);
+    if (!course) {
+      container.innerHTML = '<div class="empty"><div class="empty-icon">📭</div>Kelas tidak ditemukan.</div>';
+      return;
+    }
+    let date = opts.date || UI.todayYMD();
+    const canMarkTeacher = opts.canMarkTeacher !== false;
+    const roundStyle = !!opts.round;
+
+    // Daftar peserta: guru pengajar (opsional) + siswa terdaftar
+    const teacher = DB.getUser(course.teacherId);
+    const students = DB.getEnrollmentsByCourse(course.id)
+      .map(e => DB.getUser(e.studentId))
+      .filter(Boolean)
+      .sort((a, b) => a.name.localeCompare(b.name));
+
+    const people = [];
+    if (canMarkTeacher && teacher) {
+      people.push({ u: teacher, role: 'guru', tag: teacher.id === user.id ? 'Saya (Guru)' : 'Guru Pengajar' });
+    }
+    students.forEach(s => people.push({ u: s, role: 'siswa', tag: s.kelas || 'Siswa' }));
+
+    // Draft awal diambil dari data tersimpan; default 'hadir' bila belum ada.
+    const draft = {};
+    people.forEach(p => {
+      const rec = DB.getAttendanceRecord(course.id, p.u.id, date);
+      draft[p.u.id] = {
+        status: rec ? rec.status : 'hadir',
+        note: rec ? (rec.note || '') : '',
+        saved: !!rec
+      };
+    });
+
+    paint();
+
+    function summary() {
+      const c = { hadir: 0, izin: 0, sakit: 0, alfa: 0 };
+      people.forEach(p => { c[draft[p.u.id].status] = (c[draft[p.u.id].status] || 0) + 1; });
+      return c;
+    }
+
+    function paint() {
+      const c = summary();
+      const savedCount = people.filter(p => draft[p.u.id].saved).length;
+      container.innerHTML = `
+        <div class="card">
+          <div class="card-header">
+            ${UI.secHead('📋', 'Ambil Presensi', `${UI.esc(course.title)} • ${UI.fmtYMD(date)}`)}
+          </div>
+
+          <div class="att-toolbar">
+            <span class="lbl">Tanggal</span>
+            <input type="date" id="attSheetDate" value="${date}" />
+            <span class="lbl" style="margin-left:6px;">Tandai Semua</span>
+            ${ATT_STATUSES.map(s => `
+              <button type="button" class="att-pill p-${s.key}" data-bulk="${s.key}" title="Tandai semua ${s.label}">
+                <span class="dot"></span>${s.label}
+              </button>`).join('')}
+            <button type="button" class="btn btn-sm btn-secondary" id="attReset" style="margin-left:auto;">↺ Muat Ulang</button>
+          </div>
+
+          <div class="att-legend">
+            <span><i style="background:var(--success);"></i>Hadir ${c.hadir}</span>
+            <span><i style="background:var(--accent);"></i>Izin ${c.izin}</span>
+            <span><i style="background:var(--warning);"></i>Sakit ${c.sakit}</span>
+            <span><i style="background:var(--danger);"></i>Alfa ${c.alfa}</span>
+            <span class="muted">• ${savedCount}/${people.length} tersimpan</span>
+          </div>
+
+          ${people.length === 0
+            ? '<div class="empty"><div class="empty-icon">👥</div>Belum ada siswa terdaftar di kelas ini.</div>'
+            : `<div class="att-sheet">
+                ${people.map((p, i) => rowHtml(p, i)).join('')}
+              </div>`}
+
+          ${people.length ? `
+          <div class="att-sticky-save">
+            <div class="muted small">
+              <strong>${c.hadir}</strong> hadir • <strong>${c.izin}</strong> izin •
+              <strong>${c.sakit}</strong> sakit • <strong>${c.alfa}</strong> alfa
+              <div>Perubahan status tersimpan otomatis saat diklik.</div>
+            </div>
+            <div class="flex-gap">
+              <button class="btn btn-secondary" id="attSaveNotes">Simpan Catatan</button>
+              <button class="btn btn-success" id="attSaveAll">✔ Simpan &amp; Selesai</button>
+            </div>
+          </div>` : ''}
+        </div>
+      `;
+      bind();
+      if (window.Effects) Effects.enhance(container);
+    }
+
+    function rowHtml(p, i) {
+      const d = draft[p.u.id];
+      return `
+        <div class="att-row" data-uid="${p.u.id}" data-role="${p.role}" style="animation-delay:${Math.min(0.35, i * 0.03)}s;">
+          <div class="att-person">
+            <div class="avatar">${UI.initials(p.u.name)}</div>
+            <div>
+              <div class="nm">${UI.esc(p.u.name)}</div>
+              <div class="sub">${UI.esc(p.tag)}${p.role === 'guru' ? ' • presensi guru' : ''}</div>
+            </div>
+          </div>
+          <div class="att-pills ${roundStyle ? 'round' : ''}">
+            ${ATT_STATUSES.map(s => `
+              <button type="button" class="att-pill p-${s.key} ${d.status === s.key ? 'is-on' : ''}"
+                      data-status="${s.key}" title="${s.label}">
+                <span class="dot"></span>${roundStyle ? s.short : s.label}
+              </button>`).join('')}
+          </div>
+          <input class="att-note" placeholder="Catatan (opsional)..." value="${UI.esc(d.note)}" />
+          <div class="att-state ${d.saved ? 'ok' : ''}">${d.saved ? '✓ Tersimpan' : 'Belum'}</div>
+        </div>`;
+    }
+
+    function persist(uid, role) {
+      const d = draft[uid];
+      DB.upsertAttendance(course.id, uid, role, date, d.status, d.note);
+      d.saved = true;
+    }
+
+    function bind() {
+      const dateInput = container.querySelector('#attSheetDate');
+      if (dateInput) dateInput.addEventListener('change', (e) => {
+        date = e.target.value || UI.todayYMD();
+        if (typeof opts.onDateChange === 'function') opts.onDateChange(date);
+        // Muat ulang draft untuk tanggal baru
+        people.forEach(p => {
+          const rec = DB.getAttendanceRecord(course.id, p.u.id, date);
+          draft[p.u.id] = {
+            status: rec ? rec.status : 'hadir',
+            note: rec ? (rec.note || '') : '',
+            saved: !!rec
+          };
+        });
+        paint();
+      });
+
+      // Klik satu status -> langsung tersimpan
+      container.querySelectorAll('.att-row').forEach(row => {
+        const uid = row.dataset.uid;
+        const role = row.dataset.role;
+        row.querySelectorAll('[data-status]').forEach(btn => btn.addEventListener('click', () => {
+          draft[uid].status = btn.dataset.status;
+          row.querySelectorAll('[data-status]').forEach(b => b.classList.remove('is-on'));
+          btn.classList.add('is-on');
+          persist(uid, role);
+          const state = row.querySelector('.att-state');
+          state.textContent = '✓ Tersimpan';
+          state.classList.add('ok');
+          row.classList.remove('saved-flash');
+          void row.offsetWidth;
+          row.classList.add('saved-flash');
+          refreshLegend();
+        }));
+        const note = row.querySelector('.att-note');
+        if (note) {
+          note.addEventListener('change', () => {
+            draft[uid].note = note.value;
+            persist(uid, role);
+          });
+        }
+      });
+
+      // Tandai semua sekaligus
+      container.querySelectorAll('[data-bulk]').forEach(b => b.addEventListener('click', () => {
+        const st = b.dataset.bulk;
+        people.forEach(p => { draft[p.u.id].status = st; persist(p.u.id, p.role); });
+        UI.toast(`Semua peserta ditandai ${st.toUpperCase()}.`, 'info');
+        paint();
+      }));
+
+      const reset = container.querySelector('#attReset');
+      if (reset) reset.addEventListener('click', () => {
+        people.forEach(p => {
+          const rec = DB.getAttendanceRecord(course.id, p.u.id, date);
+          draft[p.u.id] = { status: rec ? rec.status : 'hadir', note: rec ? (rec.note || '') : '', saved: !!rec };
+        });
+        paint();
+      });
+
+      const saveNotes = container.querySelector('#attSaveNotes');
+      if (saveNotes) saveNotes.addEventListener('click', () => {
+        container.querySelectorAll('.att-row').forEach(row => {
+          const uid = row.dataset.uid;
+          draft[uid].note = row.querySelector('.att-note').value;
+          persist(uid, row.dataset.role);
+        });
+        UI.toast('Catatan presensi disimpan.');
+        paint();
+      });
+
+      const saveAll = container.querySelector('#attSaveAll');
+      if (saveAll) saveAll.addEventListener('click', () => {
+        container.querySelectorAll('.att-row').forEach(row => {
+          const uid = row.dataset.uid;
+          draft[uid].note = row.querySelector('.att-note').value;
+          persist(uid, row.dataset.role);
+        });
+        // Beritahu siswa alfa + orang tuanya agar data tetap tersinkron
+        let alerted = 0;
+        people.filter(p => p.role === 'siswa' && draft[p.u.id].status === 'alfa').forEach(p => {
+          DB.notifyStudentAndParents(p.u.id, {
+            type: 'absensi', icon: '⚠️',
+            title: 'Tercatat tidak hadir (Alfa)',
+            body: `${course.title} — ${UI.fmtYMD(date)}${draft[p.u.id].note ? ' • ' + draft[p.u.id].note : ''}`,
+            link: 'absensi'
+          }, { link: 'anak-absensi', title: `${p.u.name} tercatat Alfa` });
+          alerted++;
+        });
+        const c = summary();
+        UI.toast(`Presensi tersimpan: ${c.hadir} hadir, ${c.izin} izin, ${c.sakit} sakit, ${c.alfa} alfa.` +
+          (alerted ? ` ${alerted} notifikasi alfa dikirim.` : ''));
+        if (typeof opts.onSaved === 'function') opts.onSaved(date);
+        paint();
+      });
+    }
+
+    function refreshLegend() {
+      const c = summary();
+      const savedCount = people.filter(p => draft[p.u.id].saved).length;
+      const legend = container.querySelector('.att-legend');
+      if (legend) {
+        legend.innerHTML = `
+          <span><i style="background:var(--success);"></i>Hadir ${c.hadir}</span>
+          <span><i style="background:var(--accent);"></i>Izin ${c.izin}</span>
+          <span><i style="background:var(--warning);"></i>Sakit ${c.sakit}</span>
+          <span><i style="background:var(--danger);"></i>Alfa ${c.alfa}</span>
+          <span class="muted">• ${savedCount}/${people.length} tersimpan</span>`;
+      }
+      const sticky = container.querySelector('.att-sticky-save .muted');
+      if (sticky) {
+        sticky.innerHTML = `<strong>${c.hadir}</strong> hadir • <strong>${c.izin}</strong> izin •
+          <strong>${c.sakit}</strong> sakit • <strong>${c.alfa}</strong> alfa
+          <div>Perubahan status tersimpan otomatis saat diklik.</div>`;
+      }
+    }
+  }
+
+  /* ===== Public API =====
+   * Diekspor di akhir file agar semua const (mis. ATT_STATUSES) sudah
+   * terinisialisasi saat objek ini dibuat.
+   */
+  global.Shared = {
+    toEmbedUrl, videoEmbedHtml, startCbt, showCbtResult, renderCalendar, renderFeedback,
+    renderAnnouncements, renderChat, renderAiTools, renderAiAnalytics,
+    // Password kelas
+    openCoursePasswordForm, openCoursePasswordGate,
+    // Gamifikasi & rekap lintas peran
+    studentStats, renderLeaderboard, achievementsFor, achievementsHtml,
+    // Absensi (layout pill / kotak berbaris)
+    renderAttendanceSheet, classChipsHtml, ATT_STATUSES
+  };
 })(window);

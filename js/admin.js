@@ -6,14 +6,16 @@
     if (section === 'overview') return renderOverview(container);
     if (section === 'guru') return renderUsers(container, 'guru');
     if (section === 'siswa') return renderUsers(container, 'siswa');
+    if (section === 'orangtua') return renderParents(container);
     if (section === 'courses') return renderCourses(container);
     if (section === 'admin-cbt') return renderAdminCbt(container, user);
     if (section === 'admin-bank-soal') return renderAdminBankSoal(container, user);
     if (section === 'jadwal-kelas') return renderJadwalKelas(container);
     if (section === 'batch') return renderBatch(container);
     if (section === 'alumni') return renderAlumni(container);
-    if (section === 'attendance') return renderAttendance(container);
+    if (section === 'attendance') return renderAttendance(container, user);
     if (section === 'rekap') return renderRekap(container);
+    if (section === 'leaderboard') return Shared.renderLeaderboard(container, user);
     if (section === 'kalender') return Shared.renderCalendar(container, user);
     if (section === 'pengumuman') return Shared.renderAnnouncements(container, user);
     if (section === 'feedback') return Shared.renderFeedback(container, user);
@@ -37,8 +39,32 @@
     const expense = DB.getExpenses().reduce((s, e) => s + (e.amount || 0), 0)
                   + DB.getSalaries().filter(s => s.status === 'dibayar').reduce((s, p) => s + (p.amount || 0), 0);
     const profit = income - expense;
+    const parents = DB.getParents();
+    const lockedCourses = courses.filter(c => DB.hasCoursePassword(c.id)).length;
+    const todayAtt = DB.getAttendance().filter(a => a.date === UI.todayYMD()).length;
 
     container.innerHTML = `
+      <section class="welcome-hero hero-admin">
+        <span class="blob b1"></span><span class="blob b2"></span><span class="blob b3"></span>
+        <div class="wh-inner">
+          <div class="wh-eyebrow">${UI.esc(UI.greeting())} • ${UI.esc(UI.fmtFullDateTime(UI.nowInTz()))}</div>
+          <h2>Selamat Datang, <span class="hl">Administrator</span></h2>
+          <p class="wh-sub">Pusat kendali LMS Rubela — kelola guru, siswa, orang tua, kelas, presensi, dan keuangan dari satu tempat.</p>
+          <div class="wh-chips">
+            <span class="wh-chip">👨‍🏫 ${gurus.length} guru</span>
+            <span class="wh-chip">👨‍🎓 ${siswas.length} siswa</span>
+            <span class="wh-chip">👨‍👩‍👦 ${parents.length} orang tua</span>
+            <span class="wh-chip">🔒 ${lockedCourses}/${courses.length} kelas terkunci</span>
+            <span class="wh-chip">📋 ${todayAtt} presensi hari ini</span>
+          </div>
+          <div class="wh-cta flex-gap">
+            <button class="btn btn-ghost btn-sm" id="heroAttendance">Ambil Presensi</button>
+            <button class="btn btn-ghost btn-sm" id="heroParents">Kelola Orang Tua</button>
+            <button class="btn btn-ghost btn-sm" id="heroLeaderboard">Papan Peringkat</button>
+          </div>
+        </div>
+      </section>
+
       <div class="stats-grid">
         <div class="stat-card accent-primary">
           <div class="label">Total Guru</div>
@@ -120,6 +146,10 @@
             </table></div>`}
       </div>
     `;
+
+    document.getElementById('heroAttendance').addEventListener('click', () => Dashboard.navigate('attendance'));
+    document.getElementById('heroParents').addEventListener('click', () => Dashboard.navigate('orangtua'));
+    document.getElementById('heroLeaderboard').addEventListener('click', () => Dashboard.navigate('leaderboard'));
   }
 
   function renderUsers(container, role) {
@@ -408,15 +438,21 @@
         </div>
         ${courses.length === 0 ? emptyState('Belum ada kelas.') : `
         <div class="table-wrap"><table class="table">
-          <thead><tr><th>Judul</th><th>Kategori</th><th>Guru</th><th>Materi</th><th>Tugas</th><th>Siswa</th><th>Aksi</th></tr></thead>
+          <thead><tr><th>Judul</th><th>Kategori</th><th>Guru</th><th>Password</th><th>Materi</th><th>Tugas</th><th>Siswa</th><th>Aksi</th></tr></thead>
           <tbody>
             ${courses.map(c => {
               const t = DB.getUser(c.teacherId);
               const enrollCount = DB.getEnrollmentsByCourse(c.id).length;
+              const locked = DB.hasCoursePassword(c.id);
               return `<tr>
                 <td><strong>${UI.esc(c.title)}</strong><div class="small muted">${UI.esc(c.description)}</div></td>
                 <td><span class="badge badge-info">${UI.esc(c.category || '-')}</span></td>
                 <td>${UI.esc(t ? t.name : '-')}</td>
+                <td>${locked
+                  ? `<span class="badge badge-warning" title="Password kelas">🔒 ${UI.esc(c.password)}</span>`
+                  : '<span class="badge badge-gray">Terbuka</span>'}
+                  <button class="btn btn-sm btn-secondary" data-set-pw="${c.id}" style="margin-left:6px;">Atur</button>
+                </td>
                 <td>${DB.getMaterialsByCourse(c.id).length}</td>
                 <td>${DB.getAssignmentsByCourse(c.id).length}</td>
                 <td>${enrollCount}</td>
@@ -431,6 +467,10 @@
         </table></div>`}
       </div>
     `;
+
+    container.querySelectorAll('[data-set-pw]').forEach(b => b.addEventListener('click', () => {
+      Shared.openCoursePasswordForm(b.dataset.setPw, () => renderCourses(container));
+    }));
 
     // Add course
     document.getElementById('adminAddCourseBtn').addEventListener('click', () => openAdminCourseForm(container));
@@ -470,6 +510,13 @@
         </div>
         <div class="form-group"><label>Deskripsi</label>
           <textarea name="description" required>${UI.esc(editing?.description || '')}</textarea></div>
+        <div class="form-group">
+          <label>🔒 Password Kelas (untuk "Jelajah Kelas")</label>
+          <input name="password" value="${UI.esc(editing?.password || '')}" placeholder="Kosongkan bila kelas terbuka tanpa password" />
+          <p class="muted small" style="margin:6px 0 0;">Siswa wajib memasukkan password ini saat bergabung sendiri lewat halaman
+          <strong>Jelajah Kelas</strong>. Pendaftaran melalui menu <strong>Kelola Siswa</strong> oleh admin tidak memerlukan password.
+          Guru pengajar juga dapat mengubah password ini.</p>
+        </div>
         <div class="flex-gap" style="justify-content:flex-end;">
           <button type="button" class="btn btn-secondary" id="cancelBtn">Batal</button>
           <button type="submit" class="btn btn-primary">Simpan</button>
@@ -485,6 +532,7 @@
         category: fd.get('category').trim(),
         price: Number(fd.get('price') || 0),
         description: fd.get('description').trim(),
+        password: (fd.get('password') || '').trim(),
         teacherId: fd.get('teacherId')
       };
       if (editing) {
@@ -1206,29 +1254,36 @@
     return `<div class="empty"><div class="empty-icon">📭</div>${UI.esc(msg)}</div>`;
   }
 
-  /* ========== ATTENDANCE (admin) - cross-course recap ========== */
-  function renderAttendance(container) {
+  /* ========== ATTENDANCE (admin) ==========
+   * Tab "Ambil Presensi": pilih kelas lewat kotak berbaris ke samping, lalu
+   * tandai status langsung dengan tombol — tanpa dropdown.
+   * Tab lainnya: rekap siswa / guru dan log lengkap.
+   */
+  function renderAttendance(container, user) {
     const courses = DB.getCourses();
     const allAtt = DB.getAttendance();
     const studentAtt = allAtt.filter(a => a.role === 'siswa');
     const guruAtt = allAtt.filter(a => a.role === 'guru');
     const presentS = studentAtt.filter(a => a.status === 'hadir').length;
     const presentG = guruAtt.filter(a => a.status === 'hadir').length;
+    const todayCount = allAtt.filter(a => a.date === UI.todayYMD()).length;
 
     container.innerHTML = `
       <div class="stats-grid">
         <div class="stat-card accent-success"><div class="label">Kehadiran Siswa</div><div class="value">${studentAtt.length ? Math.round(presentS / studentAtt.length * 100) : 0}%</div><div class="sub">${presentS}/${studentAtt.length} sesi</div></div>
         <div class="stat-card accent-primary"><div class="label">Kehadiran Guru</div><div class="value">${guruAtt.length ? Math.round(presentG / guruAtt.length * 100) : 0}%</div><div class="sub">${presentG}/${guruAtt.length} sesi</div></div>
         <div class="stat-card accent-warning"><div class="label">Total Record</div><div class="value">${allAtt.length}</div></div>
+        <div class="stat-card accent-danger"><div class="label">Tercatat Hari Ini</div><div class="value">${todayCount}</div><div class="sub">${UI.fmtYMD(UI.todayYMD())}</div></div>
       </div>
 
       <div class="subtabs">
-        <button class="subtab-btn active" data-stab="siswa">Rekap Siswa</button>
+        <button class="subtab-btn active" data-stab="ambil">📝 Ambil Presensi</button>
+        <button class="subtab-btn" data-stab="siswa">Rekap Siswa</button>
         <button class="subtab-btn" data-stab="guru">Rekap Guru</button>
         <button class="subtab-btn" data-stab="log">Log Absensi</button>
       </div>
 
-      <div class="filter-bar">
+      <div id="attFilters" class="filter-bar hidden">
         <label>Kelas:</label>
         <select id="attCourseFilter">
           <option value="">Semua Kelas</option>
@@ -1252,13 +1307,36 @@
 
       <div id="attBox"></div>
     `;
-    let currentTab = 'siswa';
+    let currentTab = 'ambil';
     let currentCourse = '';
     let currentRole = '';
     let currentStatus = '';
+    let takeCourseId = courses.length ? courses[0].id : '';
 
     const render = () => {
       const box = document.getElementById('attBox');
+      const filters = document.getElementById('attFilters');
+      filters.classList.toggle('hidden', currentTab === 'ambil');
+
+      // --- Ambil presensi langsung dari panel admin ---
+      if (currentTab === 'ambil') {
+        if (courses.length === 0) { box.innerHTML = emptyState('Belum ada kelas untuk diabsen.'); return; }
+        box.innerHTML = `
+          <div class="card">
+            <div class="card-header">${UI.secHead('🗂️', 'Pilih Kelas', 'Klik salah satu kotak kelas di bawah')}</div>
+            ${Shared.classChipsHtml(courses, takeCourseId, 'data-take-course')}
+          </div>
+          <div id="adminAttSheet"></div>`;
+        box.querySelectorAll('[data-take-course]').forEach(b => b.addEventListener('click', () => {
+          takeCourseId = b.dataset.takeCourse;
+          box.querySelectorAll('[data-take-course]').forEach(x => x.classList.remove('is-active'));
+          b.classList.add('is-active');
+          paintSheet();
+        }));
+        paintSheet();
+        return;
+      }
+
       let att = DB.getAttendance();
       if (currentCourse) att = att.filter(a => a.courseId === currentCourse);
       if (currentTab === 'log' && currentRole) att = att.filter(a => a.role === currentRole);
@@ -1312,6 +1390,18 @@
       </div>`;
     };
 
+    const paintSheet = () => {
+      const host = document.getElementById('adminAttSheet');
+      if (!host || !takeCourseId) return;
+      Shared.renderAttendanceSheet({
+        container: host,
+        courseId: takeCourseId,
+        date: UI.todayYMD(),
+        user,
+        canMarkTeacher: true
+      });
+    };
+
     container.querySelectorAll('[data-stab]').forEach(b => b.addEventListener('click', () => {
       container.querySelectorAll('[data-stab]').forEach(x => x.classList.remove('active'));
       b.classList.add('active');
@@ -1322,6 +1412,204 @@
     document.getElementById('attRoleFilter').addEventListener('change', (e) => { currentRole = e.target.value; render(); });
     document.getElementById('attStatusFilter').addEventListener('change', (e) => { currentStatus = e.target.value; render(); });
     render();
+  }
+
+  /* ========== KELOLA ORANG TUA / WALI ==========
+   * Akun orang tua dibuat admin dan dihubungkan ke satu atau lebih siswa.
+   */
+  function renderParents(container) {
+    const parents = DB.getParents();
+    const students = DB.getUsers().filter(u => u.role === 'siswa');
+    const linkedIds = new Set(parents.flatMap(p => p.childIds || []));
+    const unlinked = students.filter(s => !linkedIds.has(s.id));
+
+    container.innerHTML = `
+      <div class="stats-grid">
+        <div class="stat-card accent-primary"><div class="label">Akun Orang Tua</div><div class="value">${parents.length}</div></div>
+        <div class="stat-card accent-success"><div class="label">Siswa Terpantau</div><div class="value">${linkedIds.size}</div><div class="sub">dari ${students.length} siswa</div></div>
+        <div class="stat-card accent-warning"><div class="label">Belum Terhubung</div><div class="value">${unlinked.length}</div><div class="sub">siswa tanpa akun wali</div></div>
+      </div>
+
+      <div class="card">
+        <div class="card-header">
+          ${UI.secHead('👨‍👩‍👦', `Daftar Orang Tua / Wali (${parents.length})`, 'Akun ini hanya dapat memantau, tidak dapat mengubah data')}
+          <button class="btn btn-primary btn-sm" id="addParentBtn">+ Tambah Orang Tua</button>
+        </div>
+        ${parents.length === 0 ? emptyState('Belum ada akun orang tua.') : `
+        <div class="table-wrap"><table class="table">
+          <thead><tr><th>Nama</th><th>Username</th><th>Hubungan</th><th>Kontak</th><th>Anak Dipantau</th><th>Aksi</th></tr></thead>
+          <tbody>
+            ${parents.map(p => {
+              const kids = DB.getChildren(p.id);
+              return `<tr>
+                <td><strong>${UI.esc(p.name)}</strong><div class="muted small">${UI.esc(p.email || '-')}</div></td>
+                <td>${UI.esc(p.username)}</td>
+                <td><span class="badge badge-info">${UI.esc(p.relation || 'Wali')}</span></td>
+                <td class="muted small">${UI.esc(p.phone || '-')}</td>
+                <td>${kids.length === 0
+                  ? '<span class="badge badge-warning">Belum terhubung</span>'
+                  : kids.map(k => `<span class="badge badge-success" style="margin:2px;">${UI.esc(k.name)}</span>`).join(' ')}</td>
+                <td class="actions">
+                  <button class="btn btn-sm btn-primary" data-link-child="${p.id}">Hubungkan Anak</button>
+                  <button class="btn btn-sm btn-secondary" data-edit-parent="${p.id}">Edit</button>
+                  <button class="btn btn-sm btn-danger" data-del-parent="${p.id}">Hapus</button>
+                </td>
+              </tr>`;
+            }).join('')}
+          </tbody>
+        </table></div>`}
+      </div>
+
+      ${unlinked.length ? `
+      <div class="card">
+        <div class="card-header">${UI.secHead('🔗', 'Siswa Belum Punya Akun Wali', 'Buat akun orang tua lalu hubungkan')}</div>
+        <div class="flex-gap">
+          ${unlinked.map(s => `<span class="badge badge-gray" style="padding:6px 10px;font-size:12px;">${UI.esc(s.name)} • ${UI.esc(s.kelas || '-')}</span>`).join('')}
+        </div>
+      </div>` : ''}
+    `;
+
+    document.getElementById('addParentBtn').addEventListener('click', () => openParentForm(container));
+    container.querySelectorAll('[data-edit-parent]').forEach(b => b.addEventListener('click', () => openParentForm(container, b.dataset.editParent)));
+    container.querySelectorAll('[data-link-child]').forEach(b => b.addEventListener('click', () => openLinkChildModal(container, b.dataset.linkChild)));
+    container.querySelectorAll('[data-del-parent]').forEach(b => b.addEventListener('click', () => {
+      if (!UI.confirmDialog('Hapus akun orang tua ini? Data siswa tidak akan terhapus.')) return;
+      DB.deleteUser(b.dataset.delParent);
+      UI.toast('Akun orang tua dihapus.');
+      renderParents(container);
+    }));
+  }
+
+  function openParentForm(container, editId) {
+    const editing = editId ? DB.getUser(editId) : null;
+    const RELATIONS = ['Ayah', 'Ibu', 'Wali', 'Kakak', 'Lainnya'];
+    const students = DB.getUsers().filter(u => u.role === 'siswa');
+    const selected = new Set(editing?.childIds || []);
+
+    const body = `
+      <form id="parentForm" class="form">
+        <div class="form-group"><label>Nama Lengkap</label>
+          <input name="name" required value="${UI.esc(editing?.name || '')}" /></div>
+        <div class="form-row">
+          <div class="form-group"><label>Username</label>
+            <input name="username" required value="${UI.esc(editing?.username || '')}" ${editing ? 'readonly' : ''} /></div>
+          <div class="form-group"><label>Email</label>
+            <input type="email" name="email" value="${UI.esc(editing?.email || '')}" /></div>
+        </div>
+        <div class="form-row">
+          <div class="form-group"><label>No. Telepon / WhatsApp</label>
+            <input name="phone" value="${UI.esc(editing?.phone || '')}" placeholder="08xxxxxxxxxx" /></div>
+          <div class="form-group"><label>Hubungan</label>
+            <select name="relation">
+              ${RELATIONS.map(r => `<option value="${r}" ${(editing?.relation || 'Wali') === r ? 'selected' : ''}>${r}</option>`).join('')}
+            </select>
+          </div>
+        </div>
+        <div class="form-group">
+          <label>Anak / Siswa yang Dipantau</label>
+          <div style="max-height:180px;overflow-y:auto;border:1px solid var(--gray-200);border-radius:var(--radius-sm);padding:6px;">
+            ${students.length === 0 ? '<div class="muted small" style="padding:8px;">Belum ada siswa terdaftar.</div>' :
+              students.map(s => `<label style="display:flex;align-items:center;gap:8px;padding:6px 8px;cursor:pointer;">
+                <input type="checkbox" name="childIds" value="${s.id}" ${selected.has(s.id) ? 'checked' : ''} />
+                <span style="flex:1;font-size:13px;">${UI.esc(s.name)} <span class="muted small">(${UI.esc(s.kelas || '-')})</span></span>
+              </label>`).join('')}
+          </div>
+        </div>
+        <div class="form-group"><label>Password ${editing ? '(kosongkan jika tidak diubah)' : ''}</label>
+          <input type="password" name="password" ${editing ? '' : 'required minlength="6"'} /></div>
+        <div id="parentFormError" class="alert alert-error hidden"></div>
+        <div class="flex-gap" style="justify-content:flex-end;">
+          <button type="button" class="btn btn-secondary" id="cancelBtn">Batal</button>
+          <button type="submit" class="btn btn-primary">Simpan</button>
+        </div>
+      </form>`;
+
+    UI.modal.open(editing ? 'Edit Orang Tua / Wali' : 'Tambah Orang Tua / Wali', body);
+    document.getElementById('cancelBtn').addEventListener('click', () => UI.modal.close());
+    document.getElementById('parentForm').addEventListener('submit', (e) => {
+      e.preventDefault();
+      const fd = new FormData(e.target);
+      const username = fd.get('username').trim();
+      const err = document.getElementById('parentFormError');
+      err.classList.add('hidden');
+      if (!editing && DB.findUserByUsername(username)) {
+        err.textContent = 'Username sudah dipakai.';
+        err.classList.remove('hidden');
+        return;
+      }
+      const childIds = fd.getAll('childIds');
+      const payload = {
+        name: fd.get('name').trim(),
+        email: (fd.get('email') || '').trim(),
+        phone: (fd.get('phone') || '').trim(),
+        relation: fd.get('relation'),
+        childIds
+      };
+      const password = fd.get('password');
+      if (editing) {
+        if (password) payload.password = password;
+        DB.updateUser(editing.id, payload);
+        UI.toast('Data orang tua diperbarui.');
+      } else {
+        DB.addUser(Object.assign({ id: DB.uid('u'), role: 'orangtua', username, password, status: 'Aktif' }, payload));
+        DB.notifyUsers(childIds, {
+          type: 'info', icon: '👨‍👩‍👦',
+          title: 'Akun orang tua terhubung',
+          body: `${payload.name} kini dapat memantau perkembangan belajar Anda.`,
+          link: 'profile'
+        });
+        UI.toast('Akun orang tua dibuat.');
+      }
+      UI.modal.close();
+      renderParents(container);
+    });
+  }
+
+  function openLinkChildModal(container, parentId) {
+    const parent = DB.getUser(parentId);
+    const students = DB.getUsers().filter(u => u.role === 'siswa');
+    const selected = new Set(parent.childIds || []);
+    const body = `
+      <div class="muted small mb-2">Pilih siswa yang dapat dipantau oleh <strong>${UI.esc(parent.name)}</strong>.</div>
+      <input id="linkSearch" placeholder="Cari nama siswa..." style="width:100%;padding:8px 12px;border:1px solid var(--gray-300);border-radius:6px;margin-bottom:10px;" />
+      <div id="linkList" style="max-height:320px;overflow-y:auto;border:1px solid var(--gray-200);border-radius:var(--radius-sm);padding:4px;">
+        ${students.length === 0 ? '<div class="muted small" style="padding:10px;">Belum ada siswa.</div>' :
+          students.map(s => `<label data-name="${UI.esc(s.name.toLowerCase())}"
+            style="display:flex;align-items:center;gap:10px;padding:9px 12px;border-bottom:1px solid var(--gray-100);cursor:pointer;">
+            <input type="checkbox" name="cid" value="${s.id}" ${selected.has(s.id) ? 'checked' : ''} />
+            <div style="flex:1;">
+              <div style="font-size:13px;font-weight:600;">${UI.esc(s.name)}</div>
+              <div class="muted small">${UI.esc(s.kelas || '-')} • ${UI.esc(s.targetUniv || 'Target belum diisi')}</div>
+            </div>
+          </label>`).join('')}
+      </div>
+      <div class="flex-gap mt-2" style="justify-content:flex-end;">
+        <button type="button" class="btn btn-secondary" id="cancelBtn">Batal</button>
+        <button type="button" class="btn btn-primary" id="saveLinkBtn">Simpan Hubungan</button>
+      </div>`;
+    UI.modal.open('Hubungkan Anak', body);
+    document.getElementById('cancelBtn').addEventListener('click', () => UI.modal.close());
+    document.getElementById('linkSearch').addEventListener('input', (e) => {
+      const q = e.target.value.toLowerCase();
+      document.querySelectorAll('#linkList label').forEach(l => {
+        l.style.display = l.dataset.name.includes(q) ? '' : 'none';
+      });
+    });
+    document.getElementById('saveLinkBtn').addEventListener('click', () => {
+      const ids = [...document.querySelectorAll('#linkList input[name="cid"]:checked')].map(i => i.value);
+      DB.setChildren(parentId, ids);
+      // Kabari siswa yang baru dihubungkan
+      const added = ids.filter(id => !selected.has(id));
+      DB.notifyUsers(added, {
+        type: 'info', icon: '👨‍👩‍👦',
+        title: 'Akun orang tua terhubung',
+        body: `${parent.name} kini dapat memantau perkembangan belajar Anda.`,
+        link: 'profile'
+      });
+      UI.toast(`${ids.length} anak terhubung ke ${parent.name}.`);
+      UI.modal.close();
+      renderParents(container);
+    });
   }
 
   /* ========== REKAPAN ========== */

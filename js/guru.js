@@ -16,6 +16,7 @@
     if (section === 'cbt') return renderCbtSection(container, user);
     if (section === 'grading') return renderGrading(container, user);
     if (section === 'absensi') return renderAbsensiSection(container, user);
+    if (section === 'leaderboard') return Shared.renderLeaderboard(container, user);
     if (section === 'kalender') return Shared.renderCalendar(container, user);
     if (section === 'pengumuman') return Shared.renderAnnouncements(container, user);
     if (section === 'feedback') return Shared.renderFeedback(container, user);
@@ -34,7 +35,28 @@
     const studentSet = new Set();
     myCourseIds.forEach(cid => DB.getEnrollmentsByCourse(cid).forEach(e => studentSet.add(e.studentId)));
 
+    const todayAtt = DB.getAttendanceByUser(user.id).filter(a => a.date === UI.todayYMD() && a.role === 'guru');
+
     container.innerHTML = `
+      <section class="welcome-hero hero-guru">
+        <span class="blob b1"></span><span class="blob b2"></span><span class="blob b3"></span>
+        <div class="wh-inner">
+          <div class="wh-eyebrow">${UI.esc(UI.greeting())} • ${UI.esc(UI.fmtFullDateTime(UI.nowInTz()))}</div>
+          <h2>Selamat Datang, <span class="hl">${UI.esc(user.name)}</span></h2>
+          <p class="wh-sub">Pengajar ${UI.esc(user.subject || 'Rubela')} — terima kasih telah membimbing para calon mahasiswa.</p>
+          <div class="wh-chips">
+            <span class="wh-chip">📚 ${myCourses.length} kelas</span>
+            <span class="wh-chip">👨‍🎓 ${studentSet.size} siswa</span>
+            <span class="wh-chip">✅ ${ungraded.length} perlu dinilai</span>
+            <span class="wh-chip">📋 Presensi hari ini: ${todayAtt.length ? 'sudah' : 'belum'}</span>
+          </div>
+          <div class="wh-cta flex-gap">
+            <button class="btn btn-ghost btn-sm" id="heroAbsen">Ambil Presensi</button>
+            <button class="btn btn-ghost btn-sm" id="heroGrade">Nilai Tugas</button>
+          </div>
+        </div>
+      </section>
+
       <div class="stats-grid">
         <div class="stat-card accent-primary">
           <div class="label">Kelas Saya</div>
@@ -65,6 +87,8 @@
       </div>
     `;
     document.getElementById('newCourseBtn').addEventListener('click', () => openCourseForm(user));
+    document.getElementById('heroAbsen').addEventListener('click', () => Dashboard.navigate('absensi'));
+    document.getElementById('heroGrade').addEventListener('click', () => Dashboard.navigate('grading'));
     bindCourseCards(container, user);
   }
 
@@ -87,18 +111,24 @@
   function courseCard(c, idx, ownerActions) {
     const t = DB.getUser(c.teacherId);
     const count = DB.getEnrollmentsByCourse(c.id).length;
+    const locked = DB.hasCoursePassword(c.id);
     return `
       <div class="course-card">
-        <div class="course-banner ${UI.bannerClass(idx)}">${UI.esc((c.title || '?').slice(0, 1).toUpperCase())}</div>
+        <div class="course-banner ${UI.bannerClass(idx)}">
+          ${UI.esc((c.title || '?').slice(0, 1).toUpperCase())}
+          <span class="lock-chip">${locked ? '🔒 Terkunci' : '🔓 Terbuka'}</span>
+        </div>
         <div class="course-body">
           <h4>${UI.esc(c.title)}</h4>
           <div class="meta">${UI.esc(c.category || 'Umum')} • oleh ${UI.esc(t ? t.name : '-')}</div>
           <p>${UI.esc(c.description)}</p>
+          ${locked ? `<div class="muted small">Password kelas: <strong>${UI.esc(c.password)}</strong></div>` : ''}
         </div>
         <div class="course-footer">
           <span>${count} siswa</span>
           <div class="flex-gap">
             <button class="btn btn-sm btn-secondary" data-open="${c.id}">Buka</button>
+            ${ownerActions ? `<button class="btn btn-sm btn-secondary" data-course-pw="${c.id}" title="Atur password kelas">🔒</button>` : ''}
             ${ownerActions ? `<button class="btn btn-sm btn-danger" data-delete-course="${c.id}">Hapus</button>` : ''}
           </div>
         </div>
@@ -110,6 +140,9 @@
     container.querySelectorAll('[data-open]').forEach(b => b.addEventListener('click', () => {
       currentCourseId = b.dataset.open;
       Dashboard.navigate('courses');
+    }));
+    container.querySelectorAll('[data-course-pw]').forEach(b => b.addEventListener('click', () => {
+      Shared.openCoursePasswordForm(b.dataset.coursePw, () => Dashboard.navigate('courses'));
     }));
     container.querySelectorAll('[data-delete-course]').forEach(b => b.addEventListener('click', () => {
       if (!UI.confirmDialog('Hapus kelas ini? Materi, tugas, dan submission juga akan dihapus.')) return;
@@ -133,6 +166,12 @@
         </div>
         <div class="form-group"><label>Deskripsi</label>
           <textarea name="description" required>${UI.esc(editing?.description || '')}</textarea></div>
+        <div class="form-group">
+          <label>🔒 Password Kelas (untuk "Jelajah Kelas")</label>
+          <input name="password" value="${UI.esc(editing?.password || '')}" placeholder="Kosongkan bila kelas terbuka tanpa password" />
+          <p class="muted small" style="margin:6px 0 0;">Siswa harus memasukkan password ini bila bergabung sendiri dari halaman
+          <strong>Jelajah Kelas</strong>. Admin dan Anda dapat mengubahnya kapan saja.</p>
+        </div>
         <div class="flex-gap" style="justify-content:flex-end;">
           <button type="button" class="btn btn-secondary" id="cancelBtn">Batal</button>
           <button type="submit" class="btn btn-primary">Simpan</button>
@@ -147,7 +186,8 @@
         title: fd.get('title').trim(),
         category: fd.get('category').trim(),
         price: Number(fd.get('price') || 0),
-        description: fd.get('description').trim()
+        description: fd.get('description').trim(),
+        password: (fd.get('password') || '').trim()
       };
       if (editing) {
         DB.updateCourse(editing.id, payload);
@@ -176,6 +216,7 @@
       <div class="flex-between mb-2">
         <button class="btn btn-secondary btn-sm" id="backBtn">← Kembali</button>
         <div class="flex-gap">
+          <button class="btn btn-secondary btn-sm" id="coursePwBtn">🔒 Password Kelas</button>
           <button class="btn btn-secondary btn-sm" id="editCourseBtn">Edit Kelas</button>
         </div>
       </div>
@@ -186,6 +227,9 @@
             <h3 class="mt-0">${UI.esc(course.title)}</h3>
             <div class="muted small">${UI.esc(course.category || 'Umum')} • ${enrollments.length} siswa</div>
           </div>
+          <span class="badge ${DB.hasCoursePassword(course.id) ? 'badge-warning' : 'badge-gray'}">
+            ${DB.hasCoursePassword(course.id) ? '🔒 Password: ' + UI.esc(course.password) : '🔓 Terbuka'}
+          </span>
         </div>
         <p>${UI.esc(course.description)}</p>
       </div>
@@ -207,6 +251,8 @@
       Dashboard.navigate('courses');
     });
     document.getElementById('editCourseBtn').addEventListener('click', () => openCourseForm(user, course.id));
+    document.getElementById('coursePwBtn').addEventListener('click', () =>
+      Shared.openCoursePasswordForm(course.id, () => Dashboard.navigate('courses')));
     document.querySelectorAll('.tab-btn').forEach(btn => btn.addEventListener('click', () => {
       document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
       btn.classList.add('active');
@@ -419,11 +465,21 @@
     document.getElementById('gradeForm').addEventListener('submit', (e) => {
       e.preventDefault();
       const fd = new FormData(e.target);
-      DB.updateSubmission(sub.id, {
-        grade: Number(fd.get('grade')),
-        feedback: fd.get('feedback').trim()
+      const grade = Number(fd.get('grade'));
+      const feedback = fd.get('feedback').trim();
+      DB.updateSubmission(sub.id, { grade, feedback });
+      // Sinkron: siswa dan orang tuanya langsung mendapat notifikasi nilai
+      const asgRec = DB.getAssignment(assignmentId);
+      DB.notifyStudentAndParents(sub.studentId, {
+        type: 'nilai', icon: '🏆',
+        title: 'Tugas telah dinilai',
+        body: `${asgRec ? asgRec.title : 'Tugas'} — nilai ${grade}${feedback ? ' • ' + feedback : ''}`,
+        link: 'grades'
+      }, {
+        title: `Nilai baru untuk ${student ? student.name : 'anak Anda'}`,
+        link: 'anak-nilai'
       });
-      UI.toast('Nilai disimpan.');
+      UI.toast('Nilai disimpan & notifikasi dikirim ke siswa dan orang tua.');
       openGradeModal(assignmentId);
     });
   }
@@ -877,90 +933,18 @@
     UI.modal.open('Hasil Ujian', body);
   }
 
-  /* ========== ATTENDANCE (within course tab) ========== */
+  /* ========== ATTENDANCE (within course tab) ==========
+   * Memakai lembar presensi bersama: status berupa kotak berbaris ke samping,
+   * tanpa dropdown, dan langsung tersimpan saat diklik.
+   */
   function renderAttendanceTab(el, course, user) {
-    const todayYmd = UI.todayYMD();
-    const dates = [...new Set(DB.getAttendanceByCourse(course.id).map(a => a.date))].sort((a, b) => b.localeCompare(a));
-    if (!dates.includes(todayYmd)) dates.unshift(todayYmd);
-    renderDate(dates[0]);
-
-    function renderDate(selectedDate) {
-      const enrollments = DB.getEnrollmentsByCourse(course.id);
-      const STATUSES = ['hadir', 'izin', 'sakit', 'alfa'];
-      el.innerHTML = `
-        <div class="card">
-          <div class="card-header">
-            <h3>Absensi Kelas</h3>
-            <div class="filter-bar" style="margin:0;">
-              <label class="muted small">Tanggal:</label>
-              <input type="date" id="attDate" value="${selectedDate}" />
-            </div>
-          </div>
-          <h4 style="margin-top:10px;">Absensi Guru (Diri Sendiri)</h4>
-          <div class="att-grid">
-            <div class="att-name">${UI.esc(user.name)}</div>
-            <select class="att-input att-status-select" id="selfStatus">
-              ${STATUSES.map(s => `<option value="${s}">${s.toUpperCase()}</option>`).join('')}
-            </select>
-            <input class="att-input" id="selfNote" placeholder="Catatan..." style="max-width:240px;" />
-            <button class="btn btn-sm btn-primary" id="saveSelfAtt">Simpan</button>
-          </div>
-
-          <h4 style="margin-top:18px;">Absensi Siswa</h4>
-          ${enrollments.length === 0 ? emptyState('Belum ada siswa terdaftar.') : `
-          <div style="border:1px solid var(--gray-200);border-radius:var(--radius-sm);">
-            ${enrollments.map(e => {
-              const s = DB.getUser(e.studentId);
-              if (!s) return '';
-              const rec = DB.getAttendanceRecord(course.id, s.id, selectedDate);
-              return `<div class="att-grid" data-student="${s.id}">
-                <div class="att-name">${UI.esc(s.name)} <span class="muted small">(${UI.esc(s.kelas || '-')})</span></div>
-                <select class="att-input att-status-select stu-status">
-                  ${STATUSES.map(st => `<option value="${st}" ${rec && rec.status === st ? 'selected' : (!rec && st === 'hadir' ? 'selected' : '')}>${st.toUpperCase()}</option>`).join('')}
-                </select>
-                <input class="att-input stu-note" value="${UI.esc(rec?.note || '')}" placeholder="Catatan..." style="max-width:240px;" />
-                <span class="muted small">${rec ? 'Tersimpan' : 'Baru'}</span>
-              </div>`;
-            }).join('')}
-          </div>
-          <button class="btn btn-primary mt-2" id="saveAllAtt">Simpan Semua Absensi</button>`}
-        </div>
-      `;
-
-      // Prefill self
-      const selfRec = DB.getAttendanceRecord(course.id, user.id, selectedDate);
-      if (selfRec) {
-        document.getElementById('selfStatus').value = selfRec.status;
-        document.getElementById('selfNote').value = selfRec.note || '';
-      }
-
-      const saveSelf = () => {
-        DB.upsertAttendance(course.id, user.id, 'guru', selectedDate,
-          document.getElementById('selfStatus').value,
-          document.getElementById('selfNote').value);
-      };
-
-      document.getElementById('attDate').addEventListener('change', (e) => renderDate(e.target.value));
-      document.getElementById('saveSelfAtt').addEventListener('click', () => {
-        saveSelf();
-        UI.toast('Absensi Anda tersimpan.');
-        renderDate(selectedDate);
-      });
-      const saveAll = document.getElementById('saveAllAtt');
-      if (saveAll) saveAll.addEventListener('click', () => {
-        // Bug fix: also persist guru self-attendance so the user doesn't lose
-        // in-flight edits when only clicking "Simpan Semua Absensi Siswa".
-        saveSelf();
-        document.querySelectorAll('[data-student]').forEach(row => {
-          const sid = row.dataset.student;
-          const status = row.querySelector('.stu-status').value;
-          const note = row.querySelector('.stu-note').value;
-          DB.upsertAttendance(course.id, sid, 'siswa', selectedDate, status, note);
-        });
-        UI.toast('Absensi guru & siswa disimpan.');
-        renderDate(selectedDate);
-      });
-    }
+    Shared.renderAttendanceSheet({
+      container: el,
+      courseId: course.id,
+      date: UI.todayYMD(),
+      user,
+      canMarkTeacher: true
+    });
   }
 
   /* ========== GLOBAL: Modul, Rekaman, Bank Soal, CBT, Absensi, Honor ========== */
@@ -1195,31 +1179,88 @@
     renderList('');
   }
 
+  /* Absensi (menu utama guru): pilih kelas lewat kotak berbaris, lalu ambil
+   * presensi dengan tombol status yang langsung diklik — tanpa dropdown. */
   function renderAbsensiSection(container, user) {
     const courses = DB.getCoursesByTeacher(user.id);
-    const courseIds = courses.map(c => c.id);
-    // Summary stats — only count this user's records as guru role
     const myAtt = DB.getAttendanceByUser(user.id).filter(a => a.role === 'guru');
     const present = myAtt.filter(a => a.status === 'hadir').length;
+
+    let activeCourse = courses.length ? courses[0].id : '';
+    let activeTab = 'ambil';
+
     container.innerHTML = `
       <div class="stats-grid">
-        <div class="stat-card accent-primary"><div class="label">Total Sesi</div><div class="value">${myAtt.length}</div></div>
+        <div class="stat-card accent-primary"><div class="label">Total Sesi Saya</div><div class="value">${myAtt.length}</div></div>
         <div class="stat-card accent-success"><div class="label">Hadir</div><div class="value">${present}</div></div>
-        <div class="stat-card accent-warning"><div class="label">Kehadiran</div><div class="value">${myAtt.length ? Math.round(present / myAtt.length * 100) : 0}%</div></div>
+        <div class="stat-card accent-warning"><div class="label">Kehadiran Saya</div><div class="value">${myAtt.length ? Math.round(present / myAtt.length * 100) : 0}%</div></div>
+        <div class="stat-card accent-danger"><div class="label">Kelas Diajar</div><div class="value">${courses.length}</div></div>
       </div>
 
       <div class="card">
-        <div class="card-header">
-          <h3>Rekap Absensi Kelas Saya</h3>
-          <select id="absCourseFilter" class="form" style="max-width:220px;">
-            ${courses.map(c => `<option value="${c.id}">${UI.esc(c.title)}</option>`).join('')}
-          </select>
+        <div class="card-header">${UI.secHead('🗂️', 'Pilih Kelas', 'Klik kotak kelas, langsung siap absen')}</div>
+        <div id="guruClassChips">
+          ${courses.length ? Shared.classChipsHtml(courses, activeCourse, 'data-abs-course')
+            : emptyState('Anda belum memiliki kelas.')}
         </div>
-        <div id="absBox"></div>
       </div>
 
-      <div class="card">
-        <div class="card-header"><h3>Riwayat Absensi Saya</h3></div>
+      ${courses.length ? `
+      <div class="subtabs">
+        <button class="subtab-btn active" data-abstab="ambil">📝 Ambil Presensi</button>
+        <button class="subtab-btn" data-abstab="rekap">📈 Rekap Siswa</button>
+        <button class="subtab-btn" data-abstab="saya">👤 Riwayat Saya</button>
+      </div>` : ''}
+      <div id="absBox"></div>
+    `;
+
+    const paintTab = () => {
+      const box = document.getElementById('absBox');
+      if (!courses.length) { box.innerHTML = ''; return; }
+      if (activeTab === 'ambil') {
+        Shared.renderAttendanceSheet({
+          container: box,
+          courseId: activeCourse,
+          date: UI.todayYMD(),
+          user,
+          canMarkTeacher: true,
+          onSaved: () => { /* rekap dibaca ulang saat tab dibuka */ }
+        });
+        return;
+      }
+      if (activeTab === 'rekap') {
+        const enrollments = DB.getEnrollmentsByCourse(activeCourse);
+        const att = DB.getAttendanceByCourse(activeCourse).filter(a => a.role === 'siswa');
+        if (enrollments.length === 0) { box.innerHTML = emptyState('Belum ada siswa di kelas ini.'); return; }
+        const rows = enrollments.map(e => {
+          const s = DB.getUser(e.studentId);
+          const rec = att.filter(a => a.userId === e.studentId);
+          const counts = { hadir: 0, izin: 0, sakit: 0, alfa: 0 };
+          rec.forEach(r => { counts[r.status] = (counts[r.status] || 0) + 1; });
+          const total = rec.length;
+          const pct = total ? Math.round(counts.hadir / total * 100) : 0;
+          return { s, counts, total, pct };
+        }).sort((a, b) => b.pct - a.pct);
+        box.innerHTML = `<div class="card">
+          <div class="card-header">${UI.secHead('📈', 'Rekap Kehadiran Siswa', UI.esc(DB.getCourse(activeCourse)?.title || ''))}</div>
+          <div class="table-wrap"><table class="table">
+            <thead><tr><th>Siswa</th><th>Hadir</th><th>Izin</th><th>Sakit</th><th>Alfa</th><th>Total</th><th>Kehadiran</th></tr></thead>
+            <tbody>${rows.map(r => `<tr>
+              <td><strong>${UI.esc(r.s?.name || '-')}</strong></td>
+              <td>${r.counts.hadir}</td>
+              <td>${r.counts.izin}</td>
+              <td>${r.counts.sakit}</td>
+              <td>${r.counts.alfa}</td>
+              <td>${r.total}</td>
+              <td style="min-width:150px;">${UI.progressHtml(r.pct, '', 'auto')}</td>
+            </tr>`).join('')}</tbody></table></div>
+        </div>`;
+        if (window.Effects) Effects.enhance(box);
+        return;
+      }
+      // Riwayat presensi guru sendiri
+      box.innerHTML = `<div class="card">
+        <div class="card-header">${UI.secHead('👤', 'Riwayat Presensi Saya', 'Seluruh kelas yang Anda ajar')}</div>
         ${myAtt.length === 0 ? emptyState('Belum ada data absensi.') : `
         <div class="table-wrap"><table class="table">
           <thead><tr><th>Tanggal</th><th>Kelas</th><th>Status</th><th>Catatan</th></tr></thead>
@@ -1233,42 +1274,23 @@
             </tr>`;
           }).join('')}</tbody>
         </table></div>`}
-      </div>
-    `;
-
-    const render = (cid) => {
-      const box = document.getElementById('absBox');
-      if (!cid) { box.innerHTML = emptyState('Pilih kelas.'); return; }
-      const enrollments = DB.getEnrollmentsByCourse(cid);
-      const att = DB.getAttendanceByCourse(cid).filter(a => a.role === 'siswa');
-      if (enrollments.length === 0) { box.innerHTML = emptyState('Belum ada siswa.'); return; }
-      const rows = enrollments.map(e => {
-        const s = DB.getUser(e.studentId);
-        const rec = att.filter(a => a.userId === e.studentId);
-        const counts = { hadir: 0, izin: 0, sakit: 0, alfa: 0 };
-        rec.forEach(r => { counts[r.status] = (counts[r.status] || 0) + 1; });
-        const total = rec.length;
-        const pct = total ? Math.round(counts.hadir / total * 100) : 0;
-        return { s, counts, total, pct };
-      });
-      box.innerHTML = `<div class="table-wrap"><table class="table">
-        <thead><tr><th>Siswa</th><th>Hadir</th><th>Izin</th><th>Sakit</th><th>Alfa</th><th>Total</th><th>%</th></tr></thead>
-        <tbody>${rows.map(r => `<tr>
-          <td><strong>${UI.esc(r.s?.name || '-')}</strong></td>
-          <td>${r.counts.hadir}</td>
-          <td>${r.counts.izin}</td>
-          <td>${r.counts.sakit}</td>
-          <td>${r.counts.alfa}</td>
-          <td>${r.total}</td>
-          <td><strong>${r.pct}%</strong></td>
-        </tr>`).join('')}</tbody></table></div>`;
+      </div>`;
+      if (window.Effects) Effects.enhance(box);
     };
-    if (courses.length > 0) {
-      document.getElementById('absCourseFilter').addEventListener('change', (e) => render(e.target.value));
-      render(courses[0].id);
-    } else {
-      document.getElementById('absBox').innerHTML = emptyState('Anda belum memiliki kelas.');
-    }
+
+    container.querySelectorAll('[data-abs-course]').forEach(b => b.addEventListener('click', () => {
+      activeCourse = b.dataset.absCourse;
+      container.querySelectorAll('[data-abs-course]').forEach(x => x.classList.remove('is-active'));
+      b.classList.add('is-active');
+      paintTab();
+    }));
+    container.querySelectorAll('[data-abstab]').forEach(b => b.addEventListener('click', () => {
+      container.querySelectorAll('[data-abstab]').forEach(x => x.classList.remove('active'));
+      b.classList.add('active');
+      activeTab = b.dataset.abstab;
+      paintTab();
+    }));
+    paintTab();
   }
 
   function renderHonorSection(container, user) {

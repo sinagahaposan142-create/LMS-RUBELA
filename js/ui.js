@@ -176,14 +176,33 @@
       const el = document.getElementById('genericModal');
       document.getElementById('modalTitle').textContent = title;
       document.getElementById('modalBody').innerHTML = bodyHTML;
+      el.classList.remove('is-closing');
       el.classList.remove('hidden');
+      // Re-trigger the entrance animation on every open
+      const box = el.querySelector('.modal-content');
+      if (box) { box.style.animation = 'none'; void box.offsetWidth; box.style.animation = ''; }
+      // Autofocus the first meaningful field for faster data entry
+      setTimeout(() => {
+        const first = el.querySelector('input:not([type=hidden]):not([readonly]), textarea, select');
+        if (first) try { first.focus(); } catch (e) { /* noop */ }
+      }, 60);
+      if (global.Effects) Effects.enhance(el);
     },
     close() {
-      document.getElementById('genericModal').classList.add('hidden');
+      const el = document.getElementById('genericModal');
+      if (!el || el.classList.contains('hidden')) return;
+      el.classList.add('is-closing');
+      setTimeout(() => {
+        el.classList.add('hidden');
+        el.classList.remove('is-closing');
+      }, 170);
     }
   };
 
+  const TOAST_ICONS = { success: '✓', error: '!', info: 'i', warning: '⚠' };
+
   function toast(msg, type = 'success') {
+    const kind = ['success', 'error', 'info', 'warning'].includes(type) ? type : 'success';
     let t = document.getElementById('toastBox');
     if (!t) {
       t = document.createElement('div');
@@ -194,16 +213,18 @@
       t.style.zIndex = '200';
       t.style.display = 'flex';
       t.style.flexDirection = 'column';
-      t.style.gap = '8px';
+      t.style.gap = '10px';
       document.body.appendChild(t);
     }
     const el = document.createElement('div');
-    el.className = 'alert alert-' + (type === 'error' ? 'error' : type === 'info' ? 'info' : 'success');
-    el.style.minWidth = '240px';
-    el.style.boxShadow = 'var(--shadow)';
-    el.textContent = msg;
+    el.className = 'toast ' + kind;
+    el.innerHTML = `<span class="t-icon">${TOAST_ICONS[kind]}</span><span class="t-msg"></span>`;
+    el.querySelector('.t-msg').textContent = msg;
     t.appendChild(el);
-    setTimeout(() => el.remove(), 3000);
+    setTimeout(() => {
+      el.classList.add('is-out');
+      setTimeout(() => el.remove(), 300);
+    }, 3000);
   }
 
   function confirmDialog(msg) { return window.confirm(msg); }
@@ -217,9 +238,61 @@
     return classes[idx % classes.length];
   }
 
+  /* ===== Visual building blocks ===== */
+  /** Animated progress bar. tone: auto | good | warn | bad */
+  function progressHtml(pct, label, tone) {
+    const v = Math.max(0, Math.min(100, Math.round(Number(pct) || 0)));
+    let cls = tone;
+    if (!cls || cls === 'auto') cls = v >= 75 ? 'good' : (v >= 45 ? 'warn' : 'bad');
+    return `
+      ${label ? `<div class="progress-label"><span>${esc(label)}</span><strong>${v}%</strong></div>` : ''}
+      <div class="progress ${cls}"><span data-pct="${v}" style="width:0"></span></div>`;
+  }
+
+  /** Circular percentage meter. */
+  function meterHtml(pct, tone) {
+    const v = Math.max(0, Math.min(100, Math.round(Number(pct) || 0)));
+    let cls = tone;
+    if (!cls || cls === 'auto') cls = v >= 75 ? 'good' : (v >= 45 ? 'warn' : 'bad');
+    return `<div class="meter ${cls}" data-val="${v}" style="--val:${v};"><span>${v}%</span></div>`;
+  }
+
+  /** Section heading with an icon chip. */
+  function secHead(icon, title, sub) {
+    return `<div class="sec-head">
+      <div class="sh-ic">${icon}</div>
+      <div><h3>${esc(title)}</h3>${sub ? `<div class="sh-sub">${esc(sub)}</div>` : ''}</div>
+    </div>`;
+  }
+
+  /** Human friendly relative time ("5 menit lalu"). */
+  function fmtRelative(ts) {
+    if (!ts) return '-';
+    const diff = Date.now() - Number(ts);
+    if (diff < 0) return fmtDateTime(ts);
+    const mins = Math.floor(diff / 60000);
+    if (mins < 1) return 'baru saja';
+    if (mins < 60) return `${mins} menit lalu`;
+    const hrs = Math.floor(mins / 60);
+    if (hrs < 24) return `${hrs} jam lalu`;
+    const days = Math.floor(hrs / 24);
+    if (days < 7) return `${days} hari lalu`;
+    return fmtDate(ts);
+  }
+
+  /** Time-of-day greeting in Indonesian, timezone aware. */
+  function greeting() {
+    const h = nowInTz().getHours();
+    if (h < 11) return 'Selamat pagi';
+    if (h < 15) return 'Selamat siang';
+    if (h < 18) return 'Selamat sore';
+    return 'Selamat malam';
+  }
+
   global.UI = {
     esc, fmtDate, fmtDateTime, toDateInput, toDateTimeLocalInput, todayYMD, fmtYMD, fmtRp, fmtDuration,
     modal, toast, confirmDialog, initials, bannerClass,
+    progressHtml, meterHtml, secHead, fmtRelative, greeting,
     // Timezone
     TZ_OFFSETS, TZ_LABELS, getTimezone, setTimezone, nowInTz, toTzDate, fmtClock, fmtFullDateTime,
     startClock, clockWidgetHtml, tzInputToUtc, utcToTzInput, fmtDateTimeTz

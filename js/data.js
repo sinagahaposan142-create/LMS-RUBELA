@@ -36,9 +36,17 @@
     payments: 'lms_payments',
     expenses: 'lms_expenses',
     salaries: 'lms_salaries',
+    notifications: 'lms_notifications',
     session: 'lms_session',
-    seeded: 'lms_seeded_v2'
+    seeded: 'lms_seeded_v3'
   };
+
+  /* Extra localStorage keys that are not part of the main entity map but must
+   * still be cleared on reset / re-seed so everything stays in sync. */
+  const EXTRA_KEYS = [
+    'lms_class_options', 'lms_events', 'lms_batches', 'lms_feedbacks',
+    'lms_announcements', 'lms_messages'
+  ];
 
   function load(key, fallback) {
     try {
@@ -54,10 +62,14 @@
   }
 
   function seedIfNeeded() {
-    // Migrate: clear previous seed (v1) if present
-    if (localStorage.getItem('lms_seeded_v1') === '1' && localStorage.getItem(KEYS.seeded) !== '1') {
+    // Migrate: wipe any older seed version so new demo entities (orang tua,
+    // password kelas, notifikasi) are created consistently.
+    const OLD_SEEDS = ['lms_seeded_v1', 'lms_seeded_v2'];
+    const staleSeed = OLD_SEEDS.find(k => localStorage.getItem(k) === '1');
+    if (staleSeed && localStorage.getItem(KEYS.seeded) !== '1') {
       Object.keys(KEYS).forEach(k => localStorage.removeItem(KEYS[k]));
-      localStorage.removeItem('lms_seeded_v1');
+      EXTRA_KEYS.forEach(k => localStorage.removeItem(k));
+      OLD_SEEDS.forEach(k => localStorage.removeItem(k));
     }
     if (localStorage.getItem(KEYS.seeded) === '1') return;
 
@@ -68,14 +80,22 @@
       { id: 'u_admin', role: 'admin', username: 'admin', password: 'admin123', name: 'Administrator', email: 'admin@rubela.edu' },
       { id: 'u_guru1', role: 'guru', username: 'guru1', password: 'guru123', name: 'Pak Budi Santoso', email: 'budi@rubela.edu', subject: 'Matematika', salaryRate: 3000000 },
       { id: 'u_guru2', role: 'guru', username: 'guru2', password: 'guru123', name: 'Bu Sari Wulandari', email: 'sari@rubela.edu', subject: 'Bahasa Indonesia', salaryRate: 2800000 },
-      { id: 'u_siswa1', role: 'siswa', username: 'siswa1', password: 'siswa123', name: 'Andi Pratama', email: 'andi@siswa.edu', kelas: 'X-A' },
-      { id: 'u_siswa2', role: 'siswa', username: 'siswa2', password: 'siswa123', name: 'Dewi Anggraini', email: 'dewi@siswa.edu', kelas: 'X-A' },
-      { id: 'u_siswa3', role: 'siswa', username: 'siswa3', password: 'siswa123', name: 'Rendy Kurniawan', email: 'rendy@siswa.edu', kelas: 'X-B' }
+      { id: 'u_siswa1', role: 'siswa', username: 'siswa1', password: 'siswa123', name: 'Andi Pratama', email: 'andi@siswa.edu', kelas: 'X-A',
+        targetUniv: 'Universitas Indonesia', targetMajor: 'Teknik Informatika', phone: '081200000001' },
+      { id: 'u_siswa2', role: 'siswa', username: 'siswa2', password: 'siswa123', name: 'Dewi Anggraini', email: 'dewi@siswa.edu', kelas: 'X-A',
+        targetUniv: 'Institut Teknologi Bandung', targetMajor: 'Teknik Elektro', phone: '081200000002' },
+      { id: 'u_siswa3', role: 'siswa', username: 'siswa3', password: 'siswa123', name: 'Rendy Kurniawan', email: 'rendy@siswa.edu', kelas: 'X-B',
+        targetUniv: 'Universitas Gadjah Mada', targetMajor: 'Kedokteran', phone: '081200000003' },
+      // Orang tua / wali: memantau perkembangan anak (childIds -> id siswa)
+      { id: 'u_ortu1', role: 'orangtua', username: 'ortu1', password: 'ortu123', name: 'Bapak Hendra Pratama', email: 'hendra@wali.edu',
+        phone: '081300000001', relation: 'Ayah', childIds: ['u_siswa1'] },
+      { id: 'u_ortu2', role: 'orangtua', username: 'ortu2', password: 'ortu123', name: 'Ibu Ratna Anggraini', email: 'ratna@wali.edu',
+        phone: '081300000002', relation: 'Ibu', childIds: ['u_siswa2', 'u_siswa3'] }
     ];
 
     const courses = [
-      { id: 'c_mat1', title: 'Matematika Dasar', description: 'Pengantar aljabar dan operasi bilangan.', teacherId: 'u_guru1', category: 'Matematika', price: 500000, createdAt: now - DAY * 10 },
-      { id: 'c_bind1', title: 'Bahasa Indonesia', description: 'Tata bahasa, menulis, dan apresiasi sastra.', teacherId: 'u_guru2', category: 'Bahasa', price: 450000, createdAt: now - DAY * 7 }
+      { id: 'c_mat1', title: 'Matematika Dasar', description: 'Pengantar aljabar dan operasi bilangan.', teacherId: 'u_guru1', category: 'Matematika', price: 500000, password: 'mat2026', createdAt: now - DAY * 10 },
+      { id: 'c_bind1', title: 'Bahasa Indonesia', description: 'Tata bahasa, menulis, dan apresiasi sastra.', teacherId: 'u_guru2', category: 'Bahasa', price: 450000, password: '', createdAt: now - DAY * 7 }
     ];
 
     const materials = [
@@ -202,6 +222,14 @@
       { id: 'sal_1', teacherId: 'u_guru1', period: periodKey(new Date(now - DAY * 30)), amount: 3000000, status: 'dibayar', note: 'Gaji bulanan', paidAt: now - DAY * 28, createdAt: now - DAY * 30 }
     ];
 
+    const notifications = [
+      { id: 'nt_1', userId: 'u_siswa1', type: 'nilai', icon: '🏆', title: 'Tugas dinilai', body: 'Latihan Persamaan Linear mendapat nilai 85.', link: 'grades', read: false, createdAt: now - 3600000 },
+      { id: 'nt_2', userId: 'u_siswa1', type: 'tugas', icon: '📝', title: 'Tugas baru', body: 'Esai Singkat di kelas Bahasa Indonesia.', link: 'assignments', read: false, createdAt: now - 7200000 },
+      { id: 'nt_3', userId: 'u_ortu1', type: 'absensi', icon: '📋', title: 'Rekap kehadiran anak', body: 'Andi Pratama hadir pada sesi Matematika Dasar.', link: 'anak-absensi', read: false, createdAt: now - 5400000 },
+      { id: 'nt_4', userId: 'u_guru1', type: 'tugas', icon: '✅', title: 'Submission masuk', body: 'Andi Pratama mengumpulkan Latihan Persamaan Linear.', link: 'grading', read: false, createdAt: now - 9000000 }
+    ];
+
+    save(KEYS.notifications, notifications);
     save(KEYS.users, users);
     save(KEYS.courses, courses);
     save(KEYS.materials, materials);
@@ -273,13 +301,61 @@
         setAll(KEYS.cbtAttempts, getAll(KEYS.cbtAttempts).filter(a => a.studentId !== id));
         setAll(KEYS.attendance, getAll(KEYS.attendance).filter(a => a.userId !== id));
         setAll(KEYS.payments, getAll(KEYS.payments).filter(p => p.studentId !== id));
+        // Keep orang tua accounts consistent: drop the link to this child.
+        getAll(KEYS.users)
+          .filter(u => u.role === 'orangtua' && Array.isArray(u.childIds) && u.childIds.includes(id))
+          .forEach(p => update(KEYS.users, p.id, { childIds: p.childIds.filter(c => c !== id) }));
       }
+      // Messages + notifications belonging to the removed account
+      setAll(KEYS.notifications, getAll(KEYS.notifications).filter(n => n.userId !== id));
+      try {
+        const msgs = JSON.parse(localStorage.getItem('lms_messages') || '[]')
+          .filter(m => m.senderId !== id && m.receiverId !== id);
+        localStorage.setItem('lms_messages', JSON.stringify(msgs));
+      } catch (e) { /* noop */ }
       remove(KEYS.users, id);
+    },
+
+    /* ===== Orang Tua / Wali <-> Siswa linking ===== */
+    getParents: () => getAll(KEYS.users).filter(u => u.role === 'orangtua'),
+    /** Siswa yang dipantau oleh satu akun orang tua. */
+    getChildren: (parentId) => {
+      const p = findById(KEYS.users, parentId);
+      if (!p || !Array.isArray(p.childIds)) return [];
+      return p.childIds.map(id => findById(KEYS.users, id)).filter(Boolean);
+    },
+    /** Semua orang tua yang terhubung ke satu siswa. */
+    getParentsOfStudent: (studentId) =>
+      getAll(KEYS.users).filter(u => u.role === 'orangtua' && Array.isArray(u.childIds) && u.childIds.includes(studentId)),
+    setChildren: (parentId, childIds) => update(KEYS.users, parentId, { childIds: [...new Set(childIds || [])] }),
+    linkChild: (parentId, studentId) => {
+      const p = findById(KEYS.users, parentId);
+      if (!p) return null;
+      const ids = new Set(Array.isArray(p.childIds) ? p.childIds : []);
+      ids.add(studentId);
+      return update(KEYS.users, parentId, { childIds: [...ids] });
+    },
+    unlinkChild: (parentId, studentId) => {
+      const p = findById(KEYS.users, parentId);
+      if (!p) return null;
+      const ids = (Array.isArray(p.childIds) ? p.childIds : []).filter(id => id !== studentId);
+      return update(KEYS.users, parentId, { childIds: ids });
     },
 
     /* ===== Courses ===== */
     getCourses: () => getAll(KEYS.courses),
     getCourse: (id) => findById(KEYS.courses, id),
+    /** Kelas yang dilindungi password (diatur admin / guru pemilik). */
+    hasCoursePassword: (id) => {
+      const c = findById(KEYS.courses, id);
+      return !!(c && c.password && String(c.password).trim() !== '');
+    },
+    verifyCoursePassword: (id, input) => {
+      const c = findById(KEYS.courses, id);
+      if (!c) return false;
+      if (!c.password || String(c.password).trim() === '') return true;
+      return String(c.password).trim() === String(input || '').trim();
+    },
     getCoursesByTeacher: (tid) => getAll(KEYS.courses).filter(c => c.teacherId === tid),
     addCourse: (c) => add(KEYS.courses, Object.assign({ createdAt: Date.now() }, c)),
     updateCourse: (id, p) => update(KEYS.courses, id, p),
@@ -558,15 +634,43 @@
       return msg;
     },
 
+    /* ===== Notifications (pusat notifikasi lintas peran) ===== */
+    getNotifications: (userId) => getAll(KEYS.notifications)
+      .filter(n => n.userId === userId)
+      .sort((a, b) => b.createdAt - a.createdAt),
+    getUnreadCount: (userId) => getAll(KEYS.notifications).filter(n => n.userId === userId && !n.read).length,
+    addNotification: (n) => add(KEYS.notifications, Object.assign({ read: false, createdAt: Date.now() }, n)),
+    /** Kirim satu notifikasi ke banyak user sekaligus. */
+    notifyUsers: (userIds, payload) => {
+      const ids = [...new Set((userIds || []).filter(Boolean))];
+      ids.forEach(uid2 => add(KEYS.notifications, Object.assign({
+        read: false, createdAt: Date.now()
+      }, payload, { userId: uid2 })));
+      return ids.length;
+    },
+    /** Notifikasi ke seorang siswa DAN semua orang tuanya (tetap tersinkron). */
+    notifyStudentAndParents: (studentId, payload, parentPayload) => {
+      const student = findById(KEYS.users, studentId);
+      if (!student) return 0;
+      DB.addNotification(Object.assign({}, payload, { userId: studentId }));
+      const parents = DB.getParentsOfStudent(studentId);
+      parents.forEach(p => DB.addNotification(Object.assign({},
+        payload, parentPayload || {}, { userId: p.id })));
+      return 1 + parents.length;
+    },
+    markNotificationRead: (id) => update(KEYS.notifications, id, { read: true }),
+    markAllNotificationsRead: (userId) => {
+      const list = getAll(KEYS.notifications).map(n => (n.userId === userId ? Object.assign({}, n, { read: true }) : n));
+      setAll(KEYS.notifications, list);
+    },
+    clearNotifications: (userId) => {
+      setAll(KEYS.notifications, getAll(KEYS.notifications).filter(n => n.userId !== userId));
+    },
+
     resetAll: () => {
       Object.values(KEYS).forEach(k => localStorage.removeItem(k));
-      localStorage.removeItem('lms_seeded_v1');
-      localStorage.removeItem('lms_class_options');
-      localStorage.removeItem('lms_events');
-      localStorage.removeItem('lms_batches');
-      localStorage.removeItem('lms_feedbacks');
-      localStorage.removeItem('lms_announcements');
-      localStorage.removeItem('lms_messages');
+      ['lms_seeded_v1', 'lms_seeded_v2'].forEach(k => localStorage.removeItem(k));
+      EXTRA_KEYS.forEach(k => localStorage.removeItem(k));
       seedIfNeeded();
     }
   };

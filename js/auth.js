@@ -22,20 +22,42 @@
     localStorage.removeItem(SESSION_KEY);
   }
 
+  const ROLE_LABELS = {
+    admin: 'Admin', guru: 'Guru', siswa: 'Siswa', orangtua: 'Orang Tua'
+  };
+
   function login(username, password, role) {
     const user = DB.findUserByUsername(username);
     if (!user) return { ok: false, error: 'Username tidak ditemukan.' };
     if (user.password !== password) return { ok: false, error: 'Password salah.' };
-    if (role && user.role !== role) return { ok: false, error: 'Peran tidak sesuai untuk akun ini.' };
+    if (role && user.role !== role) {
+      return { ok: false, error: `Akun ini terdaftar sebagai ${ROLE_LABELS[user.role] || user.role}, bukan ${ROLE_LABELS[role] || role}.` };
+    }
+    if ((user.status || 'Aktif') === 'Dikeluarkan') {
+      return { ok: false, error: 'Akun ini sudah tidak aktif. Hubungi admin.' };
+    }
     setSession(user);
     return { ok: true, user };
   }
 
-  function registerSiswa({ name, email, username, password }) {
+  function registerSiswa({ name, email, username, password, targetUniv, targetMajor, phone }) {
     if (!name || !email || !username || !password) return { ok: false, error: 'Semua field wajib diisi.' };
     if (password.length < 6) return { ok: false, error: 'Password minimal 6 karakter.' };
     if (DB.findUserByUsername(username)) return { ok: false, error: 'Username sudah dipakai.' };
-    const user = DB.addUser({ id: DB.uid('u'), role: 'siswa', name, email, username, password, kelas: 'X-A' });
+    const user = DB.addUser({
+      id: DB.uid('u'), role: 'siswa', name, email, username, password,
+      kelas: 'X-A', status: 'Aktif',
+      // Dipakai sambutan dashboard: "Calon Mahasiswa <universitas impian>"
+      targetUniv: (targetUniv || '').trim(),
+      targetMajor: (targetMajor || '').trim(),
+      phone: (phone || '').trim()
+    });
+    DB.addNotification({
+      userId: user.id, type: 'info', icon: '🎉',
+      title: 'Selamat datang di LMS Rubela!',
+      body: 'Lengkapi profil dan mulai jelajahi kelas untuk menggapai kampus impianmu.',
+      link: 'browse'
+    });
     return { ok: true, user };
   }
 
@@ -64,5 +86,5 @@
     window.location.href = 'index.html';
   }
 
-  global.Auth = { getSession, login, logout, registerSiswa, requireAuth };
+  global.Auth = { getSession, login, logout, registerSiswa, requireAuth, ROLE_LABELS };
 })(window);
