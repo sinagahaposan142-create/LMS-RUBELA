@@ -5,6 +5,14 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Dashboard - LMS Rubela</title>
   <link rel="stylesheet" href="css/style.css" />
+  <!-- Apply saved theme before first paint to avoid a flash of the wrong mode -->
+  <script>
+    try {
+      var _t = localStorage.getItem('lms_theme');
+      document.documentElement.setAttribute('data-theme', _t === 'dark' ? 'dark' : 'light');
+    } catch (e) { /* noop */ }
+  </script>
+  <script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
 </head>
 <body class="dash-body">
   <aside class="sidebar" id="sidebar">
@@ -30,8 +38,16 @@
 
   <div class="main">
     <header class="topbar">
-      <h2 id="pageTitle">Dashboard</h2>
-      <span class="role-badge" id="roleBadge">-</span>
+      <div class="topbar-left">
+        <button class="menu-btn" id="menuBtn" type="button" title="Buka menu" aria-label="Buka menu">☰</button>
+        <h2 id="pageTitle">Dashboard</h2>
+      </div>
+      <div class="topbar-right">
+        <div id="clockContainer"></div>
+        <div class="notif-wrap" id="notifWrap"></div>
+        <div id="themeSlot"></div>
+        <span class="role-badge" id="roleBadge">-</span>
+      </div>
     </header>
     <section class="content" id="content">
       <!-- rendered by role module -->
@@ -52,10 +68,14 @@
   <script src="js/data.js"></script>
   <script src="js/auth.js"></script>
   <script src="js/ui.js"></script>
+  <script src="js/effects.js"></script>
   <script src="js/shared.js"></script>
+  <script src="js/cbt.js"></script>
+  <script src="js/exam.js"></script>
   <script src="js/admin.js"></script>
   <script src="js/guru.js"></script>
   <script src="js/siswa.js"></script>
+  <script src="js/orangtua.js"></script>
   <script src="js/dashboard.js"></script>
 </body>
 </html>

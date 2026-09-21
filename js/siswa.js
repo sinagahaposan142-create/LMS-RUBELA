@@ -17,6 +17,12 @@
     if (section === 'assignments') return renderAssignments(container, user);
     if (section === 'grades') return renderGrades(container, user);
     if (section === 'absensi') return renderAbsensiSection(container, user);
+    if (section === 'leaderboard') return Shared.renderLeaderboard(container, user);
+    if (section === 'ai-tools') return Shared.renderAiTools(container, user);
+    if (section === 'kalender') return Shared.renderCalendar(container, user);
+    if (section === 'pengumuman') return Shared.renderAnnouncements(container, user);
+    if (section === 'chat') return Shared.renderChat(container, user);
+    if (section === 'feedback') return Shared.renderFeedback(container, user);
     if (section === 'keuangan') return renderPaymentsSection(container, user);
     if (section === 'profile') return renderProfile(container, user);
   }
@@ -31,8 +37,40 @@
     const pending = allAsg.filter(a => !submittedIds.has(a.id));
     const graded = mySubs.filter(s => s.grade != null);
     const avg = graded.length ? Math.round(graded.reduce((sum, s) => sum + s.grade, 0) / graded.length) : null;
+    const stats = Shared.studentStats(user.id);
+
+    // Sambutan: "Selamat Datang <Nama>, Calon Mahasiswa <Universitas Impian>"
+    const dreamUniv = (user.targetUniv || '').trim();
+    const dreamMajor = (user.targetMajor || '').trim();
 
     container.innerHTML = `
+      <section class="welcome-hero">
+        <span class="blob b1"></span><span class="blob b2"></span><span class="blob b3"></span>
+        <div class="wh-inner">
+          <div class="wh-eyebrow">${UI.esc(UI.greeting())} • ${UI.esc(UI.fmtFullDateTime(UI.nowInTz()))}</div>
+          <h2>Selamat Datang, <span class="hl">${UI.esc(user.name)}</span></h2>
+          ${dreamUniv
+            ? `<p class="wh-sub">Calon Mahasiswa <strong>${UI.esc(dreamUniv)}</strong>${dreamMajor ? ` — ${UI.esc(dreamMajor)}` : ''}. Semangat, satu langkah kecil hari ini mendekatkanmu ke kampus impian! 🚀</p>
+               <div class="wh-dream">🎓 Target: ${UI.esc(dreamUniv)}${dreamMajor ? ' • ' + UI.esc(dreamMajor) : ''}</div>`
+            : `<p class="wh-sub">Calon Mahasiswa Hebat! Lengkapi universitas impianmu agar sambutan ini menampilkan targetmu dan AI dapat memberi rekomendasi yang tepat.</p>
+               <div class="wh-cta"><button class="btn btn-ghost btn-sm" id="setDreamBtn">🎯 Atur Universitas Impian</button></div>`}
+          <div class="wh-chips">
+            <span class="wh-chip">🏅 Level ${stats.level} • ${stats.points} poin</span>
+            <span class="wh-chip">📚 ${enrolledCourses.length} kelas</span>
+            <span class="wh-chip">📋 Kehadiran ${stats.attendancePct}%</span>
+            <span class="wh-chip">📝 ${pending.length} tugas menanti</span>
+          </div>
+        </div>
+      </section>
+
+      <div class="card">
+        <div class="card-header">
+          ${UI.secHead('🏅', `Level ${stats.level}`, `${stats.points} poin • ${Math.max(0, stats.nextLevelAt - stats.points)} poin lagi menuju Level ${stats.level + 1}`)}
+          <button class="btn btn-sm btn-secondary" id="goLeaderboard">Lihat Papan Peringkat</button>
+        </div>
+        ${UI.progressHtml(stats.levelProgress, `Progres menuju Level ${stats.level + 1}`, 'good')}
+      </div>
+
       <div class="stats-grid">
         <div class="stat-card accent-primary">
           <div class="label">Kelas Diikuti</div>
@@ -54,6 +92,8 @@
           <div class="sub">dari ${graded.length} tugas dinilai</div>
         </div>
       </div>
+
+      ${Shared.achievementsHtml(stats)}
 
       <div class="card">
         <div class="card-header">
@@ -85,6 +125,10 @@
 
     const viewAll = document.getElementById('viewAllAsg');
     if (viewAll) viewAll.addEventListener('click', () => Dashboard.navigate('assignments'));
+    const goLb = document.getElementById('goLeaderboard');
+    if (goLb) goLb.addEventListener('click', () => Dashboard.navigate('leaderboard'));
+    const setDream = document.getElementById('setDreamBtn');
+    if (setDream) setDream.addEventListener('click', () => openDreamForm(user));
     const goBrowse = document.getElementById('goBrowse');
     if (goBrowse) goBrowse.addEventListener('click', (e) => { e.preventDefault(); Dashboard.navigate('browse'); });
     container.querySelectorAll('[data-goto-asg]').forEach(b => b.addEventListener('click', () => {
@@ -94,6 +138,38 @@
       currentCourseId = b.dataset.open;
       Dashboard.navigate('my-courses');
     }));
+  }
+
+  /** Form cepat untuk mengatur universitas & jurusan impian (dipakai sambutan). */
+  function openDreamForm(user) {
+    const body = `
+      <div class="pw-gate" style="padding-bottom:10px;">
+        <span class="lock-ic">🎓</span>
+        <p class="muted small">Universitas impian akan tampil pada sambutan dashboard dan dipakai oleh AI PTN Predictor.</p>
+      </div>
+      <form id="dreamForm" class="form">
+        <div class="form-group"><label>Universitas Impian</label>
+          <input name="targetUniv" required value="${UI.esc(user.targetUniv || '')}" placeholder="mis. Universitas Indonesia" /></div>
+        <div class="form-group"><label>Jurusan Impian</label>
+          <input name="targetMajor" value="${UI.esc(user.targetMajor || '')}" placeholder="mis. Teknik Informatika" /></div>
+        <div class="flex-gap" style="justify-content:flex-end;">
+          <button type="button" class="btn btn-secondary" id="cancelBtn">Batal</button>
+          <button type="submit" class="btn btn-primary">Simpan Target</button>
+        </div>
+      </form>`;
+    UI.modal.open('Universitas Impian', body);
+    document.getElementById('cancelBtn').addEventListener('click', () => UI.modal.close());
+    document.getElementById('dreamForm').addEventListener('submit', (e) => {
+      e.preventDefault();
+      const fd = new FormData(e.target);
+      DB.updateUser(user.id, {
+        targetUniv: fd.get('targetUniv').trim(),
+        targetMajor: (fd.get('targetMajor') || '').trim()
+      });
+      UI.toast('Target kampus tersimpan. Semangat! 🎯');
+      UI.modal.close();
+      setTimeout(() => location.reload(), 400);
+    });
   }
 
   function courseCard(c, idx) {
@@ -136,17 +212,30 @@
     }));
   }
 
+  /* Jelajah Kelas — pendaftaran mandiri tetap tersedia, namun setiap kelas
+   * dapat dilindungi password yang diatur oleh admin atau guru pengajar. */
   function renderBrowse(container, user) {
     const all = DB.getCourses();
+    const lockedCount = all.filter(c => DB.hasCoursePassword(c.id)).length;
+
     container.innerHTML = `
       <div class="card">
+        <div class="alert alert-info" style="margin-bottom:0;">
+          🔐 <strong>Kelas berpassword.</strong> Penempatan kelas utama diatur oleh <strong>Admin</strong>.
+          Di halaman ini Anda masih bisa bergabung sendiri, tetapi kelas bertanda <strong>Terkunci</strong>
+          memerlukan password dari admin atau guru pengajarnya.
+        </div>
+      </div>
+
+      <div class="card">
         <div class="card-header">
-          <h3>Jelajah Kelas (${all.length})</h3>
+          ${UI.secHead('🔎', `Jelajah Kelas (${all.length})`, `${lockedCount} kelas terkunci • ${all.length - lockedCount} kelas terbuka`)}
           <input type="search" id="searchBox" placeholder="Cari kelas..." style="padding:8px 12px;border:1px solid var(--gray-300);border-radius:6px;max-width:240px;" />
         </div>
         <div id="browseList"></div>
       </div>
     `;
+
     const renderList = (q = '') => {
       const list = document.getElementById('browseList');
       const filter = q.trim().toLowerCase();
@@ -156,26 +245,56 @@
       list.innerHTML = `<div class="course-grid">${filtered.map((c, i) => {
         const t = DB.getUser(c.teacherId);
         const enrolled = DB.isEnrolled(c.id, user.id);
+        const locked = DB.hasCoursePassword(c.id);
         return `<div class="course-card">
-          <div class="course-banner ${UI.bannerClass(i)}">${UI.esc((c.title || '?').slice(0, 1).toUpperCase())}</div>
+          <div class="course-banner ${UI.bannerClass(i)}">
+            ${UI.esc((c.title || '?').slice(0, 1).toUpperCase())}
+            <span class="lock-chip">${locked ? '🔒 Terkunci' : '🔓 Terbuka'}</span>
+          </div>
           <div class="course-body">
             <h4>${UI.esc(c.title)}</h4>
             <div class="meta">${UI.esc(c.category || 'Umum')} • ${UI.esc(t ? t.name : '-')}</div>
             <p>${UI.esc(c.description)}</p>
+            ${locked && !enrolled ? '<div class="muted small">Butuh password kelas untuk bergabung.</div>' : ''}
           </div>
           <div class="course-footer">
             <span>${DB.getEnrollmentsByCourse(c.id).length} siswa</span>
             ${enrolled
               ? '<span class="badge badge-success">Sudah Bergabung</span>'
-              : `<button class="btn btn-sm btn-primary" data-enroll="${c.id}">Gabung</button>`}
+              : `<button class="btn btn-sm btn-primary" data-enroll="${c.id}">${locked ? '🔒 Masukkan Password' : 'Gabung'}</button>`}
           </div>
         </div>`;
       }).join('')}</div>`;
+
       list.querySelectorAll('[data-enroll]').forEach(b => b.addEventListener('click', () => {
-        DB.enroll(b.dataset.enroll, user.id);
-        UI.toast('Berhasil bergabung ke kelas.');
-        renderList(document.getElementById('searchBox').value);
+        const courseId = b.dataset.enroll;
+        const course = DB.getCourse(courseId);
+        if (!course) return;
+        const join = () => {
+          DB.enroll(courseId, user.id);
+          UI.toast(`Berhasil bergabung ke kelas ${course.title}. 🎉`);
+          // Beritahu guru pengajar + orang tua siswa agar data tetap sinkron
+          if (course.teacherId) {
+            DB.addNotification({
+              userId: course.teacherId, type: 'kelas', icon: '👋',
+              title: 'Siswa baru bergabung',
+              body: `${user.name} bergabung ke kelas ${course.title}.`,
+              link: 'courses'
+            });
+          }
+          DB.getParentsOfStudent(user.id).forEach(p => DB.addNotification({
+            userId: p.id, type: 'kelas', icon: '📚',
+            title: `${user.name} bergabung kelas baru`,
+            body: `Kelas ${course.title}.`,
+            link: 'anak-kelas'
+          }));
+          if (window.Dashboard) Dashboard.refreshNotifications();
+          renderList(document.getElementById('searchBox').value);
+        };
+        // Gerbang password hanya muncul bila kelas dilindungi
+        Shared.openCoursePasswordGate(course, user, join);
       }));
+      if (window.Effects) Effects.enhance(list);
     };
     renderList();
     document.getElementById('searchBox').addEventListener('input', (e) => renderList(e.target.value));
@@ -208,7 +327,7 @@
         <button class="tab-btn" data-tab="recordings">Rekaman (${DB.getRecordingsByCourse(course.id).length})</button>
         <button class="tab-btn" data-tab="assignments">Tugas (${assignments.length})</button>
         <button class="tab-btn" data-tab="cbts">CBT (${DB.getCbtsByCourse(course.id).length})</button>
-        <button class="tab-btn" data-tab="attendance">Absensi</button>
+        <button class="tab-btn" data-tab="attendance">Presensi</button>
       </div>
       <div id="tabContent"></div>
     `;
@@ -318,7 +437,23 @@
       } else {
         DB.addSubmission({ assignmentId, studentId: user.id, content });
       }
-      UI.toast('Jawaban terkirim.');
+      // Sinkron ke guru pengajar dan orang tua
+      const course = asg ? DB.getCourse(asg.courseId) : null;
+      if (course && course.teacherId) {
+        DB.addNotification({
+          userId: course.teacherId, type: 'tugas', icon: '📥',
+          title: sub ? 'Jawaban diperbarui' : 'Submission baru',
+          body: `${user.name} — ${asg.title} (${course.title}).`,
+          link: 'grading'
+        });
+      }
+      DB.getParentsOfStudent(user.id).forEach(p => DB.addNotification({
+        userId: p.id, type: 'tugas', icon: '✅',
+        title: `${user.name} mengumpulkan tugas`,
+        body: `${asg.title}${course ? ' • ' + course.title : ''}.`,
+        link: 'anak-tugas'
+      }));
+      UI.toast('Jawaban terkirim. 🚀');
       UI.modal.close();
       // refresh the dashboard view
       const currentKey = document.querySelector('.side-nav a.active')?.dataset.key || 'assignments';
@@ -398,9 +533,18 @@
   }
 
   function renderProfile(container, user) {
+    const stats = Shared.studentStats(user.id);
+    const parents = DB.getParentsOfStudent(user.id);
     container.innerHTML = `
+      <div class="stats-grid">
+        <div class="stat-card accent-primary"><div class="label">Level</div><div class="value">${stats.level}</div><div class="sub">${stats.points} poin</div></div>
+        <div class="stat-card accent-success"><div class="label">Kehadiran</div><div class="value">${stats.attendancePct}%</div><div class="sub">${stats.attendanceTotal} sesi tercatat</div></div>
+        <div class="stat-card accent-warning"><div class="label">Rata Tugas</div><div class="value">${stats.avgAsg ?? '-'}</div><div class="sub">${stats.gradedCount} dinilai</div></div>
+        <div class="stat-card accent-danger"><div class="label">Rata CBT</div><div class="value">${stats.avgCbt ?? '-'}</div><div class="sub">${stats.cbtDone} ujian selesai</div></div>
+      </div>
+
       <div class="card">
-        <div class="card-header"><h3>Profil Saya</h3></div>
+        <div class="card-header">${UI.secHead('👤', 'Profil Saya', 'Data ini dipakai untuk sambutan dashboard & rekomendasi AI')}</div>
         <form id="profileForm" class="form">
           <div class="form-row">
             <div class="form-group"><label>Nama</label>
@@ -411,13 +555,36 @@
           <div class="form-row">
             <div class="form-group"><label>Email</label>
               <input name="email" type="email" required value="${UI.esc(user.email || '')}" /></div>
+            <div class="form-group"><label>No. Telepon</label>
+              <input name="phone" value="${UI.esc(user.phone || '')}" placeholder="08xxxxxxxxxx" /></div>
+          </div>
+          <div class="form-row">
             <div class="form-group"><label>Kelas</label>
               <input name="kelas" value="${UI.esc(user.kelas || '')}" /></div>
+            <div class="form-group"><label>🎓 Universitas Impian</label>
+              <input name="targetUniv" value="${UI.esc(user.targetUniv || '')}" placeholder="mis. Universitas Indonesia" /></div>
           </div>
+          <div class="form-group"><label>Jurusan Impian</label>
+            <input name="targetMajor" value="${UI.esc(user.targetMajor || '')}" placeholder="mis. Teknik Informatika" /></div>
           <div class="form-group"><label>Password Baru (kosongkan jika tidak diubah)</label>
             <input name="password" type="password" minlength="6" /></div>
           <button class="btn btn-primary" type="submit">Simpan Perubahan</button>
         </form>
+      </div>
+
+      <div class="card">
+        <div class="card-header">${UI.secHead('👨‍👩‍👦', 'Orang Tua / Wali Terhubung', 'Akun yang dapat memantau perkembangan belajar Anda')}</div>
+        ${parents.length === 0
+          ? emptyState('Belum ada akun orang tua yang terhubung. Hubungi admin untuk menghubungkannya.')
+          : parents.map(p => `<div class="list-item">
+              <div class="flex-between">
+                <div>
+                  <div class="title">${UI.esc(p.name)}</div>
+                  <div class="meta">${UI.esc(p.relation || 'Wali')} • ${UI.esc(p.email || '-')} • ${UI.esc(p.phone || '-')}</div>
+                </div>
+                <span class="badge badge-info">Terhubung</span>
+              </div>
+            </div>`).join('')}
       </div>
     `;
     document.getElementById('profileForm').addEventListener('submit', (e) => {
@@ -426,7 +593,10 @@
       const patch = {
         name: fd.get('name').trim(),
         email: fd.get('email').trim(),
-        kelas: fd.get('kelas').trim()
+        phone: (fd.get('phone') || '').trim(),
+        kelas: fd.get('kelas').trim(),
+        targetUniv: (fd.get('targetUniv') || '').trim(),
+        targetMajor: (fd.get('targetMajor') || '').trim()
       };
       const pw = fd.get('password');
       if (pw) patch.password = pw;
@@ -500,19 +670,42 @@
     const before = now < c.startAt;
     const after = now > c.endAt;
     const done = attempt && attempt.submittedAt;
+    const sections = DB.cbtSections(c);
+    const qCount = DB.cbtQuestionIds(c).length;
+    const sec = c.security || {};
+
     let badge = '<span class="badge badge-info">Tersedia</span>';
     let btn = `<button class="btn btn-sm btn-primary" data-start="${c.id}">Mulai Ujian</button>`;
     if (before) { badge = `<span class="badge badge-gray">Belum Dibuka (${UI.fmtDateTime(c.startAt)})</span>`; btn = '<button class="btn btn-sm btn-secondary" disabled>Belum Dibuka</button>'; }
     else if (done) { badge = `<span class="badge badge-success">Skor: ${attempt.score}</span>`; btn = `<button class="btn btn-sm btn-secondary" data-view="${c.id}">Lihat Hasil</button>`; }
     else if (attempt && !done) { badge = '<span class="badge badge-warning">Sedang Dikerjakan</span>'; btn = `<button class="btn btn-sm btn-primary" data-start="${c.id}">Lanjutkan</button>`; }
     else if (after) { badge = '<span class="badge badge-warning">Sudah Ditutup</span>'; btn = '<button class="btn btn-sm btn-secondary" disabled>Ditutup</button>'; }
+
+    const secBadges = [
+      sec.requireCamera ? '📷 Kamera' : '', sec.requireMic ? '🎙️ Mikrofon' : '',
+      sec.fullscreen ? '🖥️ Layar penuh' : '', sec.blockTabSwitch ? '🚫 Anti pindah tab' : ''
+    ].filter(Boolean);
+
     return `<div class="list-item">
       <div class="flex-between">
         <div class="title">${UI.esc(c.title)}</div>
         ${badge}
       </div>
-      <div class="meta">${(c.questionIds || []).length} soal • ${c.durationMinutes} menit • ${UI.fmtDateTime(c.startAt)} s.d. ${UI.fmtDateTime(c.endAt)}</div>
-      <div class="content">${UI.esc(c.description || '')}</div>
+      <div class="meta">
+        ${c.subtestMode === 'full' ? '<span class="badge badge-warning">Gabungan 7 Subtest</span> ' : ''}
+        ${qCount} soal • ${sections.length} bagian • ${c.durationMinutes} menit •
+        ${UI.fmtDateTime(c.startAt)} s.d. ${UI.fmtDateTime(c.endAt)}
+      </div>
+      ${c.description ? `<div class="content">${UI.esc(c.description)}</div>` : ''}
+      ${sections.length > 1 ? `<div class="exam-secbar" style="margin:8px 0;">
+        ${sections.map((s, i) => {
+          const st = DB.subtestByName(s.subtest);
+          return `<span class="esb">${i + 1}. ${st ? st.icon : '📘'} ${UI.esc(st ? st.short : s.subtest)}</span>`;
+        }).join('')}
+      </div>` : ''}
+      ${secBadges.length ? `<div class="flex-gap" style="margin-bottom:8px;">
+        ${secBadges.map(b => `<span class="badge badge-gray" style="font-size:10px;">${b}</span>`).join('')}
+      </div>` : ''}
       <div class="flex-gap mt-1">${btn}</div>
     </div>`;
   }
@@ -520,12 +713,13 @@
   function bindCbtRowActions(el, user) {
     el.querySelectorAll('[data-start]').forEach(b => b.addEventListener('click', () => {
       const cbt = DB.getCbt(b.dataset.start);
-      Shared.startCbt(cbt, user);
+      // Runner baru: halaman pembuka + cek kamera/mic + per-subtest berurutan
+      Exam.start(cbt, user);
     }));
     el.querySelectorAll('[data-view]').forEach(b => b.addEventListener('click', () => {
       const cbt = DB.getCbt(b.dataset.view);
       const attempt = DB.getCbtAttemptByStudent(cbt.id, user.id);
-      if (attempt && attempt.submittedAt) Shared.showCbtResult(cbt, attempt);
+      if (attempt && attempt.submittedAt) Exam.showResult(cbt, attempt);
     }));
   }
 
@@ -546,8 +740,8 @@
         <div class="stat-card accent-primary"><div class="label">Kehadiran</div><div class="value">${pct}%</div></div>
       </div>
       <div class="card">
-        <div class="card-header"><h3>Riwayat Absensi di Kelas Ini</h3></div>
-        ${total === 0 ? emptyState('Belum ada data absensi.') : `
+        <div class="card-header"><h3>Riwayat Presensi di Kelas Ini</h3></div>
+        ${total === 0 ? emptyState('Belum ada data presensi.') : `
         <div class="table-wrap"><table class="table">
           <thead><tr><th>Tanggal</th><th>Status</th><th>Catatan</th></tr></thead>
           <tbody>${att.map(a => `<tr>
@@ -641,8 +835,8 @@
   }
 
   function renderCbtSection(container, user) {
-    const enrolled = DB.getEnrollmentsByStudent(user.id).map(e => e.courseId);
-    const cbts = DB.getCbts().filter(c => enrolled.includes(c.courseId));
+    // Ujian ditentukan oleh kelas tingkat / "semua kelas" / kelas mata pelajaran
+    const cbts = DB.getCbtsForStudent(user.id);
     const attempts = DB.getCbtAttemptsByStudent(user.id);
     const doneIds = new Set(attempts.filter(a => a.submittedAt).map(a => a.cbtId));
     const pending = cbts.filter(c => !doneIds.has(c.id));
@@ -706,7 +900,7 @@
 
       <div class="card">
         <div class="card-header"><h3>Riwayat Lengkap</h3></div>
-        ${total === 0 ? emptyState('Belum ada data absensi.') : `
+        ${total === 0 ? emptyState('Belum ada data presensi.') : `
         <div class="table-wrap"><table class="table">
           <thead><tr><th>Tanggal</th><th>Kelas</th><th>Status</th><th>Catatan</th></tr></thead>
           <tbody>${myAtt.map(a => {
