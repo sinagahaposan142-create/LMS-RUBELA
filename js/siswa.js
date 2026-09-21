@@ -327,7 +327,7 @@
         <button class="tab-btn" data-tab="recordings">Rekaman (${DB.getRecordingsByCourse(course.id).length})</button>
         <button class="tab-btn" data-tab="assignments">Tugas (${assignments.length})</button>
         <button class="tab-btn" data-tab="cbts">CBT (${DB.getCbtsByCourse(course.id).length})</button>
-        <button class="tab-btn" data-tab="attendance">Absensi</button>
+        <button class="tab-btn" data-tab="attendance">Presensi</button>
       </div>
       <div id="tabContent"></div>
     `;
@@ -670,19 +670,42 @@
     const before = now < c.startAt;
     const after = now > c.endAt;
     const done = attempt && attempt.submittedAt;
+    const sections = DB.cbtSections(c);
+    const qCount = DB.cbtQuestionIds(c).length;
+    const sec = c.security || {};
+
     let badge = '<span class="badge badge-info">Tersedia</span>';
     let btn = `<button class="btn btn-sm btn-primary" data-start="${c.id}">Mulai Ujian</button>`;
     if (before) { badge = `<span class="badge badge-gray">Belum Dibuka (${UI.fmtDateTime(c.startAt)})</span>`; btn = '<button class="btn btn-sm btn-secondary" disabled>Belum Dibuka</button>'; }
     else if (done) { badge = `<span class="badge badge-success">Skor: ${attempt.score}</span>`; btn = `<button class="btn btn-sm btn-secondary" data-view="${c.id}">Lihat Hasil</button>`; }
     else if (attempt && !done) { badge = '<span class="badge badge-warning">Sedang Dikerjakan</span>'; btn = `<button class="btn btn-sm btn-primary" data-start="${c.id}">Lanjutkan</button>`; }
     else if (after) { badge = '<span class="badge badge-warning">Sudah Ditutup</span>'; btn = '<button class="btn btn-sm btn-secondary" disabled>Ditutup</button>'; }
+
+    const secBadges = [
+      sec.requireCamera ? '📷 Kamera' : '', sec.requireMic ? '🎙️ Mikrofon' : '',
+      sec.fullscreen ? '🖥️ Layar penuh' : '', sec.blockTabSwitch ? '🚫 Anti pindah tab' : ''
+    ].filter(Boolean);
+
     return `<div class="list-item">
       <div class="flex-between">
         <div class="title">${UI.esc(c.title)}</div>
         ${badge}
       </div>
-      <div class="meta">${(c.questionIds || []).length} soal • ${c.durationMinutes} menit • ${UI.fmtDateTime(c.startAt)} s.d. ${UI.fmtDateTime(c.endAt)}</div>
-      <div class="content">${UI.esc(c.description || '')}</div>
+      <div class="meta">
+        ${c.subtestMode === 'full' ? '<span class="badge badge-warning">Gabungan 7 Subtest</span> ' : ''}
+        ${qCount} soal • ${sections.length} bagian • ${c.durationMinutes} menit •
+        ${UI.fmtDateTime(c.startAt)} s.d. ${UI.fmtDateTime(c.endAt)}
+      </div>
+      ${c.description ? `<div class="content">${UI.esc(c.description)}</div>` : ''}
+      ${sections.length > 1 ? `<div class="exam-secbar" style="margin:8px 0;">
+        ${sections.map((s, i) => {
+          const st = DB.subtestByName(s.subtest);
+          return `<span class="esb">${i + 1}. ${st ? st.icon : '📘'} ${UI.esc(st ? st.short : s.subtest)}</span>`;
+        }).join('')}
+      </div>` : ''}
+      ${secBadges.length ? `<div class="flex-gap" style="margin-bottom:8px;">
+        ${secBadges.map(b => `<span class="badge badge-gray" style="font-size:10px;">${b}</span>`).join('')}
+      </div>` : ''}
       <div class="flex-gap mt-1">${btn}</div>
     </div>`;
   }
@@ -690,12 +713,13 @@
   function bindCbtRowActions(el, user) {
     el.querySelectorAll('[data-start]').forEach(b => b.addEventListener('click', () => {
       const cbt = DB.getCbt(b.dataset.start);
-      Shared.startCbt(cbt, user);
+      // Runner baru: halaman pembuka + cek kamera/mic + per-subtest berurutan
+      Exam.start(cbt, user);
     }));
     el.querySelectorAll('[data-view]').forEach(b => b.addEventListener('click', () => {
       const cbt = DB.getCbt(b.dataset.view);
       const attempt = DB.getCbtAttemptByStudent(cbt.id, user.id);
-      if (attempt && attempt.submittedAt) Shared.showCbtResult(cbt, attempt);
+      if (attempt && attempt.submittedAt) Exam.showResult(cbt, attempt);
     }));
   }
 
@@ -716,8 +740,8 @@
         <div class="stat-card accent-primary"><div class="label">Kehadiran</div><div class="value">${pct}%</div></div>
       </div>
       <div class="card">
-        <div class="card-header"><h3>Riwayat Absensi di Kelas Ini</h3></div>
-        ${total === 0 ? emptyState('Belum ada data absensi.') : `
+        <div class="card-header"><h3>Riwayat Presensi di Kelas Ini</h3></div>
+        ${total === 0 ? emptyState('Belum ada data presensi.') : `
         <div class="table-wrap"><table class="table">
           <thead><tr><th>Tanggal</th><th>Status</th><th>Catatan</th></tr></thead>
           <tbody>${att.map(a => `<tr>
@@ -811,8 +835,8 @@
   }
 
   function renderCbtSection(container, user) {
-    const enrolled = DB.getEnrollmentsByStudent(user.id).map(e => e.courseId);
-    const cbts = DB.getCbts().filter(c => enrolled.includes(c.courseId));
+    // Ujian ditentukan oleh kelas tingkat / "semua kelas" / kelas mata pelajaran
+    const cbts = DB.getCbtsForStudent(user.id);
     const attempts = DB.getCbtAttemptsByStudent(user.id);
     const doneIds = new Set(attempts.filter(a => a.submittedAt).map(a => a.cbtId));
     const pending = cbts.filter(c => !doneIds.has(c.id));
@@ -876,7 +900,7 @@
 
       <div class="card">
         <div class="card-header"><h3>Riwayat Lengkap</h3></div>
-        ${total === 0 ? emptyState('Belum ada data absensi.') : `
+        ${total === 0 ? emptyState('Belum ada data presensi.') : `
         <div class="table-wrap"><table class="table">
           <thead><tr><th>Tanggal</th><th>Kelas</th><th>Status</th><th>Catatan</th></tr></thead>
           <tbody>${myAtt.map(a => {

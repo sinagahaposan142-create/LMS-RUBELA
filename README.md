@@ -22,6 +22,29 @@ Antarmuka dilengkapi **layer animasi & micro-interaction** (ripple pada tombol, 
 - Session disimpan di `localStorage`.
 - Pesan error spesifik bila peran tidak cocok, dengan animasi shake.
 
+### CBT / Ujian — Halaman Khusus (dirombak total)
+Menu **CBT / Ujian** kini membuka *workspace* layar penuh dengan sub-halaman sendiri, dipakai bersama oleh Admin dan Guru.
+- **Daftar ujian**: status berlangsung/akan datang/selesai, jumlah peserta, dan ikon pengaturan keamanan tiap ujian.
+- **Wizard 6 langkah** untuk membuat/menyunting ujian:
+  1. **Informasi & Deskripsi** — judul, petunjuk pengerjaan (tampil di halaman pembuka peserta), jadwal.
+  2. **Kelas Tujuan** — centang **beberapa kelas tingkat sekaligus** (X-A, XI-B, …) atau pilih **“Untuk Semua Kelas”**. Kelas di sini adalah kelas tingkat, bukan kelas mata pelajaran; kelas mata pelajaran tetap bisa dikaitkan secara opsional.
+  3. **Metode Subtest** — *Per 1 Subtest*, *Gabungan 7 Subtest (Full UTBK)*, atau *Custom*. Memilih mode **tidak** otomatis mencentang soal apa pun.
+  4. **Pilih Soal** — halaman “Soal Tersedia” dengan panel kategori subtest di samping, filter format & tingkat kesulitan, pencarian, serta kartu soal responsif.
+  5. **Keamanan & Pemantauan** — wajib kamera, wajib mikrofon, paksa layar penuh, deteksi pindah tab, dan batas pelanggaran.
+  6. **Tinjau & Simpan** — ringkasan lengkap + urutan pengerjaan.
+- **Soal Tersedia (Bank Soal)**: halaman khusus per kategori subtest. Setiap soal menampilkan **jenis subtest**, **format soal** (Pilihan Ganda, Pilihan Lebih dari Satu, Esai, Benar/Salah, Majemuk Kompleks), **tingkat kesulitan**, dan jumlah opsi.
+- **Pemantauan Langsung**: status tiap peserta (belum mulai / mengerjakan / selesai), jumlah dan rincian pelanggaran, auto-refresh 5 detik.
+- **Hasil & Analisis**: skor keseluruhan + **rata-rata per subtest** untuk melihat subtest terlemah.
+
+### Pengalaman Ujian Peserta
+- **Halaman pembuka** berisi judul, **deskripsi/petunjuk**, ringkasan (jumlah soal, durasi, jumlah bagian), urutan pengerjaan, dan ketentuan keamanan.
+- **Pemeriksaan perangkat**: bila ujian mewajibkannya, peserta harus mengizinkan **kamera** dan **mikrofon** — lengkap dengan pratinjau kamera dan indikator level suara. Ujian tidak dapat dimulai bila izin ditolak.
+- **Pengerjaan berurutan per subtest**: untuk mode Gabungan 7 Subtest, peserta mengerjakan **PU → PPU → PBM → PK → Literasi Indonesia → Literasi Inggris → Penalaran Matematika**, masing-masing dengan timer sendiri dan tidak dapat diulang.
+- **Pemantauan selama ujian**: pratinjau kamera menempel di sudut layar, pelanggaran (pindah tab, keluar layar penuh) dicatat dan diberi peringatan; melewati batas otomatis memberi tahu pengawas.
+- **Hasil**: skor akhir, rincian skor per subtest, dan pembahasan tiap soal. Soal esai ditandai untuk dinilai manual.
+
+> **Catatan privasi:** kamera dan mikrofon hanya dipakai secara lokal di perangkat peserta untuk pratinjau dan indikator suara. Tidak ada rekaman video/audio yang dikirim atau disimpan — sistem hanya mencatat *kejadian* pelanggaran.
+
 ### Pusat Notifikasi (semua peran)
 - Ikon bel di topbar dengan penghitung yang belum dibaca.
 - Notifikasi otomatis terkirim saat: tugas dinilai, submission masuk, siswa bergabung kelas, presensi **Alfa** tersimpan, dan akun orang tua dihubungkan.
@@ -35,9 +58,9 @@ Antarmuka dilengkapi **layer animasi & micro-interaction** (ripple pada tombol, 
 ### Panel Admin
 - **Overview**: statistik lengkap (guru, siswa, kelas, pembayaran, pemasukan, pengeluaran, laba bersih, CBT, tugas, modul, rekaman, bank soal).
 - **Kelola Guru** (dengan tarif gaji) & **Kelola Siswa**.
-- **Kelola Orang Tua**: buat akun wali, hubungkan ke satu atau beberapa siswa, lihat siswa yang belum punya wali.
-- **Semua Kelas**: daftar dengan rekap materi/tugas/siswa + kolom **Password Kelas** beserta tombol atur cepat.
-- **Absensi**: tab **Ambil Presensi** (pilih kelas lewat kotak berbaris, tandai status dengan satu klik), plus rekap siswa, rekap guru, dan log lengkap.
+- **Kelola Orang Tua**: buat akun wali, hubungkan ke satu atau beberapa siswa (daftar centang rapi dengan **pencarian langsung**), lihat siswa yang belum punya wali, serta **Export / Import Excel**.
+- **Semua Kelas**: daftar dengan rekap materi/tugas/siswa + kolom **Password Kelas** beserta tombol atur cepat, plus **Export / Import Excel**. Judul kelas dipilih dari **7 subtest UTBK** atau ditulis manual lewat opsi *Lainnya*.
+- **Presensi**: tab **Ambil Presensi** (pilih kelas lewat kotak berbaris, tandai status dengan satu klik **tanpa animasi** agar cepat), plus rekap siswa, rekap guru, dan log lengkap.
 - **Papan Peringkat**: peringkat poin seluruh siswa.
 - **Rekapan**: ringkasan aktivitas per kelas (siswa, materi, modul, rekaman, tugas, CBT, rata-rata nilai, kehadiran) dan per siswa (submission, rata tugas, CBT selesai, kehadiran, total pembayaran).
 - **Keuangan**: kelola pemasukan siswa (SPP), pengeluaran operasional, dan gaji/honor guru (otomatis mengisi dari tarif guru). Laba bersih terhitung real-time.
@@ -52,7 +75,7 @@ Antarmuka dilengkapi **layer animasi & micro-interaction** (ripple pada tombol, 
 - **Bank Soal**: kelola bank soal multiple-choice (mapel, tingkat kesulitan, 4 pilihan, pembahasan). Digunakan di CBT.
 - **CBT/Ujian**: buat ujian berbasis bank soal, tentukan durasi & jadwal. Lihat hasil semua siswa + rata-rata.
 - **Penilaian Tugas**: grading terpusat untuk semua submission.
-- **Absensi**: pilih kelas lewat **kotak berbaris ke samping**, lalu tandai **Hadir / Izin / Sakit / Alfa** dengan tombol sejajar (tanpa dropdown). Tersimpan otomatis tiap klik, ada tombol "Tandai Semua", ringkasan hidup, dan catatan per siswa. Tab lain: rekap siswa & riwayat presensi sendiri.
+- **Presensi**: pilih kelas lewat **kotak berbaris ke samping**, lalu tandai **Hadir / Izin / Sakit / Alfa** dengan tombol sejajar (tanpa dropdown, **tanpa animasi centang**). Tersimpan otomatis tiap klik, ada tombol "Tandai Semua", ringkasan hidup, dan catatan per siswa. Tab lain: rekap siswa & riwayat presensi sendiri.
 - **Honor Saya**: riwayat gaji (total diterima, pending, tarif per bulan).
 - **Profil**: ubah data diri & password.
 
@@ -118,6 +141,22 @@ Contoh sinkronisasi otomatis:
 - Hapus **kelas** → semua materi, modul, rekaman, tugas, submission, CBT, attempt, enrollment, attendance, dan payment terkait ikut terhapus (cascade).
 - Hapus **siswa** → tautan ke akun orang tua, notifikasi, dan pesan chat terkait ikut dibersihkan.
 
+## Import / Export Excel
+
+Tersedia pada **Kelola Guru**, **Kelola Siswa**, **Kelola Orang Tua**, dan **Semua Kelas**.
+Tekan *Export Excel* untuk mengunduh template berisi kolom lengkap (termasuk data yang sudah ada), lalu gunakan file tersebut sebagai acuan import.
+
+| Data | Kolom |
+|------|-------|
+| Guru | Nama, Username, **Password**, Email, WhatsApp, Subtest, Tarif Gaji, Status |
+| Siswa | Nama, Username, **Password**, Email, Telepon, Kelas, Universitas Tujuan, Jurusan Tujuan, Status |
+| Orang Tua | Nama, Username, **Password**, Email, Telepon, Hubungan, **Username Anak** (pisahkan koma), Status |
+| Kelas | Judul Kelas, Kategori, Deskripsi, Biaya, Password, Username Guru |
+
+- Kolom **Password** dipakai langsung sebagai password akun. Bila dikosongkan, akun memakai `password123`.
+- Baris dengan username/judul yang sudah ada otomatis dilewati agar tidak duplikat.
+- Pada import orang tua, kolom *Username Anak* langsung menghubungkan akun wali ke siswa dan mengirim notifikasi ke siswa tersebut.
+
 ## Cara Menjalankan
 
 ```bash
@@ -168,8 +207,12 @@ LMS-RUBELA/
     ├── login.js         # Controller halaman login
     ├── ui.js            # Helper format (Rp, tanggal, durasi), modal, toast, progress, meter, greeting
     ├── effects.js       # Layer animasi: ripple, reveal, count-up, transisi halaman, tema gelap/terang
-    ├── shared.js        # Modul bersama: CBT runner, video embed, kalender, chat, AI, password kelas,
+    ├── shared.js        # Modul bersama: video embed, kalender, chat, AI, password kelas,
     │                    #   lembar presensi (pill), papan peringkat, lencana
+    ├── cbt.js           # Workspace CBT: daftar ujian, wizard 6 langkah, bank soal per subtest,
+    │                    #   pemantauan langsung, hasil & analisis per subtest
+    ├── exam.js          # Runner ujian peserta: halaman pembuka, cek kamera/mikrofon,
+    │                    #   pengerjaan berurutan per subtest, pencatatan pelanggaran, hasil
     ├── dashboard.js     # Router role-based + sidebar + pusat notifikasi + tema + drawer mobile
     ├── admin.js         # Panel Admin (20 menu, termasuk Kelola Orang Tua & Papan Peringkat)
     ├── guru.js          # Panel Guru (16 menu)

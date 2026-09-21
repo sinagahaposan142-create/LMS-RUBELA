@@ -12,8 +12,9 @@
     }
     if (section === 'modul') return renderModulSection(container, user);
     if (section === 'rekaman') return renderRekamanSection(container, user);
-    if (section === 'bank-soal') return renderBankSoal(container, user);
-    if (section === 'cbt') return renderCbtSection(container, user);
+    // Bank soal & CBT memakai workspace khusus bersama (js/cbt.js)
+    if (section === 'bank-soal') return CbtAdmin.renderBankHome(container, user);
+    if (section === 'cbt') return CbtAdmin.renderCbtHome(container, user);
     if (section === 'grading') return renderGrading(container, user);
     if (section === 'absensi') return renderAbsensiSection(container, user);
     if (section === 'leaderboard') return Shared.renderLeaderboard(container, user);
@@ -154,10 +155,22 @@
 
   function openCourseForm(user, editId) {
     const editing = editId ? DB.getCourse(editId) : null;
+    // Judul kelas: pilih subtest UTBK, atau "Lainnya" untuk diketik manual
+    const isPreset = editing ? DB.SUBTEST_NAMES.includes(editing.title) : false;
     const body = `
       <form id="courseForm" class="form">
-        <div class="form-group"><label>Judul Kelas</label>
-          <input name="title" required value="${UI.esc(editing?.title || '')}" /></div>
+        <div class="form-group">
+          <label>Judul Kelas</label>
+          <select name="titlePreset" id="gTitlePreset">
+            <option value="">-- Pilih Subtest UTBK --</option>
+            ${DB.SUBTESTS.map(s => `<option value="${UI.esc(s.name)}" ${isPreset && editing.title === s.name ? 'selected' : ''}>${s.icon} ${UI.esc(s.name)}</option>`).join('')}
+            <option value="__OTHER__" ${editing && !isPreset ? 'selected' : ''}>✏️ Lainnya (tulis manual)</option>
+          </select>
+        </div>
+        <div class="form-group ${editing && !isPreset ? '' : 'hidden'}" id="gTitleCustomBox">
+          <label>Judul Kelas (manual)</label>
+          <input name="titleCustom" id="gTitleCustom" value="${UI.esc(editing && !isPreset ? editing.title : '')}" placeholder="mis. Kelas Intensif Saintek" />
+        </div>
         <div class="form-row">
           <div class="form-group"><label>Kategori</label>
             <input name="category" value="${UI.esc(editing?.category || '')}" placeholder="mis. Matematika" /></div>
@@ -179,11 +192,30 @@
       </form>`;
     UI.modal.open(editing ? 'Edit Kelas' : 'Buat Kelas Baru', body);
     document.getElementById('cancelBtn').addEventListener('click', () => UI.modal.close());
+
+    const gPreset = document.getElementById('gTitlePreset');
+    const gCustomBox = document.getElementById('gTitleCustomBox');
+    const gCustom = document.getElementById('gTitleCustom');
+    const gSync = () => {
+      const other = gPreset.value === '__OTHER__';
+      gCustomBox.classList.toggle('hidden', !other);
+      gCustom.required = other;
+      if (other) setTimeout(() => gCustom.focus(), 50);
+    };
+    gPreset.addEventListener('change', gSync);
+    gSync();
+
     document.getElementById('courseForm').addEventListener('submit', (e) => {
       e.preventDefault();
       const fd = new FormData(e.target);
+      const preset = fd.get('titlePreset');
+      const title = preset === '__OTHER__' ? (fd.get('titleCustom') || '').trim() : (preset || '').trim();
+      if (!title) {
+        UI.toast('Pilih subtest atau tulis judul kelas secara manual.', 'error');
+        return;
+      }
       const payload = {
-        title: fd.get('title').trim(),
+        title,
         category: fd.get('category').trim(),
         price: Number(fd.get('price') || 0),
         description: fd.get('description').trim(),
@@ -240,7 +272,7 @@
         <button class="tab-btn" data-tab="recordings">Rekaman (${DB.getRecordingsByCourse(course.id).length})</button>
         <button class="tab-btn" data-tab="assignments">Tugas (${assignments.length})</button>
         <button class="tab-btn" data-tab="cbts">CBT (${DB.getCbtsByCourse(course.id).length})</button>
-        <button class="tab-btn" data-tab="attendance">Absensi</button>
+        <button class="tab-btn" data-tab="attendance">Presensi</button>
         <button class="tab-btn" data-tab="students">Siswa (${enrollments.length})</button>
       </div>
       <div id="tabContent"></div>
@@ -1261,7 +1293,7 @@
       // Riwayat presensi guru sendiri
       box.innerHTML = `<div class="card">
         <div class="card-header">${UI.secHead('👤', 'Riwayat Presensi Saya', 'Seluruh kelas yang Anda ajar')}</div>
-        ${myAtt.length === 0 ? emptyState('Belum ada data absensi.') : `
+        ${myAtt.length === 0 ? emptyState('Belum ada data presensi.') : `
         <div class="table-wrap"><table class="table">
           <thead><tr><th>Tanggal</th><th>Kelas</th><th>Status</th><th>Catatan</th></tr></thead>
           <tbody>${myAtt.slice().sort((a, b) => b.date.localeCompare(a.date)).map(a => {

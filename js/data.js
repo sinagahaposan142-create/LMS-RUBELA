@@ -38,7 +38,7 @@
     salaries: 'lms_salaries',
     notifications: 'lms_notifications',
     session: 'lms_session',
-    seeded: 'lms_seeded_v3'
+    seeded: 'lms_seeded_v4'
   };
 
   /* Extra localStorage keys that are not part of the main entity map but must
@@ -47,6 +47,34 @@
     'lms_class_options', 'lms_events', 'lms_batches', 'lms_feedbacks',
     'lms_announcements', 'lms_messages'
   ];
+
+  /* ===== Konstanta UTBK (dipakai seluruh panel) =====
+   * Urutan array = urutan resmi pengerjaan subtest UTBK. Ujian mode
+   * "Gabungan 7 Subtest" dikerjakan berurutan mengikuti indeks ini.
+   */
+  const SUBTESTS = [
+    { code: 'PU',    name: 'Penalaran Umum (PU)',                            short: 'PU',    group: 'TPS',      icon: '🧩', defaultMinutes: 30 },
+    { code: 'PPU',   name: 'Pengetahuan dan Pemahaman Umum (PPU)',           short: 'PPU',   group: 'TPS',      icon: '📖', defaultMinutes: 15 },
+    { code: 'PBM',   name: 'Kemampuan Memahami Bacaan dan Menulis (PBM)',    short: 'PBM',   group: 'TPS',      icon: '✍️', defaultMinutes: 25 },
+    { code: 'PK',    name: 'Pengetahuan Kuantitatif (PK)',                   short: 'PK',    group: 'TPS',      icon: '🔢', defaultMinutes: 20 },
+    { code: 'LBIND', name: 'Literasi dalam Bahasa Indonesia',               short: 'Lit. Indonesia', group: 'Literasi', icon: '🇮🇩', defaultMinutes: 42 },
+    { code: 'LBING', name: 'Literasi dalam Bahasa Inggris',                 short: 'Lit. Inggris',   group: 'Literasi', icon: '🇬🇧', defaultMinutes: 20 },
+    { code: 'PM',    name: 'Penalaran Matematika',                          short: 'Pen. Matematika', group: 'Penalaran', icon: '📐', defaultMinutes: 42 }
+  ];
+  const SUBTEST_NAMES = SUBTESTS.map(s => s.name);
+  const QUESTION_TYPES = ['Pilihan Ganda', 'Pilihan Lebih dari Satu', 'Esai', 'Benar/Salah', 'Majemuk Kompleks'];
+  const DIFFICULTIES = ['mudah', 'sedang', 'sulit'];
+  /** Penanda "berlaku untuk semua kelas" pada targetClasses sebuah CBT. */
+  const ALL_CLASSES = '__ALL__';
+
+  function subtestByName(name) {
+    return SUBTESTS.find(s => s.name === name) || null;
+  }
+  /** Urutan subtest sesuai UTBK; subtest tak dikenal ditaruh di akhir. */
+  function subtestOrder(name) {
+    const i = SUBTEST_NAMES.indexOf(name);
+    return i === -1 ? 999 : i;
+  }
 
   function load(key, fallback) {
     try {
@@ -64,7 +92,7 @@
   function seedIfNeeded() {
     // Migrate: wipe any older seed version so new demo entities (orang tua,
     // password kelas, notifikasi) are created consistently.
-    const OLD_SEEDS = ['lms_seeded_v1', 'lms_seeded_v2'];
+    const OLD_SEEDS = ['lms_seeded_v1', 'lms_seeded_v2', 'lms_seeded_v3'];
     const staleSeed = OLD_SEEDS.find(k => localStorage.getItem(k) === '1');
     if (staleSeed && localStorage.getItem(KEYS.seeded) !== '1') {
       Object.keys(KEYS).forEach(k => localStorage.removeItem(KEYS[k]));
@@ -147,45 +175,135 @@
       { id: 'e_3', courseId: 'c_bind1', studentId: 'u_siswa1', enrolledAt: now - DAY * 3 }
     ];
 
-    // Question bank
+    // Bank soal — memakai nama subtest UTBK resmi agar bisa dikelompokkan
+    const N = (code) => SUBTESTS.find(s => s.code === code).name;
     const questions = [
-      { id: 'q_1', authorId: 'u_guru1', subject: 'Matematika', difficulty: 'mudah',
-        text: 'Berapakah hasil dari 3 + 4 * 2?',
-        options: ['14', '11', '10', '12'], correctIndex: 1, explanation: 'Perkalian dulu: 4*2=8, lalu 3+8=11.' },
-      { id: 'q_2', authorId: 'u_guru1', subject: 'Matematika', difficulty: 'sedang',
-        text: 'Nilai x dari 2x + 5 = 11 adalah?',
-        options: ['2', '3', '4', '5'], correctIndex: 1, explanation: '2x = 6, x = 3.' },
-      { id: 'q_3', authorId: 'u_guru1', subject: 'Matematika', difficulty: 'sedang',
-        text: 'Hasil dari 5! (faktorial) adalah?',
-        options: ['60', '100', '120', '150'], correctIndex: 2, explanation: '5! = 5*4*3*2*1 = 120.' },
-      { id: 'q_4', authorId: 'u_guru2', subject: 'Bahasa Indonesia', difficulty: 'mudah',
-        text: 'Kalimat berikut yang efektif adalah...',
+      /* ---- Penalaran Umum (PU) ---- */
+      { id: 'q_pu1', authorId: 'u_guru1', subject: N('PU'), questionType: 'Pilihan Ganda', difficulty: 'sedang',
+        text: 'Semua siswa yang rajin memperoleh nilai baik. Andi memperoleh nilai baik. Kesimpulan yang tepat adalah...',
+        options: ['Andi pasti rajin', 'Andi belum tentu rajin', 'Andi tidak rajin', 'Andi malas'],
+        correctIndex: 1, explanation: 'Premis tidak dapat dibalik; nilai baik bisa disebabkan hal lain.' },
+      { id: 'q_pu2', authorId: 'u_guru1', subject: N('PU'), questionType: 'Pilihan Ganda', difficulty: 'mudah',
+        text: 'Lanjutkan pola bilangan: 2, 6, 12, 20, 30, ...',
+        options: ['40', '42', '44', '46'], correctIndex: 1, explanation: 'Selisih bertambah 2: +4,+6,+8,+10,+12 → 30+12 = 42.' },
+      { id: 'q_pu3', authorId: 'u_guru1', subject: N('PU'), questionType: 'Pilihan Ganda', difficulty: 'sulit',
+        text: 'Jika P lebih tinggi dari Q, Q lebih tinggi dari R, dan S lebih rendah dari R, siapa yang paling rendah?',
+        options: ['P', 'Q', 'R', 'S'], correctIndex: 3, explanation: 'Urutan: P > Q > R > S, jadi S paling rendah.' },
+
+      /* ---- Pengetahuan dan Pemahaman Umum (PPU) ---- */
+      { id: 'q_ppu1', authorId: 'u_guru2', subject: N('PPU'), questionType: 'Pilihan Ganda', difficulty: 'mudah',
+        text: 'Sinonim yang paling tepat untuk kata "bahagia" adalah...',
+        options: ['sedih', 'riang', 'marah', 'kecewa'], correctIndex: 1, explanation: 'Riang bermakna senang/bahagia.' },
+      { id: 'q_ppu2', authorId: 'u_guru2', subject: N('PPU'), questionType: 'Pilihan Ganda', difficulty: 'sedang',
+        text: 'Antonim dari kata "eksplisit" adalah...',
+        options: ['tersurat', 'implisit', 'tegas', 'nyata'], correctIndex: 1, explanation: 'Eksplisit = tersurat; antonimnya implisit (tersirat).' },
+
+      /* ---- Kemampuan Memahami Bacaan dan Menulis (PBM) ---- */
+      { id: 'q_pbm1', authorId: 'u_guru2', subject: N('PBM'), questionType: 'Pilihan Ganda', difficulty: 'mudah',
+        text: 'Kalimat berikut yang paling efektif adalah...',
         options: [
           'Para siswa-siswa sedang belajar.',
           'Siswa sedang belajar.',
           'Para siswa sedang belajar-belajar.',
           'Siswa-siswa sedang belajar bersama sama-sama.'
-        ], correctIndex: 1, explanation: 'Hindari pengulangan makna (kehematan).' },
-      { id: 'q_5', authorId: 'u_guru2', subject: 'Bahasa Indonesia', difficulty: 'mudah',
-        text: 'Sinonim dari "bahagia" adalah...',
-        options: ['sedih', 'riang', 'marah', 'kecewa'], correctIndex: 1, explanation: 'Riang = senang/bahagia.' }
+        ], correctIndex: 1, explanation: 'Hindari pengulangan makna (prinsip kehematan).' },
+      { id: 'q_pbm2', authorId: 'u_guru2', subject: N('PBM'), questionType: 'Benar/Salah', difficulty: 'mudah',
+        text: 'Kalimat "Kepada Bapak Kepala Sekolah, waktu dan tempat kami persilakan." sudah baku.',
+        options: ['Benar', 'Salah'], correctIndex: 1, explanation: 'Tidak baku; yang dipersilakan orangnya, bukan waktu dan tempat.' },
+
+      /* ---- Pengetahuan Kuantitatif (PK) ---- */
+      { id: 'q_pk1', authorId: 'u_guru1', subject: N('PK'), questionType: 'Pilihan Ganda', difficulty: 'mudah',
+        text: 'Berapakah hasil dari 3 + 4 × 2?',
+        options: ['14', '11', '10', '12'], correctIndex: 1, explanation: 'Perkalian dulu: 4×2=8, lalu 3+8=11.' },
+      { id: 'q_pk2', authorId: 'u_guru1', subject: N('PK'), questionType: 'Pilihan Ganda', difficulty: 'sedang',
+        text: 'Nilai x dari 2x + 5 = 11 adalah...',
+        options: ['2', '3', '4', '5'], correctIndex: 1, explanation: '2x = 6, maka x = 3.' },
+      { id: 'q_pk3', authorId: 'u_guru1', subject: N('PK'), questionType: 'Pilihan Ganda', difficulty: 'sedang',
+        text: 'Hasil dari 5! (faktorial) adalah...',
+        options: ['60', '100', '120', '150'], correctIndex: 2, explanation: '5! = 5×4×3×2×1 = 120.' },
+
+      /* ---- Literasi dalam Bahasa Indonesia ---- */
+      { id: 'q_lbind1', authorId: 'u_guru2', subject: N('LBIND'), questionType: 'Pilihan Ganda', difficulty: 'sedang',
+        text: 'Gagasan utama sebuah paragraf umumnya dapat ditemukan pada...',
+        options: ['kalimat penjelas', 'kalimat topik', 'kata hubung', 'tanda baca'],
+        correctIndex: 1, explanation: 'Gagasan utama terdapat pada kalimat topik (kalimat utama).' },
+      { id: 'q_lbind2', authorId: 'u_guru2', subject: N('LBIND'), questionType: 'Esai', difficulty: 'sulit',
+        text: 'Tuliskan simpulan Anda mengenai dampak literasi digital bagi pelajar (maksimal 100 kata).',
+        options: [], correctIndex: null, explanation: 'Dinilai manual oleh guru.' },
+
+      /* ---- Literasi dalam Bahasa Inggris ---- */
+      { id: 'q_lbing1', authorId: 'u_guru2', subject: N('LBING'), questionType: 'Pilihan Ganda', difficulty: 'mudah',
+        text: 'Choose the correct sentence.',
+        options: ['She don\'t like coffee.', 'She doesn\'t likes coffee.', 'She doesn\'t like coffee.', 'She not like coffee.'],
+        correctIndex: 2, explanation: 'Third person singular uses "doesn\'t" + base verb.' },
+      { id: 'q_lbing2', authorId: 'u_guru2', subject: N('LBING'), questionType: 'Pilihan Ganda', difficulty: 'sedang',
+        text: 'The word "significant" is closest in meaning to...',
+        options: ['tiny', 'important', 'unclear', 'random'], correctIndex: 1, explanation: 'Significant = important/considerable.' },
+
+      /* ---- Penalaran Matematika ---- */
+      { id: 'q_pm1', authorId: 'u_guru1', subject: N('PM'), questionType: 'Pilihan Ganda', difficulty: 'sedang',
+        text: 'Sebuah mobil menempuh 180 km dalam 3 jam. Berapa kecepatan rata-ratanya?',
+        options: ['50 km/jam', '55 km/jam', '60 km/jam', '65 km/jam'], correctIndex: 2, explanation: '180 ÷ 3 = 60 km/jam.' },
+      { id: 'q_pm2', authorId: 'u_guru1', subject: N('PM'), questionType: 'Pilihan Ganda', difficulty: 'sulit',
+        text: 'Diskon 20% lalu tambahan diskon 10% pada harga Rp500.000 menghasilkan harga akhir...',
+        options: ['Rp350.000', 'Rp360.000', 'Rp375.000', 'Rp400.000'], correctIndex: 1,
+        explanation: '500.000 × 0,8 = 400.000; lalu × 0,9 = 360.000.' }
     ];
 
+    /* CBT: mendukung banyak kelas tujuan (tingkat), deskripsi, pengaturan
+     * keamanan, dan pembagian per subtest (sections) untuk mode gabungan. */
     const cbts = [
       {
-        id: 'cbt_1', courseId: 'c_mat1', title: 'Ujian Harian - Aljabar',
-        description: 'Ujian singkat 3 soal materi aljabar dasar.',
-        questionIds: ['q_1', 'q_2', 'q_3'],
+        id: 'cbt_1',
+        title: 'Ujian Harian - Pengetahuan Kuantitatif',
+        description: 'Ujian singkat materi aljabar dasar dan operasi bilangan. Pastikan koneksi internet stabil sebelum memulai.',
+        courseId: 'c_mat1',
+        courseIds: ['c_mat1'],
+        targetClasses: ['X-A', 'X-B'],
+        subtestMode: 'single',
+        selectedSubtest: N('PK'),
+        sections: [
+          { subtest: N('PK'), questionIds: ['q_pk1', 'q_pk2', 'q_pk3'], durationMinutes: 15 }
+        ],
+        questionIds: ['q_pk1', 'q_pk2', 'q_pk3'],
         durationMinutes: 15,
+        security: { requireCamera: false, requireMic: false, fullscreen: false, blockTabSwitch: true, maxViolations: 5 },
         startAt: now - DAY * 2, endAt: now + DAY * 5,
         createdAt: now - DAY * 3
+      },
+      {
+        id: 'cbt_2',
+        title: 'Try Out UTBK - Gabungan 7 Subtest',
+        description: 'Simulasi UTBK lengkap. Subtest dikerjakan berurutan mulai dari Penalaran Umum. Kamera dan mikrofon wajib aktif selama ujian untuk pemantauan.',
+        courseId: 'c_mat1',
+        courseIds: ['c_mat1', 'c_bind1'],
+        targetClasses: [ALL_CLASSES],
+        subtestMode: 'full',
+        selectedSubtest: null,
+        sections: [
+          { subtest: N('PU'),    questionIds: ['q_pu1', 'q_pu2', 'q_pu3'], durationMinutes: 10 },
+          { subtest: N('PPU'),   questionIds: ['q_ppu1', 'q_ppu2'],        durationMinutes: 5 },
+          { subtest: N('PBM'),   questionIds: ['q_pbm1', 'q_pbm2'],        durationMinutes: 5 },
+          { subtest: N('PK'),    questionIds: ['q_pk1', 'q_pk2', 'q_pk3'], durationMinutes: 10 },
+          { subtest: N('LBIND'), questionIds: ['q_lbind1'],                durationMinutes: 5 },
+          { subtest: N('LBING'), questionIds: ['q_lbing1', 'q_lbing2'],    durationMinutes: 5 },
+          { subtest: N('PM'),    questionIds: ['q_pm1', 'q_pm2'],          durationMinutes: 10 }
+        ],
+        questionIds: ['q_pu1', 'q_pu2', 'q_pu3', 'q_ppu1', 'q_ppu2', 'q_pbm1', 'q_pbm2',
+                      'q_pk1', 'q_pk2', 'q_pk3', 'q_lbind1', 'q_lbing1', 'q_lbing2', 'q_pm1', 'q_pm2'],
+        durationMinutes: 50,
+        security: { requireCamera: true, requireMic: true, fullscreen: true, blockTabSwitch: true, maxViolations: 3 },
+        startAt: now - DAY, endAt: now + DAY * 14,
+        createdAt: now - DAY * 2
       }
     ];
 
     const cbtAttempts = [
       { id: 'att_1', cbtId: 'cbt_1', studentId: 'u_siswa1',
-        answers: { q_1: 1, q_2: 1, q_3: 2 },
+        answers: { q_pk1: 1, q_pk2: 1, q_pk3: 2 },
         score: 100, correctCount: 3, totalCount: 3,
+        sectionScores: [{ subtest: N('PK'), correct: 3, total: 3, score: 100 }],
+        violations: [],
         startedAt: now - DAY * 1, submittedAt: now - DAY * 1 + 600000 }
     ];
 
@@ -280,6 +398,10 @@
 
   const DB = {
     KEYS, uid, periodKey,
+
+    /* ===== Konstanta bersama ===== */
+    SUBTESTS, SUBTEST_NAMES, QUESTION_TYPES, DIFFICULTIES, ALL_CLASSES,
+    subtestByName, subtestOrder,
 
     /* ===== Users ===== */
     getUsers: () => getAll(KEYS.users),
@@ -452,12 +574,90 @@
       setAll(KEYS.cbtAttempts, getAll(KEYS.cbtAttempts).filter(a => a.cbtId !== id));
       remove(KEYS.cbts, id);
     },
+    /** Apakah sebuah CBT ditujukan untuk siswa ini?
+     * Cocok bila: targetClasses memuat ALL_CLASSES, memuat kelas (tingkat)
+     * siswa, atau siswa terdaftar di salah satu kelas mata pelajaran tujuan.
+     */
+    cbtTargetsStudent: (cbt, student) => {
+      if (!cbt || !student) return false;
+      const tc = Array.isArray(cbt.targetClasses) ? cbt.targetClasses : [];
+      if (tc.includes(ALL_CLASSES)) return true;
+      if (student.kelas && tc.includes(student.kelas)) return true;
+      const cids = Array.isArray(cbt.courseIds) && cbt.courseIds.length
+        ? cbt.courseIds
+        : (cbt.courseId ? [cbt.courseId] : []);
+      if (cids.length) {
+        const enrolled = getAll(KEYS.enrollments).filter(e => e.studentId === student.id).map(e => e.courseId);
+        if (cids.some(id => enrolled.includes(id))) return true;
+      }
+      // Tanpa target apa pun -> tidak ditampilkan agar tidak bocor ke semua siswa
+      return false;
+    },
+    /** Semua ujian yang boleh dikerjakan seorang siswa. */
+    getCbtsForStudent: (studentId) => {
+      const student = findById(KEYS.users, studentId);
+      if (!student) return [];
+      return getAll(KEYS.cbts).filter(c => DB.cbtTargetsStudent(c, student));
+    },
+    /** Daftar kelas (tingkat) tujuan dalam bentuk teks siap tampil. */
+    cbtTargetLabel: (cbt) => {
+      const tc = Array.isArray(cbt.targetClasses) ? cbt.targetClasses : [];
+      if (tc.includes(ALL_CLASSES)) return 'Semua Kelas';
+      if (tc.length === 0) return '-';
+      return tc.join(', ');
+    },
+    /** Total soal sebuah CBT, dihitung dari sections bila tersedia. */
+    cbtQuestionIds: (cbt) => {
+      if (Array.isArray(cbt.sections) && cbt.sections.length) {
+        return cbt.sections.flatMap(s => s.questionIds || []);
+      }
+      return cbt.questionIds || [];
+    },
+    /** Sections ternormalisasi & terurut sesuai urutan resmi UTBK. */
+    cbtSections: (cbt) => {
+      if (Array.isArray(cbt.sections) && cbt.sections.length) {
+        return cbt.sections
+          .filter(s => (s.questionIds || []).length > 0)
+          .slice()
+          .sort((a, b) => subtestOrder(a.subtest) - subtestOrder(b.subtest));
+      }
+      // CBT lama tanpa sections -> perlakukan sebagai satu bagian
+      const qids = cbt.questionIds || [];
+      if (!qids.length) return [];
+      const first = findById(KEYS.questions, qids[0]);
+      return [{
+        subtest: (first && first.subject) || 'Umum',
+        questionIds: qids,
+        durationMinutes: cbt.durationMinutes || 30
+      }];
+    },
+
     getCbtAttempts: () => getAll(KEYS.cbtAttempts),
     getCbtAttemptsByCbt: (cid) => getAll(KEYS.cbtAttempts).filter(a => a.cbtId === cid),
     getCbtAttemptByStudent: (cid, sid) => getAll(KEYS.cbtAttempts).find(a => a.cbtId === cid && a.studentId === sid) || null,
     getCbtAttemptsByStudent: (sid) => getAll(KEYS.cbtAttempts).filter(a => a.studentId === sid),
-    addCbtAttempt: (a) => add(KEYS.cbtAttempts, Object.assign({ startedAt: Date.now() }, a)),
+    addCbtAttempt: (a) => add(KEYS.cbtAttempts, Object.assign({ startedAt: Date.now(), violations: [] }, a)),
     updateCbtAttempt: (id, p) => update(KEYS.cbtAttempts, id, p),
+    /** Catat pelanggaran/aktivitas mencurigakan selama ujian berlangsung. */
+    addCbtViolation: (attemptId, violation) => {
+      const att = findById(KEYS.cbtAttempts, attemptId);
+      if (!att) return null;
+      const list = Array.isArray(att.violations) ? att.violations.slice() : [];
+      list.push(Object.assign({ at: Date.now() }, violation));
+      return update(KEYS.cbtAttempts, attemptId, { violations: list });
+    },
+    /** Ringkasan pelanggaran seluruh peserta sebuah ujian (untuk pemantauan). */
+    getCbtViolationSummary: (cbtId) => {
+      return getAll(KEYS.cbtAttempts)
+        .filter(a => a.cbtId === cbtId)
+        .map(a => ({
+          attemptId: a.id,
+          studentId: a.studentId,
+          count: (a.violations || []).length,
+          violations: a.violations || [],
+          submitted: !!a.submittedAt
+        }));
+    },
 
     /* ===== Attendance ===== */
     getAttendance: () => getAll(KEYS.attendance),

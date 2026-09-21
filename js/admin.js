@@ -8,8 +8,9 @@
     if (section === 'siswa') return renderUsers(container, 'siswa');
     if (section === 'orangtua') return renderParents(container);
     if (section === 'courses') return renderCourses(container);
-    if (section === 'admin-cbt') return renderAdminCbt(container, user);
-    if (section === 'admin-bank-soal') return renderAdminBankSoal(container, user);
+    // CBT & Bank Soal kini memakai workspace khusus (js/cbt.js)
+    if (section === 'admin-cbt') return CbtAdmin.renderCbtHome(container, user);
+    if (section === 'admin-bank-soal') return CbtAdmin.renderBankHome(container, user);
     if (section === 'jadwal-kelas') return renderJadwalKelas(container);
     if (section === 'batch') return renderBatch(container);
     if (section === 'alumni') return renderAlumni(container);
@@ -66,22 +67,22 @@
       </section>
 
       <div class="stats-grid">
-        <div class="stat-card accent-primary">
+        <div class="stat-card accent-primary is-clickable" id="kpiGuru">
           <div class="label">Total Guru</div>
           <div class="value">${gurus.length}</div>
           <div class="sub">Pengajar terdaftar</div>
         </div>
-        <div class="stat-card accent-success">
+        <div class="stat-card accent-success is-clickable" id="kpiSiswa">
           <div class="label">Total Siswa</div>
           <div class="value">${siswas.length}</div>
           <div class="sub">Peserta didik aktif</div>
         </div>
-        <div class="stat-card accent-warning">
+        <div class="stat-card accent-warning is-clickable" id="kpiCourses">
           <div class="label">Total Kelas</div>
           <div class="value">${courses.length}</div>
           <div class="sub">Kelas aktif di sistem</div>
         </div>
-        <div class="stat-card accent-danger">
+        <div class="stat-card accent-danger is-clickable" id="kpiUngraded">
           <div class="label">Belum Dinilai</div>
           <div class="value">${ungraded}</div>
           <div class="sub">dari ${submissions.length} submission</div>
@@ -104,7 +105,7 @@
       </div>
 
       <div class="stats-grid">
-        <div class="stat-card accent-primary">
+        <div class="stat-card accent-primary is-clickable" id="kpiCbt">
           <div class="label">Total CBT</div>
           <div class="value">${cbts.length}</div>
           <div class="sub">${attempts.length} pengerjaan selesai</div>
@@ -119,7 +120,7 @@
           <div class="value">${DB.getModules().length}</div>
           <div class="sub">${DB.getRecordings().length} rekaman</div>
         </div>
-        <div class="stat-card accent-danger">
+        <div class="stat-card accent-danger is-clickable" id="kpiBankSoal">
           <div class="label">Bank Soal</div>
           <div class="value">${DB.getQuestions().length}</div>
           <div class="sub">Total soal di bank soal</div>
@@ -127,7 +128,10 @@
       </div>
 
       <div class="card">
-        <div class="card-header"><h3>Kelas Terbaru</h3></div>
+        <div class="card-header">
+          ${UI.secHead('📚', 'Kelas Terbaru', 'Lima kelas yang paling baru dibuat')}
+          <button class="btn btn-sm btn-secondary" id="heroCourses">Kelola Semua Kelas</button>
+        </div>
         ${courses.length === 0
           ? emptyState('Belum ada kelas.')
           : `<div class="table-wrap"><table class="table">
@@ -150,6 +154,13 @@
     document.getElementById('heroAttendance').addEventListener('click', () => Dashboard.navigate('attendance'));
     document.getElementById('heroParents').addEventListener('click', () => Dashboard.navigate('orangtua'));
     document.getElementById('heroLeaderboard').addEventListener('click', () => Dashboard.navigate('leaderboard'));
+    document.getElementById('heroCourses').addEventListener('click', () => Dashboard.navigate('courses'));
+    // Kartu KPI dapat diklik seperti pada panel peran lain
+    const jump = { kpiGuru: 'guru', kpiSiswa: 'siswa', kpiCourses: 'courses', kpiUngraded: 'rekap', kpiCbt: 'admin-cbt', kpiBankSoal: 'admin-bank-soal' };
+    Object.keys(jump).forEach(id => {
+      const el = document.getElementById(id);
+      if (el) el.addEventListener('click', () => Dashboard.navigate(jump[id]));
+    });
   }
 
   function renderUsers(container, role) {
@@ -167,6 +178,17 @@
             <button class="btn btn-primary btn-sm" id="addUserBtn">+ Tambah ${isGuru ? 'Guru' : 'Siswa'}</button>
           </div>
         </div>
+        <details class="demo-accounts" style="margin:0 0 14px;">
+          <summary>Format kolom Excel untuk import ${isGuru ? 'guru' : 'siswa'}</summary>
+          <p class="muted small" style="margin:8px 0 0;">
+            Kolom yang dikenali: <strong>Nama</strong>, <strong>Username</strong>, <strong>Password</strong>, <strong>Email</strong>,
+            ${isGuru
+              ? '<strong>WhatsApp</strong>, <strong>Subtest</strong>, <strong>Tarif Gaji</strong>'
+              : '<strong>Telepon</strong>, <strong>Kelas</strong>, <strong>Universitas Tujuan</strong>, <strong>Jurusan Tujuan</strong>'},
+            dan <strong>Status</strong>. Klik <em>Export Excel</em> untuk mendapatkan template dengan kolom lengkap.
+            Bila kolom <strong>Password</strong> dikosongkan, akun dibuat dengan password <code>password123</code>.
+          </p>
+        </details>
         ${list.length === 0 ? emptyState('Belum ada data.') : `
         <div class="table-wrap"><table class="table">
           <thead><tr>
@@ -208,24 +230,33 @@
       let rows;
       if (isGuru) {
         rows = users.map(u => ({
-          Nama: u.name, Username: u.username, Email: u.email || '',
+          Nama: u.name, Username: u.username, Password: u.password || '', Email: u.email || '',
           WhatsApp: u.whatsapp || '', Subtest: u.subject || '',
           'Tarif Gaji': u.salaryRate || 0, Status: u.status || 'Aktif'
         }));
       } else {
         rows = users.map(u => ({
-          Nama: u.name, Username: u.username, Email: u.email || '',
+          Nama: u.name, Username: u.username, Password: u.password || '', Email: u.email || '',
           Telepon: u.phone || '', Kelas: u.kelas || '',
           'Universitas Tujuan': u.targetUniv || '', 'Jurusan Tujuan': u.targetMajor || '',
           Status: u.status || 'Aktif'
         }));
+      }
+      // Baris contoh agar kolom tetap terlihat walau data masih kosong
+      if (rows.length === 0) {
+        rows = [isGuru
+          ? { Nama: 'Contoh Guru', Username: 'guru_baru', Password: 'password123', Email: 'guru@rubela.edu',
+              WhatsApp: '08123456789', Subtest: DB.SUBTESTS[0].name, 'Tarif Gaji': 3000000, Status: 'Aktif' }
+          : { Nama: 'Contoh Siswa', Username: 'siswa_baru', Password: 'password123', Email: 'siswa@rubela.edu',
+              Telepon: '08123456789', Kelas: (DB.getClassOptions()[0] || 'X-A'),
+              'Universitas Tujuan': 'Universitas Indonesia', 'Jurusan Tujuan': 'Teknik Informatika', Status: 'Aktif' }];
       }
       if (typeof XLSX === 'undefined') { UI.toast('Library Excel belum termuat. Coba reload halaman.', 'error'); return; }
       const ws = XLSX.utils.json_to_sheet(rows);
       const wb = XLSX.utils.book_new();
       XLSX.utils.book_append_sheet(wb, ws, isGuru ? 'Guru' : 'Siswa');
       XLSX.writeFile(wb, `data_${role}_${UI.todayYMD()}.xlsx`);
-      UI.toast('File Excel berhasil diunduh.');
+      UI.toast('File Excel berhasil diunduh (termasuk kolom Password).');
     });
 
     // Import Excel
@@ -240,14 +271,18 @@
           const ws = wb.Sheets[wb.SheetNames[0]];
           const rows = XLSX.utils.sheet_to_json(ws);
           if (rows.length === 0) { UI.toast('File kosong atau format tidak sesuai.', 'error'); return; }
-          let added = 0, skipped = 0;
+          let added = 0, skipped = 0, defaultPw = 0;
           rows.forEach(row => {
             const name = (row.Nama || row.nama || '').trim();
             const username = (row.Username || row.username || '').trim();
             const email = (row.Email || row.email || '').trim();
             if (!name || !username) { skipped++; return; }
             if (DB.findUserByUsername(username)) { skipped++; return; }
-            const record = { id: DB.uid('u'), role, name, username, email, password: 'password123', status: (row.Status || row.status || 'Aktif') };
+            // Password diambil dari kolom Excel; bila kosong pakai default
+            const pwRaw = String(row.Password || row.password || row.Sandi || row.sandi || '').trim();
+            const password = pwRaw || 'password123';
+            if (!pwRaw) defaultPw++;
+            const record = { id: DB.uid('u'), role, name, username, email, password, status: (row.Status || row.status || 'Aktif') };
             if (isGuru) {
               record.subject = row.Subtest || row.subtest || row['Mata Pelajaran'] || '';
               record.whatsapp = String(row.WhatsApp || row.whatsapp || row.WA || '');
@@ -261,7 +296,9 @@
             DB.addUser(record);
             added++;
           });
-          UI.toast(`Import selesai: ${added} ditambahkan, ${skipped} dilewati (duplikat/kosong).`, added > 0 ? 'success' : 'info');
+          UI.toast(`Import selesai: ${added} ditambahkan, ${skipped} dilewati (duplikat/kosong).` +
+            (defaultPw ? ` ${defaultPw} akun tanpa kolom Password memakai "password123".` : ''),
+            added > 0 ? 'success' : 'info');
           renderUsers(container, role);
         } catch (err) {
           UI.toast('Gagal membaca file: ' + err.message, 'error');
@@ -434,8 +471,22 @@
       <div class="card">
         <div class="card-header">
           <h3>Semua Kelas (${courses.length})</h3>
-          <button class="btn btn-primary btn-sm" id="adminAddCourseBtn">+ Buat Kelas Baru</button>
+          <div class="flex-gap">
+            <button class="btn btn-sm btn-secondary" id="exportCourseBtn">Export Excel</button>
+            <label class="btn btn-sm btn-secondary" style="cursor:pointer;">Import Excel
+              <input type="file" id="importCourseFile" accept=".xlsx,.xls,.csv" style="display:none;" />
+            </label>
+            <button class="btn btn-primary btn-sm" id="adminAddCourseBtn">+ Buat Kelas Baru</button>
+          </div>
         </div>
+        <details class="demo-accounts" style="margin:0 0 14px;">
+          <summary>Format kolom Excel untuk import kelas</summary>
+          <p class="muted small" style="margin:8px 0 0;">
+            Kolom yang dikenali: <strong>Judul Kelas</strong>, <strong>Kategori</strong>, <strong>Deskripsi</strong>,
+            <strong>Biaya</strong>, <strong>Password</strong>, dan <strong>Username Guru</strong> (username akun guru pengajar).
+            Judul boleh salah satu dari 7 subtest UTBK atau judul bebas. Kelas dengan judul yang sudah ada akan dilewati.
+          </p>
+        </details>
         ${courses.length === 0 ? emptyState('Belum ada kelas.') : `
         <div class="table-wrap"><table class="table">
           <thead><tr><th>Judul</th><th>Kategori</th><th>Guru</th><th>Password</th><th>Materi</th><th>Tugas</th><th>Siswa</th><th>Aksi</th></tr></thead>
@@ -472,6 +523,90 @@
       Shared.openCoursePasswordForm(b.dataset.setPw, () => renderCourses(container));
     }));
 
+    /* ---- Export Excel kelas ---- */
+    document.getElementById('exportCourseBtn').addEventListener('click', () => {
+      if (typeof XLSX === 'undefined') { UI.toast('Library Excel belum termuat. Coba reload halaman.', 'error'); return; }
+      let rows = DB.getCourses().map(c => {
+        const t = DB.getUser(c.teacherId);
+        return {
+          'Judul Kelas': c.title,
+          Kategori: c.category || '',
+          Deskripsi: c.description || '',
+          Biaya: c.price || 0,
+          Password: c.password || '',
+          'Username Guru': t ? t.username : '',
+          'Nama Guru': t ? t.name : '',
+          'Jumlah Siswa': DB.getEnrollmentsByCourse(c.id).length
+        };
+      });
+      if (rows.length === 0) {
+        const g = DB.getUsers().find(u => u.role === 'guru');
+        rows = [{
+          'Judul Kelas': DB.SUBTESTS[0].name, Kategori: 'TPS', Deskripsi: 'Kelas persiapan Penalaran Umum.',
+          Biaya: 500000, Password: 'pu2026', 'Username Guru': g ? g.username : 'guru1',
+          'Nama Guru': g ? g.name : '', 'Jumlah Siswa': 0
+        }];
+      }
+      const ws = XLSX.utils.json_to_sheet(rows);
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, 'Kelas');
+      XLSX.writeFile(wb, `data_kelas_${UI.todayYMD()}.xlsx`);
+      UI.toast('File Excel kelas berhasil diunduh.');
+    });
+
+    /* ---- Import Excel kelas ---- */
+    document.getElementById('importCourseFile').addEventListener('change', (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = (evt) => {
+        try {
+          if (typeof XLSX === 'undefined') { UI.toast('Library Excel belum termuat.', 'error'); return; }
+          const wb = XLSX.read(evt.target.result, { type: 'array' });
+          const rows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]]);
+          if (rows.length === 0) { UI.toast('File kosong atau format tidak sesuai.', 'error'); return; }
+
+          const existingTitles = new Set(DB.getCourses().map(c => c.title.toLowerCase()));
+          const gurus = DB.getUsers().filter(u => u.role === 'guru');
+          let added = 0, skipped = 0, noTeacher = 0;
+
+          rows.forEach(row => {
+            const title = String(row['Judul Kelas'] || row.Judul || row.judul || row.Title || '').trim();
+            if (!title) { skipped++; return; }
+            if (existingTitles.has(title.toLowerCase())) { skipped++; return; }
+
+            const uname = String(row['Username Guru'] || row['username guru'] || row.Guru || row.guru || '').trim();
+            let teacher = uname ? DB.findUserByUsername(uname) : null;
+            if (!teacher || teacher.role !== 'guru') {
+              teacher = gurus[0] || null;
+              if (uname) noTeacher++;
+            }
+            if (!teacher) { skipped++; return; }
+
+            DB.addCourse({
+              title,
+              category: String(row.Kategori || row.kategori || row.Category || '').trim(),
+              description: String(row.Deskripsi || row.deskripsi || row.Description || '').trim() || title,
+              price: Number(row.Biaya || row.biaya || row.Price || row.harga || 0) || 0,
+              password: String(row.Password || row.password || '').trim(),
+              teacherId: teacher.id
+            });
+            existingTitles.add(title.toLowerCase());
+            added++;
+          });
+
+          let msg = `Import selesai: ${added} kelas ditambahkan, ${skipped} dilewati (duplikat/kosong).`;
+          if (noTeacher) msg += ` ${noTeacher} baris memakai guru default karena username guru tidak ditemukan.`;
+          UI.toast(msg, added > 0 ? 'success' : 'info');
+          renderCourses(container);
+        } catch (err) {
+          UI.toast('Gagal membaca file: ' + err.message, 'error');
+        }
+      };
+      reader.readAsArrayBuffer(file);
+      e.target.value = '';
+    });
+
     // Add course
     document.getElementById('adminAddCourseBtn').addEventListener('click', () => openAdminCourseForm(container));
     // Edit course
@@ -492,10 +627,22 @@
   function openAdminCourseForm(container, editId) {
     const editing = editId ? DB.getCourse(editId) : null;
     const gurus = DB.getUsers().filter(u => u.role === 'guru' && (u.status || 'Aktif') === 'Aktif');
+    // Judul kelas: pilih salah satu subtest UTBK, atau "Lainnya" untuk diketik manual
+    const isPreset = editing ? DB.SUBTEST_NAMES.includes(editing.title) : false;
     const body = `
       <form id="adminCourseForm" class="form">
-        <div class="form-group"><label>Judul Kelas</label>
-          <input name="title" required value="${UI.esc(editing?.title || '')}" /></div>
+        <div class="form-group">
+          <label>Judul Kelas</label>
+          <select name="titlePreset" id="titlePreset">
+            <option value="">-- Pilih Subtest UTBK --</option>
+            ${DB.SUBTESTS.map(s => `<option value="${UI.esc(s.name)}" ${isPreset && editing.title === s.name ? 'selected' : ''}>${s.icon} ${UI.esc(s.name)}</option>`).join('')}
+            <option value="__OTHER__" ${editing && !isPreset ? 'selected' : ''}>✏️ Lainnya (tulis manual)</option>
+          </select>
+        </div>
+        <div class="form-group ${editing && !isPreset ? '' : 'hidden'}" id="titleCustomBox">
+          <label>Judul Kelas (manual)</label>
+          <input name="titleCustom" id="titleCustom" value="${UI.esc(editing && !isPreset ? editing.title : '')}" placeholder="mis. Kelas Intensif Saintek" />
+        </div>
         <div class="form-row">
           <div class="form-group"><label>Kategori</label>
             <input name="category" value="${UI.esc(editing?.category || '')}" placeholder="mis. Matematika" /></div>
@@ -524,11 +671,31 @@
       </form>`;
     UI.modal.open(editing ? 'Edit Kelas' : 'Buat Kelas Baru', body);
     document.getElementById('cancelBtn').addEventListener('click', () => UI.modal.close());
+
+    // Tampilkan input manual hanya bila memilih "Lainnya"
+    const presetSel = document.getElementById('titlePreset');
+    const customBox = document.getElementById('titleCustomBox');
+    const customInput = document.getElementById('titleCustom');
+    const syncTitleMode = () => {
+      const other = presetSel.value === '__OTHER__';
+      customBox.classList.toggle('hidden', !other);
+      customInput.required = other;
+      if (other) setTimeout(() => customInput.focus(), 50);
+    };
+    presetSel.addEventListener('change', syncTitleMode);
+    syncTitleMode();
+
     document.getElementById('adminCourseForm').addEventListener('submit', (e) => {
       e.preventDefault();
       const fd = new FormData(e.target);
+      const preset = fd.get('titlePreset');
+      const title = preset === '__OTHER__' ? (fd.get('titleCustom') || '').trim() : (preset || '').trim();
+      if (!title) {
+        UI.toast('Pilih subtest atau tulis judul kelas secara manual.', 'error');
+        return;
+      }
       const payload = {
-        title: fd.get('title').trim(),
+        title,
         category: fd.get('category').trim(),
         price: Number(fd.get('price') || 0),
         description: fd.get('description').trim(),
@@ -610,294 +777,6 @@
       UI.toast(`Selesai: ${added} ditambahkan, ${removed} dihapus.`);
       UI.modal.close();
       renderCourses(container);
-    });
-  }
-
-  /* ========== ADMIN CBT MANAGEMENT ========== */
-  function renderAdminCbt(container, user) {
-    const SUBTESTS = ['Penalaran Umum (PU)', 'Pengetahuan dan Pemahaman Umum (PPU)', 'Kemampuan Memahami Bacaan dan Menulis (PBM)', 'Pengetahuan Kuantitatif (PK)', 'Literasi dalam Bahasa Indonesia', 'Literasi dalam Bahasa Inggris', 'Penalaran Matematika'];
-    const allQuestions = DB.getQuestions();
-    const cbts = DB.getCbts();
-    const courses = DB.getCourses();
-
-    container.innerHTML = `
-      <div class="card">
-        <div class="card-header">
-          <h3>Semua Ujian CBT (${cbts.length})</h3>
-          <button class="btn btn-primary btn-sm" id="adminCreateCbtBtn">+ Buat Ujian Baru</button>
-        </div>
-        ${cbts.length === 0 ? emptyState('Belum ada ujian CBT.') : `
-        <div class="table-wrap"><table class="table">
-          <thead><tr><th>Ujian</th><th>Kelas</th><th>Soal</th><th>Subtest</th><th>Mulai</th><th>Peserta</th><th>Aksi</th></tr></thead>
-          <tbody>${cbts.map(c => {
-            const course = DB.getCourse(c.courseId);
-            const attempts = DB.getCbtAttemptsByCbt(c.id).filter(a => a.submittedAt);
-            return `<tr>
-              <td><strong>${UI.esc(c.title)}</strong></td>
-              <td>${UI.esc(course ? course.title : '-')}</td>
-              <td>${(c.questionIds || []).length}</td>
-              <td><span class="badge badge-info">${UI.esc(c.subtestMode || 'Custom')}</span></td>
-              <td>${UI.fmtDateTime(c.startAt)}</td>
-              <td>${attempts.length}</td>
-              <td class="actions">
-                <button class="btn btn-sm btn-danger" data-del-cbt="${c.id}">Hapus</button>
-              </td>
-            </tr>`;
-          }).join('')}</tbody>
-        </table></div>`}
-      </div>
-    `;
-
-    document.getElementById('adminCreateCbtBtn').addEventListener('click', () => openAdminCbtForm(container, user));
-    container.querySelectorAll('[data-del-cbt]').forEach(b => b.addEventListener('click', () => {
-      if (!UI.confirmDialog('Hapus ujian ini dan semua hasil?')) return;
-      DB.deleteCbt(b.dataset.delCbt);
-      UI.toast('Ujian dihapus.');
-      renderAdminCbt(container, user);
-    }));
-  }
-
-  function openAdminCbtForm(container, user) {
-    const SUBTESTS = ['Penalaran Umum (PU)', 'Pengetahuan dan Pemahaman Umum (PPU)', 'Kemampuan Memahami Bacaan dan Menulis (PBM)', 'Pengetahuan Kuantitatif (PK)', 'Literasi dalam Bahasa Indonesia', 'Literasi dalam Bahasa Inggris', 'Penalaran Matematika'];
-    const courses = DB.getCourses();
-    const allQuestions = DB.getQuestions();
-
-    const body = `
-      <form id="adminCbtForm" class="form">
-        <div class="form-group"><label>Judul Ujian</label>
-          <input name="title" required placeholder="mis. Try Out UTBK Batch 1" /></div>
-        <div class="form-group"><label>Kelas Tujuan</label>
-          <select name="courseId" required>
-            <option value="">-- Pilih Kelas --</option>
-            ${courses.map(c => `<option value="${c.id}">${UI.esc(c.title)}</option>`).join('')}
-          </select>
-        </div>
-        <div class="form-group"><label>Mode Subtest</label>
-          <select name="subtestMode" id="subtestMode">
-            <option value="single">Per 1 Subtest</option>
-            <option value="full">Gabungan 7 Subtest (Full UTBK)</option>
-            <option value="custom">Custom (Pilih Manual)</option>
-          </select>
-        </div>
-        <div class="form-group" id="subtestSelect" style="display:none;"><label>Pilih Subtest</label>
-          <select name="selectedSubtest">
-            ${SUBTESTS.map(s => `<option value="${s}">${s}</option>`).join('')}
-          </select>
-        </div>
-        <div class="form-row">
-          <div class="form-group"><label>Mulai</label>
-            <input name="startAt" type="datetime-local" required value="${UI.toDateTimeLocalInput(Date.now())}" /></div>
-          <div class="form-group"><label>Selesai</label>
-            <input name="endAt" type="datetime-local" required value="${UI.toDateTimeLocalInput(Date.now() + 7 * 86400000)}" /></div>
-        </div>
-        <div class="form-group"><label>Durasi (menit)</label>
-          <input name="duration" type="number" min="5" max="300" value="60" /></div>
-        <div class="muted small mb-1">Zona waktu: <strong>${UI.getTimezone()}</strong></div>
-        <div id="questionPickerBox"></div>
-        <div class="flex-gap" style="justify-content:flex-end;">
-          <button type="button" class="btn btn-secondary" id="cancelBtn">Batal</button>
-          <button type="submit" class="btn btn-primary">Buat Ujian</button>
-        </div>
-      </form>`;
-    UI.modal.open('Buat Ujian CBT (Admin)', body);
-    document.getElementById('cancelBtn').addEventListener('click', () => UI.modal.close());
-
-    const modeSelect = document.getElementById('subtestMode');
-    const subtestSel = document.getElementById('subtestSelect');
-    const pickerBox = document.getElementById('questionPickerBox');
-
-    function updatePicker() {
-      const mode = modeSelect.value;
-      subtestSel.style.display = mode === 'single' ? '' : 'none';
-      let filtered;
-      if (mode === 'full') {
-        filtered = allQuestions;
-      } else if (mode === 'single') {
-        const sub = document.querySelector('[name="selectedSubtest"]').value;
-        filtered = allQuestions.filter(q => q.subject === sub);
-      } else {
-        filtered = allQuestions;
-      }
-      pickerBox.innerHTML = `
-        <label class="muted small">${filtered.length} soal tersedia — centang yang ingin dimasukkan:</label>
-        <div style="max-height:200px;overflow-y:auto;border:1px solid var(--gray-200);border-radius:6px;padding:6px;">
-          ${filtered.map(q => `
-            <label style="display:flex;gap:6px;padding:4px 6px;border-bottom:1px solid var(--gray-100);font-size:12px;">
-              <input type="checkbox" name="qid" value="${q.id}" checked />
-              <span>${UI.esc(q.text.slice(0, 60))}${q.text.length > 60 ? '...' : ''}</span>
-              <span class="badge badge-gray" style="margin-left:auto;">${UI.esc(q.subject?.slice(0, 15) || '-')}</span>
-            </label>`).join('')}
-        </div>`;
-    }
-    modeSelect.addEventListener('change', updatePicker);
-    if (document.querySelector('[name="selectedSubtest"]')) {
-      document.querySelector('[name="selectedSubtest"]').addEventListener('change', updatePicker);
-    }
-    updatePicker();
-
-    document.getElementById('adminCbtForm').addEventListener('submit', (e) => {
-      e.preventDefault();
-      const fd = new FormData(e.target);
-      const qids = fd.getAll('qid');
-      if (qids.length === 0) { UI.toast('Pilih minimal 1 soal.', 'error'); return; }
-      const payload = {
-        courseId: fd.get('courseId'),
-        title: fd.get('title').trim(),
-        subtestMode: fd.get('subtestMode'),
-        startAt: UI.tzInputToUtc(fd.get('startAt')),
-        endAt: UI.tzInputToUtc(fd.get('endAt')),
-        durationMinutes: Number(fd.get('duration')),
-        questionIds: qids
-      };
-      DB.addCbt(payload);
-      UI.toast('Ujian CBT dibuat!');
-      UI.modal.close();
-      renderAdminCbt(container, user);
-    });
-  }
-
-  /* ========== ADMIN BANK SOAL ========== */
-  function renderAdminBankSoal(container, user) {
-    const SUBTESTS = ['Penalaran Umum (PU)', 'Pengetahuan dan Pemahaman Umum (PPU)', 'Kemampuan Memahami Bacaan dan Menulis (PBM)', 'Pengetahuan Kuantitatif (PK)', 'Literasi dalam Bahasa Indonesia', 'Literasi dalam Bahasa Inggris', 'Penalaran Matematika'];
-    const QTYPES = ['Pilihan Ganda', 'Pilihan Lebih dari Satu', 'Esai', 'Benar/Salah', 'Majemuk Kompleks'];
-    const allQuestions = DB.getQuestions();
-    let filterSubtest = '';
-
-    renderList();
-
-    function renderList() {
-      const filtered = filterSubtest ? allQuestions.filter(q => q.subject === filterSubtest) : allQuestions;
-      container.innerHTML = `
-        <div class="card">
-          <div class="card-header">
-            <h3>Bank Soal Global (${allQuestions.length})</h3>
-            <div class="flex-gap">
-              <select id="bankSubtestFilter" class="att-input" style="max-width:200px;">
-                <option value="">Semua Subtest</option>
-                ${SUBTESTS.map(s => `<option value="${s}" ${filterSubtest === s ? 'selected' : ''}>${s.length > 25 ? s.slice(0, 25) + '...' : s}</option>`).join('')}
-              </select>
-              <button class="btn btn-primary btn-sm" id="addBankSoalBtn">+ Tambah Soal</button>
-            </div>
-          </div>
-          ${filtered.length === 0 ? emptyState('Tidak ada soal dengan filter ini.') : `
-          <div class="table-wrap"><table class="table">
-            <thead><tr><th>Soal</th><th>Subtest</th><th>Tipe</th><th>Tingkat</th><th>Pembuat</th><th>Aksi</th></tr></thead>
-            <tbody>${filtered.slice(0, 50).map(q => {
-              const author = DB.getUser(q.authorId);
-              return `<tr>
-                <td style="max-width:250px;"><strong>${UI.esc(q.text.slice(0, 60))}${q.text.length > 60 ? '...' : ''}</strong></td>
-                <td><span class="badge badge-info" style="font-size:9px;">${UI.esc(q.subject?.slice(0, 20) || '-')}</span></td>
-                <td><span class="badge badge-gray">${UI.esc(q.questionType || 'Pilihan Ganda')}</span></td>
-                <td>${UI.esc(q.difficulty || 'sedang')}</td>
-                <td class="muted small">${UI.esc(author?.name || '-')}</td>
-                <td class="actions">
-                  <button class="btn btn-sm btn-danger" data-del-q="${q.id}">Hapus</button>
-                </td>
-              </tr>`;
-            }).join('')}</tbody>
-          </table></div>
-          ${filtered.length > 50 ? `<div class="muted small mt-1">Menampilkan 50 dari ${filtered.length} soal.</div>` : ''}`}
-        </div>
-      `;
-
-      document.getElementById('bankSubtestFilter').addEventListener('change', (e) => { filterSubtest = e.target.value; renderList(); });
-      document.getElementById('addBankSoalBtn').addEventListener('click', () => openAdminQuestionForm(container, user));
-      container.querySelectorAll('[data-del-q]').forEach(b => b.addEventListener('click', () => {
-        if (!UI.confirmDialog('Hapus soal ini?')) return;
-        DB.deleteQuestion(b.dataset.delQ);
-        UI.toast('Soal dihapus.');
-        renderList();
-      }));
-    }
-  }
-
-  function openAdminQuestionForm(container, user) {
-    const SUBTESTS = ['Penalaran Umum (PU)', 'Pengetahuan dan Pemahaman Umum (PPU)', 'Kemampuan Memahami Bacaan dan Menulis (PBM)', 'Pengetahuan Kuantitatif (PK)', 'Literasi dalam Bahasa Indonesia', 'Literasi dalam Bahasa Inggris', 'Penalaran Matematika'];
-    const QTYPES = ['Pilihan Ganda', 'Pilihan Lebih dari Satu', 'Esai', 'Benar/Salah', 'Majemuk Kompleks'];
-
-    const body = `
-      <form id="adminQForm" class="form">
-        <div class="form-row">
-          <div class="form-group"><label>Subtest</label>
-            <select name="subject" required>
-              <option value="">-- Pilih --</option>
-              ${SUBTESTS.map(s => `<option value="${s}">${s}</option>`).join('')}
-            </select>
-          </div>
-          <div class="form-group"><label>Tipe Soal</label>
-            <select name="questionType" id="qTypeSelect">
-              ${QTYPES.map(t => `<option value="${t}">${t}</option>`).join('')}
-            </select>
-          </div>
-        </div>
-        <div class="form-group"><label>Tingkat Kesulitan</label>
-          <select name="difficulty">
-            <option value="mudah">Mudah</option>
-            <option value="sedang" selected>Sedang</option>
-            <option value="sulit">Sulit</option>
-          </select>
-        </div>
-        <div class="form-group"><label>Pertanyaan</label>
-          <textarea name="text" required rows="3" placeholder="Tulis soal..."></textarea></div>
-        <div id="optionsBox">
-          <div class="form-group"><label>Pilihan A</label><input name="opt0" required /></div>
-          <div class="form-group"><label>Pilihan B</label><input name="opt1" required /></div>
-          <div class="form-group"><label>Pilihan C</label><input name="opt2" required /></div>
-          <div class="form-group"><label>Pilihan D</label><input name="opt3" required /></div>
-          <div class="form-group"><label>Jawaban Benar (A=0, B=1, C=2, D=3)</label>
-            <select name="correctIndex"><option value="0">A</option><option value="1">B</option><option value="2">C</option><option value="3">D</option></select></div>
-        </div>
-        <div class="form-group"><label>Pembahasan (opsional)</label>
-          <textarea name="explanation" rows="2"></textarea></div>
-        <div class="flex-gap" style="justify-content:flex-end;">
-          <button type="button" class="btn btn-secondary" id="cancelBtn">Batal</button>
-          <button type="submit" class="btn btn-primary">Simpan Soal</button>
-        </div>
-      </form>`;
-    UI.modal.open('Tambah Soal ke Bank Soal', body);
-    document.getElementById('cancelBtn').addEventListener('click', () => UI.modal.close());
-
-    // Dynamically adjust form based on question type
-    document.getElementById('qTypeSelect').addEventListener('change', (e) => {
-      const type = e.target.value;
-      const box = document.getElementById('optionsBox');
-      if (type === 'Esai') {
-        box.innerHTML = '<div class="muted small">Soal esai tidak memerlukan pilihan. Jawaban dinilai manual.</div>';
-      } else if (type === 'Benar/Salah') {
-        box.innerHTML = `
-          <div class="form-group"><label>Jawaban Benar</label>
-            <select name="correctIndex"><option value="0">Benar</option><option value="1">Salah</option></select></div>`;
-      } else {
-        box.innerHTML = `
-          <div class="form-group"><label>Pilihan A</label><input name="opt0" required /></div>
-          <div class="form-group"><label>Pilihan B</label><input name="opt1" required /></div>
-          <div class="form-group"><label>Pilihan C</label><input name="opt2" required /></div>
-          <div class="form-group"><label>Pilihan D</label><input name="opt3" required /></div>
-          <div class="form-group"><label>Pilihan E (opsional)</label><input name="opt4" /></div>
-          <div class="form-group"><label>Jawaban Benar</label>
-            <select name="correctIndex"><option value="0">A</option><option value="1">B</option><option value="2">C</option><option value="3">D</option><option value="4">E</option></select></div>`;
-      }
-    });
-
-    document.getElementById('adminQForm').addEventListener('submit', (e) => {
-      e.preventDefault();
-      const fd = new FormData(e.target);
-      const qType = fd.get('questionType');
-      const options = [0, 1, 2, 3, 4].map(i => fd.get('opt' + i)).filter(Boolean);
-      const payload = {
-        authorId: user.id,
-        subject: fd.get('subject'),
-        questionType: qType,
-        difficulty: fd.get('difficulty'),
-        text: fd.get('text').trim(),
-        options: qType === 'Esai' ? [] : (qType === 'Benar/Salah' ? ['Benar', 'Salah'] : options),
-        correctIndex: qType === 'Esai' ? null : Number(fd.get('correctIndex') || 0),
-        explanation: fd.get('explanation').trim()
-      };
-      DB.addQuestion(payload);
-      UI.toast('Soal ditambahkan ke Bank Soal!');
-      UI.modal.close();
-      renderAdminBankSoal(container, user);
     });
   }
 
@@ -1280,7 +1159,7 @@
         <button class="subtab-btn active" data-stab="ambil">📝 Ambil Presensi</button>
         <button class="subtab-btn" data-stab="siswa">Rekap Siswa</button>
         <button class="subtab-btn" data-stab="guru">Rekap Guru</button>
-        <button class="subtab-btn" data-stab="log">Log Absensi</button>
+        <button class="subtab-btn" data-stab="log">Log Presensi</button>
       </div>
 
       <div id="attFilters" class="filter-bar hidden">
@@ -1433,8 +1312,23 @@
       <div class="card">
         <div class="card-header">
           ${UI.secHead('👨‍👩‍👦', `Daftar Orang Tua / Wali (${parents.length})`, 'Akun ini hanya dapat memantau, tidak dapat mengubah data')}
-          <button class="btn btn-primary btn-sm" id="addParentBtn">+ Tambah Orang Tua</button>
+          <div class="flex-gap">
+            <button class="btn btn-sm btn-secondary" id="exportParentBtn">Export Excel</button>
+            <label class="btn btn-sm btn-secondary" style="cursor:pointer;">Import Excel
+              <input type="file" id="importParentFile" accept=".xlsx,.xls,.csv" style="display:none;" />
+            </label>
+            <button class="btn btn-primary btn-sm" id="addParentBtn">+ Tambah Orang Tua</button>
+          </div>
         </div>
+        <details class="demo-accounts" style="margin:0 0 14px;">
+          <summary>Format kolom Excel untuk import orang tua</summary>
+          <p class="muted small" style="margin:8px 0 0;">
+            Kolom yang dikenali: <strong>Nama</strong>, <strong>Username</strong>, <strong>Password</strong>,
+            <strong>Email</strong>, <strong>Telepon</strong>, <strong>Hubungan</strong> (Ayah/Ibu/Wali),
+            dan <strong>Username Anak</strong> (username siswa, pisahkan dengan koma bila lebih dari satu).
+            Baris dengan username yang sudah ada akan dilewati. Bila Password kosong, dipakai <code>password123</code>.
+          </p>
+        </details>
         ${parents.length === 0 ? emptyState('Belum ada akun orang tua.') : `
         <div class="table-wrap"><table class="table">
           <thead><tr><th>Nama</th><th>Username</th><th>Hubungan</th><th>Kontak</th><th>Anak Dipantau</th><th>Aksi</th></tr></thead>
@@ -1478,6 +1372,195 @@
       UI.toast('Akun orang tua dihapus.');
       renderParents(container);
     }));
+
+    /* ---- Export Excel orang tua ---- */
+    document.getElementById('exportParentBtn').addEventListener('click', () => {
+      if (typeof XLSX === 'undefined') { UI.toast('Library Excel belum termuat. Coba reload halaman.', 'error'); return; }
+      let rows = DB.getParents().map(p => {
+        const kids = DB.getChildren(p.id);
+        return {
+          Nama: p.name,
+          Username: p.username,
+          Password: p.password || '',
+          Email: p.email || '',
+          Telepon: p.phone || '',
+          Hubungan: p.relation || 'Wali',
+          'Username Anak': kids.map(k => k.username).join(', '),
+          'Nama Anak': kids.map(k => k.name).join(', '),
+          Status: p.status || 'Aktif'
+        };
+      });
+      if (rows.length === 0) {
+        const sample = DB.getUsers().find(u => u.role === 'siswa');
+        rows = [{
+          Nama: 'Contoh Orang Tua', Username: 'ortu_baru', Password: 'password123',
+          Email: 'ortu@wali.edu', Telepon: '08123456789', Hubungan: 'Ayah',
+          'Username Anak': sample ? sample.username : 'siswa1', 'Nama Anak': sample ? sample.name : '', Status: 'Aktif'
+        }];
+      }
+      const ws = XLSX.utils.json_to_sheet(rows);
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, 'Orang Tua');
+      XLSX.writeFile(wb, `data_orangtua_${UI.todayYMD()}.xlsx`);
+      UI.toast('File Excel orang tua berhasil diunduh.');
+    });
+
+    /* ---- Import Excel orang tua ---- */
+    document.getElementById('importParentFile').addEventListener('change', (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = (evt) => {
+        try {
+          if (typeof XLSX === 'undefined') { UI.toast('Library Excel belum termuat.', 'error'); return; }
+          const wb = XLSX.read(evt.target.result, { type: 'array' });
+          const rows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]]);
+          if (rows.length === 0) { UI.toast('File kosong atau format tidak sesuai.', 'error'); return; }
+
+          let added = 0, skipped = 0, defaultPw = 0, linked = 0, unknownKid = 0;
+          rows.forEach(row => {
+            const name = String(row.Nama || row.nama || '').trim();
+            const username = String(row.Username || row.username || '').trim();
+            if (!name || !username) { skipped++; return; }
+            if (DB.findUserByUsername(username)) { skipped++; return; }
+
+            const pwRaw = String(row.Password || row.password || row.Sandi || '').trim();
+            const password = pwRaw || 'password123';
+            if (!pwRaw) defaultPw++;
+
+            // "Username Anak" boleh berisi beberapa username dipisah koma
+            const kidRaw = String(row['Username Anak'] || row['username anak'] || row.Anak || row.anak || '').trim();
+            const childIds = [];
+            kidRaw.split(/[,;]/).map(s => s.trim()).filter(Boolean).forEach(uname => {
+              const kid = DB.findUserByUsername(uname);
+              if (kid && kid.role === 'siswa') { childIds.push(kid.id); linked++; }
+              else unknownKid++;
+            });
+
+            DB.addUser({
+              id: DB.uid('u'), role: 'orangtua', name, username, password,
+              email: String(row.Email || row.email || '').trim(),
+              phone: String(row.Telepon || row.telepon || row.Phone || row.phone || '').trim(),
+              relation: String(row.Hubungan || row.hubungan || 'Wali').trim() || 'Wali',
+              status: String(row.Status || row.status || 'Aktif').trim() || 'Aktif',
+              childIds
+            });
+            // Beri tahu anak yang baru terhubung
+            DB.notifyUsers(childIds, {
+              type: 'info', icon: '👨‍👩‍👦',
+              title: 'Akun orang tua terhubung',
+              body: `${name} kini dapat memantau perkembangan belajar Anda.`,
+              link: 'profile'
+            });
+            added++;
+          });
+
+          let msg = `Import selesai: ${added} akun ditambahkan, ${skipped} dilewati (duplikat/kosong), ${linked} anak terhubung.`;
+          if (defaultPw) msg += ` ${defaultPw} akun memakai password default.`;
+          if (unknownKid) msg += ` ${unknownKid} username anak tidak ditemukan.`;
+          UI.toast(msg, added > 0 ? 'success' : 'info');
+          renderParents(container);
+        } catch (err) {
+          UI.toast('Gagal membaca file: ' + err.message, 'error');
+        }
+      };
+      reader.readAsArrayBuffer(file);
+      e.target.value = '';
+    });
+  }
+
+  /* ===== Picker siswa yang rapi + pencarian =====
+   * Dipakai pada form tambah/edit orang tua dan modal "Hubungkan Anak".
+   */
+  function studentPickerHtml(students, selectedSet, opts) {
+    const o = opts || {};
+    const inputName = o.name || 'childIds';
+    const idPrefix = o.idPrefix || 'pick';
+    if (students.length === 0) {
+      return `<div class="pick-wrap"><div class="pick-empty">Belum ada siswa terdaftar.</div></div>`;
+    }
+    return `
+      <div class="pick-wrap" id="${idPrefix}Wrap">
+        <div class="pick-toolbar">
+          <input type="search" class="pick-search" id="${idPrefix}Search" placeholder="Cari nama, username, atau kelas siswa..." autocomplete="off" />
+          <span class="pick-count" id="${idPrefix}Count">${selectedSet.size} dipilih</span>
+        </div>
+        <div class="pick-list" id="${idPrefix}List">
+          ${students.map(s => {
+            const on = selectedSet.has(s.id);
+            const hay = `${s.name} ${s.username || ''} ${s.kelas || ''} ${s.targetUniv || ''}`.toLowerCase();
+            return `<label class="pick-item ${on ? 'is-checked' : ''}" data-hay="${UI.esc(hay)}">
+              <input type="checkbox" name="${inputName}" value="${s.id}" ${on ? 'checked' : ''} />
+              <span class="pick-av">${UI.initials(s.name)}</span>
+              <span class="pick-main">
+                <span class="pick-name">${UI.esc(s.name)}</span>
+                <span class="pick-meta">@${UI.esc(s.username || '-')} • ${UI.esc(s.kelas || 'tanpa kelas')}${s.targetUniv ? ' • ' + UI.esc(s.targetUniv) : ''}</span>
+              </span>
+              <span class="badge ${(s.status || 'Aktif') === 'Aktif' ? 'badge-success' : 'badge-gray'} pick-tag">${UI.esc(s.status || 'Aktif')}</span>
+            </label>`;
+          }).join('')}
+          <div class="pick-empty hidden" id="${idPrefix}NoMatch">Tidak ada siswa yang cocok dengan pencarian.</div>
+        </div>
+        <div class="pick-foot">
+          <span id="${idPrefix}Info">${students.length} siswa tersedia</span>
+          <div class="flex-gap">
+            <button type="button" class="btn btn-secondary" data-pick-all="${idPrefix}">Pilih Semua</button>
+            <button type="button" class="btn btn-secondary" data-pick-none="${idPrefix}">Kosongkan</button>
+          </div>
+        </div>
+      </div>`;
+  }
+
+  /** Mengaktifkan pencarian, sinkronisasi highlight, dan tombol pilih semua. */
+  function bindStudentPicker(idPrefix) {
+    const wrap = document.getElementById(idPrefix + 'Wrap');
+    if (!wrap) return;
+    const list = document.getElementById(idPrefix + 'List');
+    const search = document.getElementById(idPrefix + 'Search');
+    const countEl = document.getElementById(idPrefix + 'Count');
+    const noMatch = document.getElementById(idPrefix + 'NoMatch');
+    const items = [...list.querySelectorAll('.pick-item')];
+
+    const refreshCount = () => {
+      const n = items.filter(i => i.querySelector('input').checked).length;
+      countEl.textContent = `${n} dipilih`;
+    };
+    const applyFilter = () => {
+      const q = (search.value || '').trim().toLowerCase();
+      let visible = 0;
+      items.forEach(i => {
+        const show = !q || i.dataset.hay.includes(q);
+        i.classList.toggle('hidden', !show);
+        if (show) visible++;
+      });
+      noMatch.classList.toggle('hidden', visible > 0);
+    };
+
+    if (search) search.addEventListener('input', applyFilter);
+    items.forEach(i => {
+      const cb = i.querySelector('input');
+      cb.addEventListener('change', () => {
+        i.classList.toggle('is-checked', cb.checked);
+        refreshCount();
+      });
+    });
+    wrap.querySelectorAll('[data-pick-all]').forEach(b => b.addEventListener('click', () => {
+      items.filter(i => !i.classList.contains('hidden')).forEach(i => {
+        const cb = i.querySelector('input');
+        cb.checked = true;
+        i.classList.add('is-checked');
+      });
+      refreshCount();
+    }));
+    wrap.querySelectorAll('[data-pick-none]').forEach(b => b.addEventListener('click', () => {
+      items.forEach(i => {
+        const cb = i.querySelector('input');
+        cb.checked = false;
+        i.classList.remove('is-checked');
+      });
+      refreshCount();
+    }));
+    refreshCount();
   }
 
   function openParentForm(container, editId) {
@@ -1507,13 +1590,7 @@
         </div>
         <div class="form-group">
           <label>Anak / Siswa yang Dipantau</label>
-          <div style="max-height:180px;overflow-y:auto;border:1px solid var(--gray-200);border-radius:var(--radius-sm);padding:6px;">
-            ${students.length === 0 ? '<div class="muted small" style="padding:8px;">Belum ada siswa terdaftar.</div>' :
-              students.map(s => `<label style="display:flex;align-items:center;gap:8px;padding:6px 8px;cursor:pointer;">
-                <input type="checkbox" name="childIds" value="${s.id}" ${selected.has(s.id) ? 'checked' : ''} />
-                <span style="flex:1;font-size:13px;">${UI.esc(s.name)} <span class="muted small">(${UI.esc(s.kelas || '-')})</span></span>
-              </label>`).join('')}
-          </div>
+          ${studentPickerHtml(students, selected, { name: 'childIds', idPrefix: 'pf' })}
         </div>
         <div class="form-group"><label>Password ${editing ? '(kosongkan jika tidak diubah)' : ''}</label>
           <input type="password" name="password" ${editing ? '' : 'required minlength="6"'} /></div>
@@ -1525,6 +1602,7 @@
       </form>`;
 
     UI.modal.open(editing ? 'Edit Orang Tua / Wali' : 'Tambah Orang Tua / Wali', body);
+    bindStudentPicker('pf');
     document.getElementById('cancelBtn').addEventListener('click', () => UI.modal.close());
     document.getElementById('parentForm').addEventListener('submit', (e) => {
       e.preventDefault();
@@ -1570,33 +1648,18 @@
     const students = DB.getUsers().filter(u => u.role === 'siswa');
     const selected = new Set(parent.childIds || []);
     const body = `
-      <div class="muted small mb-2">Pilih siswa yang dapat dipantau oleh <strong>${UI.esc(parent.name)}</strong>.</div>
-      <input id="linkSearch" placeholder="Cari nama siswa..." style="width:100%;padding:8px 12px;border:1px solid var(--gray-300);border-radius:6px;margin-bottom:10px;" />
-      <div id="linkList" style="max-height:320px;overflow-y:auto;border:1px solid var(--gray-200);border-radius:var(--radius-sm);padding:4px;">
-        ${students.length === 0 ? '<div class="muted small" style="padding:10px;">Belum ada siswa.</div>' :
-          students.map(s => `<label data-name="${UI.esc(s.name.toLowerCase())}"
-            style="display:flex;align-items:center;gap:10px;padding:9px 12px;border-bottom:1px solid var(--gray-100);cursor:pointer;">
-            <input type="checkbox" name="cid" value="${s.id}" ${selected.has(s.id) ? 'checked' : ''} />
-            <div style="flex:1;">
-              <div style="font-size:13px;font-weight:600;">${UI.esc(s.name)}</div>
-              <div class="muted small">${UI.esc(s.kelas || '-')} • ${UI.esc(s.targetUniv || 'Target belum diisi')}</div>
-            </div>
-          </label>`).join('')}
-      </div>
+      <div class="muted small mb-2">Pilih siswa yang dapat dipantau oleh <strong>${UI.esc(parent.name)}</strong>.
+      Gunakan kolom pencarian untuk menemukan siswa dengan cepat.</div>
+      ${studentPickerHtml(students, selected, { name: 'cid', idPrefix: 'lk' })}
       <div class="flex-gap mt-2" style="justify-content:flex-end;">
         <button type="button" class="btn btn-secondary" id="cancelBtn">Batal</button>
         <button type="button" class="btn btn-primary" id="saveLinkBtn">Simpan Hubungan</button>
       </div>`;
     UI.modal.open('Hubungkan Anak', body);
+    bindStudentPicker('lk');
     document.getElementById('cancelBtn').addEventListener('click', () => UI.modal.close());
-    document.getElementById('linkSearch').addEventListener('input', (e) => {
-      const q = e.target.value.toLowerCase();
-      document.querySelectorAll('#linkList label').forEach(l => {
-        l.style.display = l.dataset.name.includes(q) ? '' : 'none';
-      });
-    });
     document.getElementById('saveLinkBtn').addEventListener('click', () => {
-      const ids = [...document.querySelectorAll('#linkList input[name="cid"]:checked')].map(i => i.value);
+      const ids = [...document.querySelectorAll('#lkList input[name="cid"]:checked')].map(i => i.value);
       DB.setChildren(parentId, ids);
       // Kabari siswa yang baru dihubungkan
       const added = ids.filter(id => !selected.has(id));

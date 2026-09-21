@@ -71,7 +71,8 @@
     if (document.body.dataset.rippleBound) return;
     document.body.dataset.rippleBound = '1';
     document.addEventListener('pointerdown', (e) => {
-      const host = e.target.closest('.btn, .ripple-host, .att-pill, .class-chip, .role-tab');
+      // .att-pill sengaja dikecualikan: presensi harus terasa instan tanpa efek
+      const host = e.target.closest('.btn, .ripple-host, .class-chip, .role-tab');
       if (!host || host.disabled) return;
       spawnRipple(host, e.clientX, e.clientY);
     }, { passive: true });

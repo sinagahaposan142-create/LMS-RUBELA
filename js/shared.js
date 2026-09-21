@@ -970,7 +970,7 @@
         box.innerHTML = `
           <div class="card">
             <div class="card-header"><h3>Deteksi Dini: Murid Berisiko (${atRisk.length})</h3></div>
-            <p class="muted small">AI menganalisis: absensi, keterlambatan tugas, penurunan nilai, aktivitas rendah.</p>
+            <p class="muted small">AI menganalisis: presensi, keterlambatan tugas, penurunan nilai, aktivitas rendah.</p>
             ${atRisk.length === 0 ? '<div class="empty"><div class="empty-icon">✅</div>Semua murid dalam kondisi baik!</div>' : `
             <div class="table-wrap"><table class="table">
               <thead><tr><th>Siswa</th><th>Kategori</th><th>Absent Rate</th><th>Tugas Telat</th><th>Avg CBT</th><th>Tren</th><th>Indikasi</th></tr></thead>
@@ -1442,7 +1442,7 @@
     function rowHtml(p, i) {
       const d = draft[p.u.id];
       return `
-        <div class="att-row" data-uid="${p.u.id}" data-role="${p.role}" style="animation-delay:${Math.min(0.35, i * 0.03)}s;">
+        <div class="att-row" data-uid="${p.u.id}" data-role="${p.role}">
           <div class="att-person">
             <div class="avatar">${UI.initials(p.u.name)}</div>
             <div>
@@ -1497,9 +1497,6 @@
           const state = row.querySelector('.att-state');
           state.textContent = '✓ Tersimpan';
           state.classList.add('ok');
-          row.classList.remove('saved-flash');
-          void row.offsetWidth;
-          row.classList.add('saved-flash');
           refreshLegend();
         }));
         const note = row.querySelector('.att-note');
