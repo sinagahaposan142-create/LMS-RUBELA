@@ -26,7 +26,8 @@
     admin: 'Admin', guru: 'Guru', siswa: 'Siswa', orangtua: 'Orang Tua'
   };
 
-  function login(username, password, role) {
+  /** Periksa kredensial TANPA membuat sesi — dipakai gerbang keamanan login. */
+  function verify(username, password, role) {
     const user = DB.findUserByUsername(username);
     if (!user) return { ok: false, error: 'Username tidak ditemukan.' };
     if (user.password !== password) return { ok: false, error: 'Password salah.' };
@@ -36,8 +37,14 @@
     if ((user.status || 'Aktif') === 'Dikeluarkan') {
       return { ok: false, error: 'Akun ini sudah tidak aktif. Hubungi admin.' };
     }
-    setSession(user);
     return { ok: true, user };
+  }
+
+  function login(username, password, role) {
+    const result = verify(username, password, role);
+    if (!result.ok) return result;
+    setSession(result.user);
+    return result;
   }
 
   function registerSiswa({ name, email, username, password, targetUniv, targetMajor, phone }) {
@@ -86,5 +93,5 @@
     window.location.href = 'index.html';
   }
 
-  global.Auth = { getSession, login, logout, registerSiswa, requireAuth, ROLE_LABELS };
+  global.Auth = { getSession, verify, login, logout, registerSiswa, requireAuth, ROLE_LABELS };
 })(window);

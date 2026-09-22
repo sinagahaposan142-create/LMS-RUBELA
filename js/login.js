@@ -42,29 +42,50 @@
   const loginForm = document.getElementById('loginForm');
   const loginError = document.getElementById('loginError');
 
+  /** Tampilkan pesan gagal pada kartu login. */
+  function showError(message) {
+    loginError.textContent = message;
+    loginError.classList.remove('hidden');
+    if (window.Effects) {
+      Effects.shake(document.querySelector('.auth-card'));
+      Effects.pop(loginError);
+    }
+  }
+
   loginForm.addEventListener('submit', (e) => {
     e.preventDefault();
     loginError.classList.add('hidden');
     const username = document.getElementById('username').value.trim();
     const password = document.getElementById('password').value;
+    const btn = loginForm.querySelector('button[type="submit"]');
 
-    const result = Auth.login(username, password, selectedRole);
-    if (!result.ok) {
-      loginError.textContent = result.error;
-      loginError.classList.remove('hidden');
-      if (window.Effects) {
-        Effects.shake(document.querySelector('.auth-card'));
-        Effects.pop(loginError);
-      }
+    // Periksa kredensial tanpa langsung membuat sesi, supaya verifikasi
+    // keamanan benar-benar menjadi syarat masuk.
+    const check = Auth.verify(username, password, selectedRole);
+    if (!check.ok) {
+      showError(check.error);
       return;
     }
-    // Brief success state so the transition doesn't feel abrupt
-    const btn = loginForm.querySelector('button[type="submit"]');
-    if (btn) {
-      btn.disabled = true;
-      btn.innerHTML = '<span class="spinner" style="border-top-color:#fff;border-color:rgba(255,255,255,.4);border-top-color:#fff;"></span> Menyiapkan dashboard...';
+
+    const finish = () => {
+      const result = Auth.login(username, password, selectedRole);
+      if (!result.ok) { showError(result.error); return; }
+      if (btn) {
+        btn.disabled = true;
+        btn.innerHTML = '<span class="spinner" style="border-top-color:#fff;border-color:rgba(255,255,255,.4);"></span> Menyiapkan dashboard...';
+      }
+      setTimeout(() => { window.location.href = 'dashboard.html'; }, 420);
+    };
+
+    // Gerbang soal UTBK (bisa dimatikan admin lewat menu Keamanan Login)
+    if (window.LoginQuiz && LoginQuiz.isRequired(check.user)) {
+      LoginQuiz.open(check.user, finish, (msg) => {
+        if (btn) { btn.disabled = false; btn.textContent = 'Masuk'; }
+        showError(msg);
+      });
+      return;
     }
-    setTimeout(() => { window.location.href = 'dashboard.html'; }, 420);
+    finish();
   });
 
   // Register modal

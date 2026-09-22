@@ -1,0 +1,574 @@
+/* =========================================================================
+   LMS RUBELA — RESPONSIVE LAYER
+   Dimuat setelah style.css agar dapat menimpa aturan desktop.
+
+   Strategi breakpoint (mobile-first pada penyesuaian, desktop tetap default):
+     >= 1280px  desktop lega
+     1024–1279  desktop padat (sidebar lebih ramping)
+     768–1023   tablet        -> sidebar menjadi drawer
+     561–767    ponsel besar
+     <= 560     ponsel
+     <= 400     ponsel kecil
+   Ditambah penanganan orientasi landscape, layar sentuh, notch (safe-area),
+   dan tabel yang berubah menjadi kartu pada layar sempit.
+   ========================================================================= */
+
+/* =========================================================================
+   1. DASAR: skala fluida, safe-area, dan pencegah overflow horizontal
+   ========================================================================= */
+:root {
+  /* Sisi aman perangkat dengan notch */
+  --sa-l: env(safe-area-inset-left, 0px);
+  --sa-r: env(safe-area-inset-right, 0px);
+  --sa-t: env(safe-area-inset-top, 0px);
+  --sa-b: env(safe-area-inset-bottom, 0px);
+  /* Padding konten yang menyesuaikan lebar layar */
+  --pad-x: clamp(14px, 3vw, 28px);
+  --pad-y: clamp(16px, 2.4vw, 28px);
+  /* Target sentuh minimum (rekomendasi WCAG 2.5.5 / HIG) */
+  --tap: 44px;
+}
+
+html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
+
+/* Cegah scroll horizontal tak diinginkan di seluruh aplikasi */
+html, body { max-width: 100%; overflow-x: hidden; }
+
+/* Media & elemen lebar tidak boleh memaksa lebar halaman */
+img, video, iframe, canvas, svg, table { max-width: 100%; }
+img, video { height: auto; }
+
+/* Kata panjang (URL, email) dipotong agar tidak merusak layout sempit */
+h1, h2, h3, h4, p, td, th, li, .title, .nm, .pick-name, .qc-text, .q-text,
+.list-item .content, .tl-body, .lb-row .who, .ni-title, .ni-body {
+  overflow-wrap: break-word;
+  word-break: break-word;
+}
+
+/* Judul fluida — ikut mengecil di ponsel tanpa merusak hierarki */
+.topbar h2 { font-size: clamp(15px, 2.4vw, 18px); }
+.welcome-hero h2 { font-size: clamp(19px, 5vw, 30px); }
+.welcome-hero .wh-sub { font-size: clamp(13px, 2.4vw, 16px); }
+.hero-text h2 { font-size: clamp(22px, 4.6vw, 36px); }
+.stat-card .value { font-size: clamp(22px, 4.4vw, 28px); }
+.fin-card .value { font-size: clamp(18px, 3.4vw, 22px); }
+.score-display .score { font-size: clamp(42px, 12vw, 64px); }
+
+/* Konten utama memakai padding fluida + safe-area */
+.content {
+  padding: var(--pad-y) calc(var(--pad-x) + var(--sa-r)) calc(var(--pad-y) + var(--sa-b)) calc(var(--pad-x) + var(--sa-l));
+}
+
+/* =========================================================================
+   2. GRID ADAPTIF — kartu tidak pernah lebih sempit dari lebar layar
+   ========================================================================= */
+.stats-grid { grid-template-columns: repeat(auto-fit, minmax(min(210px, 100%), 1fr)); }
+.finance-summary { grid-template-columns: repeat(auto-fit, minmax(min(200px, 100%), 1fr)); }
+.course-grid { grid-template-columns: repeat(auto-fill, minmax(min(260px, 100%), 1fr)); }
+.ach-grid { grid-template-columns: repeat(auto-fill, minmax(min(150px, 45%), 1fr)); }
+.mon-grid { grid-template-columns: repeat(auto-fill, minmax(min(230px, 100%), 1fr)); }
+.tgt-grid { grid-template-columns: repeat(auto-fill, minmax(min(150px, 100%), 1fr)); }
+.q-cards { grid-template-columns: repeat(auto-fill, minmax(min(320px, 100%), 1fr)); }
+.mode-grid { grid-template-columns: repeat(auto-fit, minmax(min(210px, 100%), 1fr)); }
+
+/* =========================================================================
+   3. TABEL RESPONSIF
+   3a. Gulir horizontal yang jelas (dengan petunjuk visual)
+   3b. Mode kartu pada layar sempit (label diisi otomatis oleh responsive.js)
+   ========================================================================= */
+.table-wrap {
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior-x: contain;
+  position: relative;
+}
+/* Bayangan tepi kanan sebagai isyarat "masih ada kolom lain" */
+.table-wrap.has-overflow::after {
+  content: "";
+  position: absolute;
+  top: 0; right: 0; bottom: 0;
+  width: 26px;
+  pointer-events: none;
+  background: linear-gradient(90deg, transparent, rgba(15, 23, 42, 0.12));
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+}
+html[data-theme="dark"] .table-wrap.has-overflow::after {
+  background: linear-gradient(90deg, transparent, rgba(0, 0, 0, 0.5));
+}
+.table-scroll-hint {
+  display: none;
+  font-size: 11px;
+  color: var(--gray-500);
+  padding: 4px 2px 0;
+  font-weight: 600;
+}
+.table-wrap.has-overflow + .table-scroll-hint { display: block; }
+
+@media (max-width: 760px) {
+  /* Tabel yang ditandai responsif berubah menjadi daftar kartu */
+  table.table.as-cards { border-collapse: separate; border-spacing: 0; }
+  table.table.as-cards thead { display: none; }
+  table.table.as-cards tbody,
+  table.table.as-cards tr,
+  table.table.as-cards td { display: block; width: 100%; }
+  table.table.as-cards tr {
+    border: 1px solid var(--gray-200);
+    border-radius: var(--radius);
+    background: var(--surface);
+    padding: 10px 12px;
+    margin-bottom: 10px;
+    box-shadow: var(--shadow-sm);
+  }
+  table.table.as-cards tr:hover td { background: transparent; }
+  table.table.as-cards tr:hover { transform: none; }
+  table.table.as-cards td {
+    border: none;
+    border-bottom: 1px dashed var(--gray-100);
+    padding: 7px 0;
+    display: grid;
+    grid-template-columns: minmax(84px, 38%) 1fr;
+    gap: 10px;
+    align-items: start;
+    text-align: left;
+    font-size: 13px;
+  }
+  table.table.as-cards td:last-child { border-bottom: none; }
+  /* Label kolom diambil dari <th> oleh responsive.js */
+  table.table.as-cards td::before {
+    content: attr(data-label);
+    font-size: 10.5px;
+    font-weight: 700;
+    letter-spacing: 0.4px;
+    text-transform: uppercase;
+    color: var(--gray-500);
+    padding-top: 2px;
+  }
+  /* Sel tanpa label (mis. kolom aksi) memakai satu kolom penuh */
+  table.table.as-cards td[data-label=""]::before,
+  table.table.as-cards td.no-label::before { display: none; }
+  table.table.as-cards td[data-label=""],
+  table.table.as-cards td.no-label { grid-template-columns: 1fr; }
+  table.table.as-cards td.actions { display: flex; flex-wrap: wrap; gap: 6px; padding-top: 10px; }
+  table.table.as-cards td.actions::before { display: none; }
+  /* Sel pertama tampil sebagai judul kartu */
+  table.table.as-cards td:first-child {
+    grid-template-columns: 1fr;
+    border-bottom: 1px solid var(--gray-200);
+    padding-bottom: 9px;
+    margin-bottom: 3px;
+  }
+  table.table.as-cards td:first-child::before { display: none; }
+  table.table.as-cards td:first-child strong { font-size: 14px; }
+  /* Progress bar dalam sel tetap penuh */
+  table.table.as-cards td .progress { min-width: 120px; }
+}
+
+/* =========================================================================
+   4. SIDEBAR / TOPBAR / DRAWER
+   ========================================================================= */
+/* Desktop padat: sidebar lebih ramping agar konten lega */
+@media (min-width: 1024px) and (max-width: 1279px) {
+  :root { --sidebar-w: 212px; }
+  .side-nav a { font-size: 13px; padding: 9px 10px; }
+}
+
+@media (max-width: 1023px) {
+  /* Sidebar menjadi drawer off-canvas (dibuka tombol ☰ di topbar) */
+  :root { --topbar-h: 58px; }
+  .sidebar {
+    /* PENTING: animasi masuk (fadeInLeft) memakai fill-mode "both" sehingga
+     * nilai transform akhirnya menimpa properti transform biasa. Animasi
+     * harus dimatikan agar drawer benar-benar tersembunyi di luar layar. */
+    animation: none !important;
+    transform: translateX(-100%);
+    transition: transform 0.26s var(--ease);
+    box-shadow: none;
+    width: min(290px, 84vw);
+    padding-top: calc(20px + var(--sa-t));
+    padding-bottom: calc(12px + var(--sa-b));
+    will-change: transform;
+  }
+  .sidebar.open { transform: translateX(0); box-shadow: var(--shadow-lg); }
+  .main { margin-left: 0; }
+  .menu-btn { display: grid !important; place-items: center; }
+  .topbar {
+    padding-left: calc(14px + var(--sa-l));
+    padding-right: calc(14px + var(--sa-r));
+    padding-top: var(--sa-t);
+    height: calc(var(--topbar-h) + var(--sa-t));
+    gap: 8px;
+  }
+  /* Jam ringkas: sembunyikan tanggal, sisakan waktu + zona */
+  .clock-date { display: none; }
+  .clock-widget { padding: 5px 9px; gap: 7px; }
+  .clock-time { font-size: 13px; min-width: auto; }
+}
+
+@media (max-width: 767px) {
+  /* Topbar ponsel: hanya elemen esensial */
+  .topbar-right { gap: 8px; }
+  .role-badge { display: none; }
+  .tz-select { padding: 3px 5px; font-size: 11px; }
+}
+
+@media (max-width: 560px) {
+  .clock-widget { display: none; }        /* jam dipindah ke dalam drawer */
+  .topbar h2 { font-weight: 700; }
+  .theme-toggle { width: 46px; height: 26px; flex-basis: 46px; }
+  html[data-theme="dark"] .theme-toggle .knob { transform: translateX(20px); }
+}
+
+/* Jam versi drawer (disisipkan responsive.js saat layar sempit) */
+.side-clock {
+  display: none;
+  margin: 10px 14px 0;
+  padding: 9px 12px;
+  border-radius: var(--radius-sm);
+  background: var(--gray-50);
+  border: 1px solid var(--gray-200);
+}
+.side-clock .sc-time { font-family: 'Consolas', 'SF Mono', monospace; font-weight: 700; color: var(--primary); font-size: 14px; }
+.side-clock .sc-date { font-size: 11px; color: var(--gray-600); }
+@media (max-width: 560px) { .side-clock { display: block; } }
+
+/* Nav sidebar: target sentuh memadai */
+@media (max-width: 1023px) {
+  .side-nav a { min-height: var(--tap); padding: 11px 13px; font-size: 14.5px; }
+  .side-nav a:hover { transform: none; }  /* hover tak relevan di sentuh */
+  .sidebar .brand { padding: 0 18px 16px; }
+  .sidebar-footer { padding: 12px 14px calc(12px + var(--sa-b)); }
+}
+
+/* =========================================================================
+   5. TOMBOL, FORM, DAN KONTROL SENTUH
+   ========================================================================= */
+@media (pointer: coarse) {
+  /* Perangkat sentuh: perbesar area klik, matikan efek hover melayang */
+  .btn { min-height: var(--tap); padding: 11px 16px; }
+  .btn-sm { min-height: 38px; padding: 8px 12px; font-size: 12.5px; }
+  .btn:hover { transform: none; box-shadow: var(--shadow-sm); }
+  .card:hover, .stat-card:hover, .course-card:hover, .list-item:hover,
+  .lb-row:hover, .ach:hover, .fin-card:hover, .class-chip:hover, .tgt-box:hover {
+    transform: none;
+  }
+  .table tbody tr:hover { transform: none; }
+  .icon-btn { min-width: var(--tap); min-height: var(--tap); }
+  .icon-btn:hover { transform: none; }
+  /* Checkbox & radio lebih mudah disentuh */
+  input[type="checkbox"], input[type="radio"] { min-width: 20px; min-height: 20px; }
+}
+
+@media (max-width: 767px) {
+  .form-row { grid-template-columns: 1fr; gap: 0; }
+  /* 16px mencegah iOS melakukan zoom otomatis saat fokus input */
+  .form input, .form select, .form textarea,
+  .att-input, .filter-bar input, .filter-bar select,
+  .pick-search, .qb-filters input, .qb-filters select { font-size: 16px; }
+  .form label { font-size: 12.5px; }
+  .card { padding: 15px; border-radius: var(--radius-sm); }
+  .card-header { gap: 8px; }
+  .card-header h3 { font-size: 15px; }
+  /* Header kartu: judul di atas, aksi di bawah melebar */
+  .card-header > .flex-gap { width: 100%; }
+  .card-header > .flex-gap > .btn { flex: 1 1 auto; justify-content: center; }
+  .sec-head .sh-ic { width: 30px; height: 30px; font-size: 14px; }
+  .filter-bar { gap: 8px; }
+  .filter-bar select, .filter-bar input { flex: 1 1 140px; min-width: 0; }
+}
+
+@media (max-width: 560px) {
+  /* Tab & subtab digulir horizontal, bukan membungkus jadi banyak baris */
+  .tabs, .subtabs {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+  }
+  .tabs::-webkit-scrollbar, .subtabs::-webkit-scrollbar { display: none; }
+  .tab-btn, .subtab-btn { flex: 0 0 auto; padding: 10px 13px; font-size: 13px; white-space: nowrap; }
+  .stats-grid, .finance-summary { gap: 11px; }
+  .stat-card, .fin-card { padding: 14px; }
+  .stat-card .label, .fin-card .label { font-size: 11px; }
+  .content { padding-top: 15px; }
+}
+
+@media (max-width: 400px) {
+  .stats-grid { grid-template-columns: 1fr; }
+  .ach-grid { grid-template-columns: repeat(2, 1fr); }
+  .btn { font-size: 13px; }
+  .badge { font-size: 10px; padding: 3px 7px; }
+}
+
+/* =========================================================================
+   6. MODAL — menjadi bottom sheet di ponsel
+   ========================================================================= */
+@media (max-width: 640px) {
+  .modal { padding: 0; place-items: end center; }
+  .modal-content {
+    max-width: 100%;
+    width: 100%;
+    max-height: 92vh;
+    max-height: 92dvh;             /* dvh: tinggi sebenarnya di browser mobile */
+    border-radius: 18px 18px 0 0;
+    padding: 18px 16px calc(18px + var(--sa-b));
+    animation: sheetUp 0.3s var(--ease) both;
+  }
+  .modal.is-closing .modal-content { animation: sheetDown 0.2s ease both; }
+  @keyframes sheetUp { from { transform: translateY(100%); } to { transform: none; } }
+  @keyframes sheetDown { from { transform: none; } to { transform: translateY(100%); } }
+  /* Pegangan geser sebagai afirmasi visual bottom sheet */
+  .modal-content::before {
+    content: "";
+    display: block;
+    width: 38px; height: 4px;
+    border-radius: 99px;
+    background: var(--gray-300);
+    margin: -6px auto 12px;
+  }
+  .modal-header { position: sticky; top: 0; background: var(--surface); z-index: 2; padding-bottom: 10px; }
+  /* Tombol aksi form memenuhi lebar agar mudah disentuh */
+  .modal-content .form .flex-gap[style*="flex-end"] { flex-direction: column-reverse; }
+  .modal-content .form .flex-gap[style*="flex-end"] > .btn { width: 100%; }
+}
+
+/* =========================================================================
+   7. HALAMAN LOGIN
+   ========================================================================= */
+@media (max-width: 900px) {
+  .auth-wrapper { grid-template-columns: 1fr; min-height: 100dvh; }
+  .auth-hero { padding: clamp(22px, 5vw, 36px); }
+  .auth-hero .hero-text { margin: 18px 0; }
+  .auth-panel { padding: 20px 16px calc(24px + var(--sa-b)); }
+  .auth-card { padding: clamp(20px, 5vw, 32px); }
+}
+@media (max-width: 560px) {
+  /* Hemat ruang: sisakan brand + form, sembunyikan daftar fitur panjang */
+  .auth-hero { padding: calc(18px + var(--sa-t)) 18px 18px; }
+  .hero-features, .hero-footer { display: none; }
+  .auth-hero .hero-text h2 { font-size: 20px; margin-bottom: 0; }
+  .auth-card h2 { font-size: 19px; }
+  .role-tabs { flex-wrap: wrap; }
+  .role-tab { flex: 1 1 46%; padding: 9px 6px; }
+  .demo-accounts { font-size: 12px; }
+  .demo-accounts th, .demo-accounts td { padding: 4px 5px; }
+}
+
+/* =========================================================================
+   8. CBT WORKSPACE (halaman khusus ujian)
+   ========================================================================= */
+@media (max-width: 1023px) {
+  .cbt-ws-top { padding: 10px calc(14px + var(--sa-r)) 10px calc(14px + var(--sa-l)); padding-top: calc(10px + var(--sa-t)); }
+  .cbt-ws-body { padding: 16px calc(14px + var(--sa-r)) calc(20px + var(--sa-b)) calc(14px + var(--sa-l)); }
+}
+@media (max-width: 767px) {
+  .cbt-ws-top { gap: 10px; }
+  .cbt-ws-top .ws-title { font-size: 14.5px; }
+  .cbt-ws-top .ws-sub { display: none; }
+  .cbt-ws-top #wsActions { width: 100%; order: 3; }
+  .cbt-ws-top #wsActions .btn { flex: 1 1 auto; justify-content: center; }
+  /* Langkah wizard digulir horizontal agar tetap satu baris */
+  .wz-steps {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+    gap: 8px;
+    padding-bottom: 4px;
+  }
+  .wz-steps::-webkit-scrollbar { display: none; }
+  .wz-step { flex: 0 0 auto; min-width: auto; font-size: 11.5px; padding: 9px 11px; }
+  .wz-nav { flex-direction: column-reverse; gap: 10px; }
+  .wz-nav > .btn, .wz-nav > .flex-gap { width: 100%; }
+  .wz-nav > .flex-gap { justify-content: space-between; }
+  .wz-nav > .flex-gap > .btn { flex: 1 1 auto; justify-content: center; }
+  /* Bank soal: panel subtest jadi baris gulir horizontal di atas daftar soal */
+  .qb-layout { grid-template-columns: 1fr; gap: 12px; }
+  .qb-side { position: static; }
+  .qb-side .qb-side-head { display: none; }
+  .qb-side > div:not(.qb-side-head) {
+    display: flex;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+  }
+  .qb-side > div::-webkit-scrollbar { display: none; }
+  .qb-sub {
+    flex: 0 0 auto;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 3px;
+    min-width: 116px;
+    border-bottom: none;
+    border-right: 1px solid var(--gray-100);
+    padding: 9px 12px;
+  }
+  .qb-sub.is-active { box-shadow: inset 0 -3px 0 var(--primary); }
+  .qb-sub .qs-nm { font-size: 12px; }
+  .qb-filters { gap: 7px; }
+  .qb-filters .btn { flex: 1 1 auto; }
+  .qb-bar { flex-direction: column; align-items: stretch; gap: 10px; bottom: 0; padding-bottom: calc(12px + var(--sa-b)); }
+  .qb-bar .flex-gap { justify-content: space-between; }
+  .sec-row { flex-wrap: wrap; }
+  .sec-row .sr-dur { width: 100%; }
+}
+
+/* =========================================================================
+   9. RUNNER UJIAN (halaman pengerjaan siswa)
+   ========================================================================= */
+@media (max-width: 767px) {
+  .exam-intro-hero { padding: 18px; border-radius: 14px; }
+  .exam-intro-hero h2 { font-size: clamp(17px, 4.6vw, 22px); }
+  .exam-meta-grid { grid-template-columns: repeat(auto-fit, minmax(min(120px, 45%), 1fr)); gap: 8px; }
+  .exam-secbar { gap: 5px; padding: 9px 10px; overflow-x: auto; flex-wrap: nowrap; -webkit-overflow-scrolling: touch; scrollbar-width: none; }
+  .exam-secbar::-webkit-scrollbar { display: none; }
+  .exam-secbar .esb { flex: 0 0 auto; font-size: 11px; padding: 5px 9px; }
+  /* Timer menempel di atas agar selalu terlihat sambil menggulir soal */
+  .cbt-timer {
+    top: calc(var(--topbar-h) + var(--sa-t));
+    padding: 9px 12px;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+  .cbt-timer .time { font-size: 18px; }
+  .question-card { padding: 15px; }
+  .question-card .q-text { font-size: 14.5px; }
+  /* Opsi jawaban: area sentuh lebih besar */
+  .option-item { padding: 13px 13px; font-size: 14px; min-height: var(--tap); }
+  .q-nav { grid-template-columns: repeat(auto-fill, minmax(40px, 1fr)); gap: 7px; }
+  .q-nav button { min-height: 40px; font-size: 13px; }
+  .media-check { grid-template-columns: 1fr; gap: 12px; }
+  .cam-frame { aspect-ratio: 16 / 10; }
+  .proctor-pip { width: 104px; right: 8px; bottom: calc(8px + var(--sa-b)); }
+  .vio-banner { width: calc(100% - 20px); text-align: center; font-size: 12px; padding: 10px 14px; border-radius: 12px; }
+}
+
+/* =========================================================================
+   10. PRESENSI (lembar absen)
+   ========================================================================= */
+@media (max-width: 767px) {
+  .att-row { gap: 10px; padding: 12px; }
+  .att-row .att-person { flex: 1 1 100%; min-width: 0; }
+  .att-pills { width: 100%; display: grid; grid-template-columns: repeat(4, 1fr); gap: 7px; }
+  .att-pill { min-width: 0; width: 100%; padding: 11px 4px; font-size: 11.5px; }
+  .att-pill .dot { display: none; }        /* hemat ruang di layar sempit */
+  .att-pills.round .att-pill { width: 100%; border-radius: 12px; height: 42px; }
+  .att-note { flex: 1 1 100%; }
+  .att-state { text-align: left; min-width: 0; flex: 1 1 100%; }
+  .att-toolbar { gap: 8px; padding: 11px; }
+  .att-toolbar .att-pill { flex: 1 1 calc(50% - 4px); }
+  .att-toolbar #attReset, .att-toolbar [id$="Reset"] { margin-left: 0 !important; width: 100%; }
+  .att-toolbar input[type="date"] { flex: 1 1 100%; }
+  .att-sticky-save { flex-direction: column; align-items: stretch; gap: 10px; bottom: 0; padding-bottom: calc(12px + var(--sa-b)); }
+  .att-sticky-save .flex-gap { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .att-sticky-save .flex-gap > .btn { width: 100%; justify-content: center; }
+  .att-legend { gap: 10px; font-size: 11.5px; }
+  .class-chips { gap: 8px; }
+  .class-chip { min-width: calc(50% - 4px); flex: 1 1 calc(50% - 4px); padding: 10px 12px; }
+}
+@media (max-width: 400px) {
+  .att-pills { grid-template-columns: repeat(2, 1fr); }
+  .class-chip { min-width: 100%; }
+}
+
+/* =========================================================================
+   11. CHAT
+   ========================================================================= */
+@media (max-width: 860px) {
+  .chat-layout { grid-template-columns: 1fr; height: auto; min-height: 0; }
+  .chat-sidebar { max-height: 210px; border-right: none; border-bottom: 1px solid var(--gray-200); }
+  .chat-messages { min-height: 300px; max-height: 52vh; }
+  .chat-bubble { max-width: 86%; }
+  .chat-input-box { padding: 10px 12px calc(10px + var(--sa-b)); }
+  .chat-input-box input { font-size: 16px; }
+}
+
+/* =========================================================================
+   12. KALENDER
+   ========================================================================= */
+@media (max-width: 767px) {
+  .cal-grid { font-size: 12px; }
+  .cal-cell { min-height: 54px; padding: 3px 4px; }
+  .cal-header { padding: 6px 2px; font-size: 10px; }
+  .cal-day { font-size: 12px; }
+  .cal-event { font-size: 9px; padding: 1px 3px; }
+}
+@media (max-width: 480px) {
+  .cal-cell { min-height: 44px; }
+  /* Titik penanda menggantikan label acara yang tak terbaca */
+  .cal-event {
+    height: 5px; width: 5px; border-radius: 50%;
+    display: inline-block; padding: 0; margin: 1px;
+    overflow: hidden; text-indent: -999px;
+  }
+}
+
+/* =========================================================================
+   13. KOMPONEN LAIN
+   ========================================================================= */
+@media (max-width: 767px) {
+  .welcome-hero { padding: 20px 18px; border-radius: 14px; }
+  .welcome-hero .wh-chips { gap: 6px; }
+  .welcome-hero .wh-chip { font-size: 11px; padding: 5px 10px; }
+  .welcome-hero .wh-cta { display: flex; flex-wrap: wrap; gap: 8px; }
+  .welcome-hero .wh-cta .btn { flex: 1 1 auto; justify-content: center; }
+  .welcome-hero .blob { display: none; }   /* kurangi beban paint di ponsel */
+
+  .lb-row { gap: 10px; padding: 11px 12px; flex-wrap: wrap; }
+  .lb-row .rank { width: 30px; height: 30px; flex-basis: 30px; font-size: 13px; }
+  .lb-row .avatar { width: 32px; height: 32px; }
+  .lb-row .who { flex: 1 1 60%; }
+  .lb-row .pts { font-size: 16px; }
+
+  .child-switch { gap: 8px; }
+  .child-card { flex: 1 1 100%; }
+  .timeline { padding-left: 22px; }
+  .meter { width: 92px; height: 92px; }
+  .notif-panel { width: calc(100vw - 24px); right: -6px; max-height: 70vh; }
+  .pick-item { grid-template-columns: 22px 1fr; }
+  .pick-item .pick-av, .pick-item .pick-tag { display: none; }
+  .pick-toolbar { gap: 7px; }
+  .pick-foot { gap: 8px; }
+  .pick-foot .flex-gap { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; width: 100%; }
+  .pick-foot .flex-gap .btn { width: 100%; justify-content: center; }
+  .module-section { padding: 9px 14px; }
+  .module-head { padding: 12px 14px; }
+  .list-item { padding: 12px; }
+  .video-wrap { border-radius: var(--radius-sm); }
+}
+
+/* =========================================================================
+   14. LANDSCAPE PONSEL — layar sangat pendek
+   ========================================================================= */
+@media (max-height: 460px) and (orientation: landscape) {
+  :root { --topbar-h: 48px; }
+  .welcome-hero { padding: 14px 16px; }
+  .welcome-hero h2 { font-size: 17px; }
+  .welcome-hero .wh-sub, .welcome-hero .wh-chips { display: none; }
+  .modal-content { max-height: 96dvh; }
+  .cbt-timer { position: static; }
+  .sidebar { padding-top: 10px; }
+  .sidebar .brand { padding-bottom: 10px; }
+  .chat-messages { max-height: 40vh; }
+}
+
+/* =========================================================================
+   15. AKSESIBILITAS & PENCETAKAN
+   ========================================================================= */
+@media (hover: none) {
+  /* Tanpa hover: pastikan indikator fokus tetap jelas untuk navigasi keyboard */
+  .btn:focus-visible, a:focus-visible, input:focus-visible,
+  select:focus-visible, textarea:focus-visible, .att-pill:focus-visible {
+    outline: 2px solid var(--primary);
+    outline-offset: 2px;
+  }
+}
+
+@media print {
+  .sidebar, .topbar, .sidebar-scrim, #toastBox, .qb-bar,
+  .att-sticky-save, .proctor-pip, .notif-panel, .menu-btn { display: none !important; }
+  .main { margin-left: 0; }
+  .content { padding: 0; }
+  .card, .list-item { box-shadow: none; border-color: #ccc; break-inside: avoid; }
+  .table-wrap { overflow: visible; }
+  table.table.as-cards thead { display: table-header-group; }
+}

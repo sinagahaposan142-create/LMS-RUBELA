@@ -19,6 +19,7 @@
     if (section === 'absensi') return renderAbsensiSection(container, user);
     if (section === 'leaderboard') return Shared.renderLeaderboard(container, user);
     if (section === 'ai-tools') return Shared.renderAiTools(container, user);
+    if (section === 'jadwal-siswa') return Jadwal.renderPlanTable(container, user);
     if (section === 'kalender') return Shared.renderCalendar(container, user);
     if (section === 'pengumuman') return Shared.renderAnnouncements(container, user);
     if (section === 'chat') return Shared.renderChat(container, user);
@@ -62,6 +63,8 @@
           </div>
         </div>
       </section>
+
+      ${Shared.motivationHtml('siswa')}
 
       <div class="card">
         <div class="card-header">

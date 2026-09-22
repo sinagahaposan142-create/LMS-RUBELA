@@ -20,10 +20,12 @@
       { key: 'leaderboard', label: 'Papan Peringkat', icon: '🏆' },
       { key: 'kalender', label: 'Kalender', icon: '📅' },
       { key: 'pengumuman', label: 'Pengumuman', icon: '📢' },
+      { key: 'motivasi', label: 'Kata Motivasi', icon: '💡' },
       { key: 'feedback', label: 'Kritik & Saran', icon: '💬' },
       { key: 'chat', label: 'Chat', icon: '💭' },
       { key: 'ai-analytics', label: 'AI Analytics', icon: '🤖' },
       { key: 'keuangan', label: 'Keuangan', icon: '💰' },
+      { key: 'keamanan-login', label: 'Keamanan Login', icon: '🔐' },
       { key: 'settings', label: 'Pengaturan', icon: '⚙️' }
     ],
     guru: [
@@ -35,6 +37,8 @@
       { key: 'cbt', label: 'CBT / Ujian', icon: '🖥️' },
       { key: 'grading', label: 'Penilaian Tugas', icon: '✅' },
       { key: 'absensi', label: 'Presensi', icon: '📋' },
+      { key: 'jadwal-kelas', label: 'Jadwal & War Jadwal', icon: '🗓️' },
+      { key: 'rekap', label: 'Rekapan Kelas', icon: '📈' },
       { key: 'leaderboard', label: 'Papan Peringkat', icon: '🏆' },
       { key: 'kalender', label: 'Kalender', icon: '📅' },
       { key: 'pengumuman', label: 'Pengumuman', icon: '📢' },
@@ -54,6 +58,7 @@
       { key: 'assignments', label: 'Tugas', icon: '📝' },
       { key: 'grades', label: 'Nilai', icon: '🏆' },
       { key: 'absensi', label: 'Presensi Saya', icon: '📋' },
+      { key: 'jadwal-siswa', label: 'Jadwal Kelas', icon: '🗓️' },
       { key: 'leaderboard', label: 'Papan Peringkat', icon: '🥇' },
       { key: 'ai-tools', label: 'AI Tools', icon: '🤖' },
       { key: 'kalender', label: 'Kalender', icon: '📅' },
@@ -70,6 +75,7 @@
       { key: 'anak-tugas', label: 'Tugas', icon: '📝' },
       { key: 'anak-kelas', label: 'Kelas & Guru', icon: '📚' },
       { key: 'anak-perkembangan', label: 'Perkembangan', icon: '📈' },
+      { key: 'anak-jadwal', label: 'Jadwal Kelas', icon: '🗓️' },
       { key: 'keuangan', label: 'Pembayaran', icon: '💰' },
       { key: 'kalender', label: 'Kalender', icon: '📅' },
       { key: 'pengumuman', label: 'Pengumuman', icon: '📢' },
@@ -148,6 +154,9 @@
       Effects.playPageEnter(content);
       Effects.enhance(content);
     }
+    // Responsif: beri label kolom tabel & tandai area yang perlu digulir
+    if (window.Responsive) Responsive.apply(content);
+    if (window.Shared && Shared.bindMotivation) Shared.bindMotivation(content);
     window.scrollTo({ top: 0, behavior: 'smooth' });
   }
 

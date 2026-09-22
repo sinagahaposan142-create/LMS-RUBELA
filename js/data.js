@@ -37,8 +37,12 @@
     expenses: 'lms_expenses',
     salaries: 'lms_salaries',
     notifications: 'lms_notifications',
+    classPlans: 'lms_class_plans',
+    motivations: 'lms_motivations',
+    securityQuestions: 'lms_security_questions',
+    settings: 'lms_settings',
     session: 'lms_session',
-    seeded: 'lms_seeded_v4'
+    seeded: 'lms_seeded_v5'
   };
 
   /* Extra localStorage keys that are not part of the main entity map but must
@@ -47,6 +51,19 @@
     'lms_class_options', 'lms_events', 'lms_batches', 'lms_feedbacks',
     'lms_announcements', 'lms_messages'
   ];
+
+  /* ===== Hari & jadwal ===== */
+  const DAY_NAMES = ['Minggu', 'Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu'];
+
+  /* Ambang waktu alur "War Jadwal Kelas" (dalam hari sebelum pelaksanaan) */
+  const PLAN_FILL_LEAD = 3;     // H-3: tutor mulai mengisi rencana
+  const PLAN_CONFIRM_LEAD = 5;  // H-5: tutor melakukan validasi/centang
+  const PLAN_STATUS = {
+    draft: { label: 'Rencana', badge: 'badge-gray' },
+    fixed: { label: 'Fix', badge: 'badge-success' },
+    changed: { label: 'Diubah', badge: 'badge-warning' },
+    cancelled: { label: 'Dibatalkan', badge: 'badge-gray' }
+  };
 
   /* ===== Konstanta UTBK (dipakai seluruh panel) =====
    * Urutan array = urutan resmi pengerjaan subtest UTBK. Ujian mode
@@ -89,10 +106,232 @@
     return prefix + '_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
   }
 
+  /* =====================================================================
+   * Bank soal verifikasi login siswa (>100 soal UTBK tingkat mudah).
+   * Soal numerik dibangkitkan agar kunci jawaban pasti benar; soal verbal
+   * ditulis manual. Semua soal singkat supaya login tetap cepat.
+   * ===================================================================*/
+  function buildSecurityQuestionBank() {
+    const out = [];
+    let n = 0;
+    const push = (subtest, text, options, correctIndex) => {
+      n++;
+      out.push({
+        id: 'sq_' + n, subtest, text, options,
+        correctIndex, difficulty: 'mudah',
+        source: 'seed', active: true, createdAt: Date.now()
+      });
+    };
+    /** Acak opsi tetapi tetap mengunci jawaban benar. */
+    const shuffled = (correct, distractors) => {
+      const opts = [correct, ...distractors];
+      for (let i = opts.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [opts[i], opts[j]] = [opts[j], opts[i]];
+      }
+      return { options: opts, correctIndex: opts.indexOf(correct) };
+    };
+    const PU = SUBTESTS[0].name, PPU = SUBTESTS[1].name, PBM = SUBTESTS[2].name;
+    const PK = SUBTESTS[3].name, LBIND = SUBTESTS[4].name, LBING = SUBTESTS[5].name, PM = SUBTESTS[6].name;
+
+    /* ---------- Pengetahuan Kuantitatif: aritmetika cepat (30 soal) ---------- */
+    const arith = [
+      [12, 8, '+'], [25, 17, '+'], [46, 29, '+'], [7, 9, '×'], [12, 6, '×'],
+      [15, 4, '×'], [81, 9, ':'], [72, 8, ':'], [144, 12, ':'], [50, 18, '−'],
+      [100, 37, '−'], [64, 28, '−'], [11, 11, '×'], [13, 5, '×'], [96, 6, ':']
+    ];
+    arith.forEach(([a, b, op]) => {
+      let res;
+      if (op === '+') res = a + b;
+      else if (op === '−') res = a - b;
+      else if (op === '×') res = a * b;
+      else res = a / b;
+      const d = [res + 1, res - 2, res + 3].map(String);
+      const s = shuffled(String(res), d);
+      push(PK, `Berapakah hasil dari ${a} ${op} ${b}?`, s.options, s.correctIndex);
+    });
+    // Persentase sederhana
+    [[20, 150], [10, 250], [25, 80], [50, 46], [30, 200], [15, 60], [40, 75]].forEach(([pct, base]) => {
+      const res = (pct / 100) * base;
+      const s = shuffled(String(res), [String(res + 5), String(res - 5), String(res * 2)]);
+      push(PK, `Berapakah ${pct}% dari ${base}?`, s.options, s.correctIndex);
+    });
+    // Rata-rata
+    [[[6, 8, 10], 8], [[5, 7, 9, 11], 8], [[10, 20, 30], 20], [[4, 6, 8, 10, 12], 8]].forEach(([arr, avg]) => {
+      const s = shuffled(String(avg), [String(avg + 1), String(avg - 1), String(avg + 2)]);
+      push(PK, `Rata-rata dari ${arr.join(', ')} adalah...`, s.options, s.correctIndex);
+    });
+    // Persamaan satu variabel
+    [[2, 6, 3], [3, 12, 4], [5, 20, 4], [4, 28, 7]].forEach(([a, c, x]) => {
+      const s = shuffled(String(x), [String(x + 1), String(x - 1), String(x + 2)]);
+      push(PK, `Jika ${a}x = ${c}, maka nilai x adalah...`, s.options, s.correctIndex);
+    });
+
+    /* ---------- Penalaran Umum: pola & logika (22 soal) ---------- */
+    const patterns = [
+      [[2, 4, 6, 8], 10], [[1, 3, 5, 7], 9], [[5, 10, 15, 20], 25],
+      [[3, 6, 12, 24], 48], [[1, 4, 9, 16], 25], [[2, 6, 18, 54], 162],
+      [[100, 90, 80, 70], 60], [[1, 1, 2, 3, 5], 8], [[7, 14, 21, 28], 35],
+      [[64, 32, 16, 8], 4], [[2, 5, 10, 17], 26], [[10, 21, 32, 43], 54]
+    ];
+    patterns.forEach(([seq, nextVal]) => {
+      const s = shuffled(String(nextVal), [String(nextVal + 2), String(nextVal - 3), String(nextVal + 5)]);
+      push(PU, `Lanjutkan pola bilangan berikut: ${seq.join(', ')}, ...`, s.options, s.correctIndex);
+    });
+    const logic = [
+      ['Semua burung memiliki sayap. Merpati adalah burung. Maka...',
+        'Merpati memiliki sayap', ['Merpati tidak bersayap', 'Semua bersayap adalah merpati', 'Merpati bukan burung']],
+      ['Jika hujan maka jalan basah. Hari ini jalan tidak basah. Maka...',
+        'Hari ini tidak hujan', ['Hari ini hujan', 'Jalan selalu basah', 'Tidak dapat disimpulkan']],
+      ['A lebih tinggi dari B. B lebih tinggi dari C. Siapa paling tinggi?',
+        'A', ['B', 'C', 'Sama tinggi']],
+      ['Semua siswa rajin lulus ujian. Budi lulus ujian. Maka...',
+        'Budi belum tentu rajin', ['Budi pasti rajin', 'Budi tidak rajin', 'Budi bukan siswa']],
+      ['Andi lebih muda dari Budi. Citra lebih tua dari Budi. Siapa paling tua?',
+        'Citra', ['Andi', 'Budi', 'Tidak diketahui']],
+      ['Jika x > 5 dan x < 8, maka nilai bulat x adalah...',
+        '6 atau 7', ['5 atau 8', 'Hanya 6', 'Lebih dari 8']],
+      ['Semua logam menghantarkan listrik. Besi adalah logam. Maka besi...',
+        'Menghantarkan listrik', ['Tidak menghantarkan listrik', 'Bukan logam', 'Isolator']],
+      ['Dalam satu minggu ada 7 hari. Dalam 3 minggu ada berapa hari?',
+        '21 hari', ['14 hari', '24 hari', '28 hari']],
+      ['Urutan yang benar dari kecil ke besar: 0,5 — 0,05 — 0,55',
+        '0,05 — 0,5 — 0,55', ['0,5 — 0,05 — 0,55', '0,55 — 0,5 — 0,05', '0,05 — 0,55 — 0,5']],
+      ['Jika hari ini Senin, maka 3 hari kemudian adalah...',
+        'Kamis', ['Rabu', 'Jumat', 'Sabtu']]
+    ];
+    logic.forEach(([text, correct, distractors]) => {
+      const s = shuffled(correct, distractors);
+      push(PU, text, s.options, s.correctIndex);
+    });
+
+    /* ---------- PPU: sinonim & antonim (20 soal) ---------- */
+    const syn = [
+      ['bahagia', 'riang', ['sedih', 'marah', 'kecewa']],
+      ['pandai', 'cerdas', ['bodoh', 'lambat', 'malas']],
+      ['besar', 'raksasa', ['kecil', 'sempit', 'tipis']],
+      ['cepat', 'lekas', ['lambat', 'santai', 'lelah']],
+      ['indah', 'cantik', ['buruk', 'kotor', 'kusam']],
+      ['berani', 'gagah', ['takut', 'ragu', 'cemas']],
+      ['sulit', 'rumit', ['mudah', 'ringan', 'sederhana']],
+      ['tinggi', 'jangkung', ['pendek', 'rendah', 'kerdil']],
+      ['mulai', 'awal', ['akhir', 'henti', 'tutup']],
+      ['bohong', 'dusta', ['jujur', 'benar', 'nyata']]
+    ];
+    syn.forEach(([w, correct, d]) => {
+      const s = shuffled(correct, d);
+      push(PPU, `Sinonim dari kata "${w}" adalah...`, s.options, s.correctIndex);
+    });
+    const ant = [
+      ['tinggi', 'rendah', ['jangkung', 'besar', 'panjang']],
+      ['tebal', 'tipis', ['lebar', 'berat', 'keras']],
+      ['maju', 'mundur', ['jalan', 'cepat', 'lurus']],
+      ['terang', 'gelap', ['cerah', 'silau', 'putih']],
+      ['kaya', 'miskin', ['hemat', 'mewah', 'banyak']],
+      ['eksplisit', 'implisit', ['tersurat', 'tegas', 'jelas']],
+      ['optimis', 'pesimis', ['yakin', 'senang', 'tenang']],
+      ['naik', 'turun', ['tetap', 'melaju', 'tumbuh']],
+      ['panas', 'dingin', ['hangat', 'sejuk', 'kering']],
+      ['banyak', 'sedikit', ['penuh', 'padat', 'besar']]
+    ];
+    ant.forEach(([w, correct, d]) => {
+      const s = shuffled(correct, d);
+      push(PPU, `Antonim dari kata "${w}" adalah...`, s.options, s.correctIndex);
+    });
+
+    /* ---------- PBM: kaidah bahasa (14 soal) ---------- */
+    const pbm = [
+      ['Kalimat manakah yang paling efektif?', 'Siswa sedang belajar.',
+        ['Para siswa-siswa sedang belajar.', 'Siswa sedang belajar-belajar.', 'Para siswa semuanya sedang belajar bersama-sama.']],
+      ['Manakah penulisan baku dari kata yang bermakna “penerapan langsung”?', 'praktik', ['praktek', 'pratik', 'practik']],
+      ['Manakah penulisan baku dari kata yang bermakna “penguraian masalah”?', 'analisis', ['analisa', 'analysis', 'analise']],
+      ['Manakah penulisan baku dari kata yang bermakna “kegiatan”?', 'aktivitas', ['aktifitas', 'activitas', 'aktipitas']],
+      ['Manakah penulisan baku dari kata yang bermakna “kemungkinan rugi”?', 'risiko', ['resiko', 'risico', 'resico']],
+      ['Manakah penulisan baku dari kata yang bermakna “daftar waktu kegiatan”?', 'jadwal', ['jadual', 'jadwall', 'jadwal-']],
+      ['Manakah penulisan baku dari kata yang bermakna “cara atau metode kerja”?', 'teknik', ['tehnik', 'tekhnik', 'technik']],
+      ['Manakah penulisan baku dari kata yang bermakna “udara yang dihirup”?', 'napas', ['nafas', 'nampas', 'nafass']],
+      ['Imbuhan yang tepat: "Dia ... surat itu kemarin."', 'menulis', ['ditulis', 'tertulis', 'penulis']],
+      ['Kata hubung yang tepat: "Dia rajin ... nilainya bagus."', 'sehingga', ['tetapi', 'meskipun', 'atau']],
+      ['Gagasan utama paragraf biasanya terdapat pada...', 'kalimat utama', ['kalimat penjelas', 'tanda baca', 'kata hubung']],
+      ['Tanda baca yang tepat mengakhiri kalimat tanya adalah...', 'tanda tanya (?)', ['tanda titik (.)', 'tanda seru (!)', 'tanda koma (,)']],
+      ['Kalimat berikut yang menggunakan huruf kapital dengan benar:', 'Saya tinggal di Kota Medan.',
+        ['saya tinggal di kota medan.', 'Saya Tinggal Di Kota Medan.', 'SAYA tinggal di Kota medan.']],
+      ['Bentuk pasif dari "Ibu memasak nasi" adalah...', 'Nasi dimasak ibu', ['Ibu dimasak nasi', 'Nasi memasak ibu', 'Ibu memasakkan nasi']]
+    ];
+    pbm.forEach(([text, correct, d]) => {
+      const s = shuffled(correct, d);
+      push(PBM, text, s.options, s.correctIndex);
+    });
+
+    /* ---------- Literasi Bahasa Inggris (10 soal) ---------- */
+    const eng = [
+      ['Choose the correct sentence.', "She doesn't like coffee.",
+        ["She don't like coffee.", "She doesn't likes coffee.", 'She not like coffee.']],
+      ['The word "significant" is closest in meaning to...', 'important', ['tiny', 'unclear', 'random']],
+      ['The opposite of "increase" is...', 'decrease', ['grow', 'expand', 'raise']],
+      ['Complete: "They ... to school every day."', 'go', ['goes', 'going', 'gone']],
+      ['Complete: "I have ... my homework."', 'finished', ['finish', 'finishing', 'finishes']],
+      ['The word "difficult" is closest in meaning to...', 'hard', ['easy', 'simple', 'light']],
+      ['Choose the correct plural of "child".', 'children', ['childs', 'childes', 'childrens']],
+      ['Complete: "She is good ... mathematics."', 'at', ['in', 'on', 'for']],
+      ['The word "rapid" is closest in meaning to...', 'fast', ['slow', 'late', 'calm']],
+      ['Complete: "If it rains, we ... stay home."', 'will', ['would', 'were', 'have']]
+    ];
+    eng.forEach(([text, correct, d]) => {
+      const s = shuffled(correct, d);
+      push(LBING, text, s.options, s.correctIndex);
+    });
+
+    /* ---------- Penalaran Matematika: soal cerita (12 soal) ---------- */
+    const story = [
+      ['Sebuah mobil menempuh 180 km dalam 3 jam. Kecepatan rata-ratanya adalah...', '60 km/jam', ['50 km/jam', '55 km/jam', '65 km/jam']],
+      ['Harga baju Rp200.000 didiskon 25%. Harga setelah diskon adalah...', 'Rp150.000', ['Rp175.000', 'Rp160.000', 'Rp125.000']],
+      ['Ani membeli 3 buku @Rp15.000. Total yang dibayar adalah...', 'Rp45.000', ['Rp30.000', 'Rp50.000', 'Rp60.000']],
+      ['Sebuah persegi memiliki sisi 7 cm. Luasnya adalah...', '49 cm²', ['14 cm²', '28 cm²', '56 cm²']],
+      ['Keliling persegi panjang dengan panjang 8 cm dan lebar 5 cm adalah...', '26 cm', ['13 cm', '40 cm', '30 cm']],
+      ['Jika 1 lusin = 12 buah, maka 3 lusin sama dengan...', '36 buah', ['24 buah', '30 buah', '48 buah']],
+      ['Sebuah tangki berisi 60 liter air, terpakai 1/3 bagian. Sisa air adalah...', '40 liter', ['20 liter', '30 liter', '45 liter']],
+      ['Perbandingan 2 : 3 dari 25 permen, bagian terkecil adalah...', '10 permen', ['15 permen', '5 permen', '12 permen']],
+      ['Luas segitiga dengan alas 10 cm dan tinggi 6 cm adalah...', '30 cm²', ['60 cm²', '16 cm²', '45 cm²']],
+      ['Sebuah pekerjaan selesai 5 hari oleh 4 orang. Bila 8 orang, perkiraan waktunya...', '2,5 hari', ['10 hari', '5 hari', '4 hari']],
+      ['Jika suhu naik dari -3°C menjadi 7°C, kenaikannya adalah...', '10°C', ['4°C', '7°C', '3°C']],
+      ['Bilangan prima antara 10 dan 20 ada berapa?', '4', ['3', '5', '6']]
+    ];
+    story.forEach(([text, correct, d]) => {
+      const s = shuffled(correct, d);
+      push(PM, text, s.options, s.correctIndex);
+    });
+
+    /* ---------- Literasi Bahasa Indonesia (8 soal) ---------- */
+    const lit = [
+      ['Teks yang bertujuan meyakinkan pembaca disebut teks...', 'persuasi', ['narasi', 'deskripsi', 'laporan']],
+      ['Teks yang menceritakan rangkaian peristiwa disebut teks...', 'narasi', ['eksposisi', 'persuasi', 'prosedur']],
+      ['Bagian akhir teks yang berisi kesimpulan disebut...', 'penutup', ['pembuka', 'isi', 'judul']],
+      ['Kalimat fakta ditandai dengan...', 'data yang dapat dibuktikan', ['pendapat penulis', 'kata mungkin', 'kata sebaiknya']],
+      ['Ide pokok paragraf disebut juga...', 'gagasan utama', ['gagasan penjelas', 'kalimat tanya', 'simpulan akhir']],
+      ['Teks prosedur berisi...', 'langkah-langkah melakukan sesuatu', ['cerita masa lalu', 'pendapat pribadi', 'gambaran tempat']],
+      ['Kata rujukan "tersebut" mengacu pada...', 'hal yang sudah disebut sebelumnya', ['hal yang akan dijelaskan', 'judul teks', 'penulis teks']],
+      ['Simpulan dibuat berdasarkan...', 'isi keseluruhan teks', ['judul saja', 'kalimat pertama saja', 'pendapat pembaca']]
+    ];
+    lit.forEach(([text, correct, d]) => {
+      const s = shuffled(correct, d);
+      push(LBIND, text, s.options, s.correctIndex);
+    });
+
+    return out;
+  }
+
+  /** Format tanggal YYYY-MM-DD dari timestamp/Date. */
+  function ymdOf(ts) {
+    const d = ts instanceof Date ? ts : new Date(ts);
+    const p = n => String(n).padStart(2, '0');
+    return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+  }
+
   function seedIfNeeded() {
     // Migrate: wipe any older seed version so new demo entities (orang tua,
     // password kelas, notifikasi) are created consistently.
-    const OLD_SEEDS = ['lms_seeded_v1', 'lms_seeded_v2', 'lms_seeded_v3'];
+    const OLD_SEEDS = ['lms_seeded_v1', 'lms_seeded_v2', 'lms_seeded_v3', 'lms_seeded_v4'];
     const staleSeed = OLD_SEEDS.find(k => localStorage.getItem(k) === '1');
     if (staleSeed && localStorage.getItem(KEYS.seeded) !== '1') {
       Object.keys(KEYS).forEach(k => localStorage.removeItem(KEYS[k]));
@@ -104,16 +343,42 @@
     const now = Date.now();
     const DAY = 86400000;
 
+    /* ===== Guru (tutor) =====
+     * Satu subtest bisa diajar beberapa tutor, dan satu kelas subtest bisa
+     * dibina lebih dari satu tutor (lihat courses.teacherIds).
+     */
     const users = [
       { id: 'u_admin', role: 'admin', username: 'admin', password: 'admin123', name: 'Administrator', email: 'admin@rubela.edu' },
-      { id: 'u_guru1', role: 'guru', username: 'guru1', password: 'guru123', name: 'Pak Budi Santoso', email: 'budi@rubela.edu', subject: 'Matematika', salaryRate: 3000000 },
-      { id: 'u_guru2', role: 'guru', username: 'guru2', password: 'guru123', name: 'Bu Sari Wulandari', email: 'sari@rubela.edu', subject: 'Bahasa Indonesia', salaryRate: 2800000 },
-      { id: 'u_siswa1', role: 'siswa', username: 'siswa1', password: 'siswa123', name: 'Andi Pratama', email: 'andi@siswa.edu', kelas: 'X-A',
-        targetUniv: 'Universitas Indonesia', targetMajor: 'Teknik Informatika', phone: '081200000001' },
-      { id: 'u_siswa2', role: 'siswa', username: 'siswa2', password: 'siswa123', name: 'Dewi Anggraini', email: 'dewi@siswa.edu', kelas: 'X-A',
-        targetUniv: 'Institut Teknologi Bandung', targetMajor: 'Teknik Elektro', phone: '081200000002' },
-      { id: 'u_siswa3', role: 'siswa', username: 'siswa3', password: 'siswa123', name: 'Rendy Kurniawan', email: 'rendy@siswa.edu', kelas: 'X-B',
-        targetUniv: 'Universitas Gadjah Mada', targetMajor: 'Kedokteran', phone: '081200000003' },
+      { id: 'u_guru1', role: 'guru', username: 'guru1', password: 'guru123', name: 'Bu Maria Simbolon', email: 'maria@rubela.edu',
+        subject: SUBTESTS[3].name, whatsapp: '081311110001', salaryRate: 3000000, status: 'Aktif',
+        teachDays: ['Senin', 'Kamis'], teachTime: '16:00' },
+      { id: 'u_guru2', role: 'guru', username: 'guru2', password: 'guru123', name: 'Bu Irana Dewi', email: 'irana@rubela.edu',
+        subject: SUBTESTS[3].name, whatsapp: '081311110002', salaryRate: 2900000, status: 'Aktif',
+        teachDays: ['Selasa', 'Jumat'], teachTime: '16:00' },
+      { id: 'u_guru3', role: 'guru', username: 'guru3', password: 'guru123', name: 'Pak Budi Santoso', email: 'budi@rubela.edu',
+        subject: SUBTESTS[0].name, whatsapp: '081311110003', salaryRate: 3100000, status: 'Aktif',
+        teachDays: ['Rabu'], teachTime: '19:00' },
+      { id: 'u_guru4', role: 'guru', username: 'guru4', password: 'guru123', name: 'Bu Sari Wulandari', email: 'sari@rubela.edu',
+        subject: SUBTESTS[4].name, whatsapp: '081311110004', salaryRate: 2800000, status: 'Aktif',
+        teachDays: ['Sabtu'], teachTime: '09:00' },
+
+      /* ===== Siswa =====
+       * kelas = KELAS UTAMA (Kelas 10/11/12) yang memisahkan ratusan siswa.
+       * Kelas subtest diisi dengan memilih kelas utama, bukan satu per satu.
+       */
+      { id: 'u_siswa1', role: 'siswa', username: 'siswa1', password: 'siswa123', name: 'Andi Pratama', email: 'andi@siswa.edu',
+        kelas: 'Kelas 11-A', targetUniv: 'Universitas Indonesia', targetMajor: 'Teknik Informatika', phone: '081200000001', status: 'Aktif' },
+      { id: 'u_siswa2', role: 'siswa', username: 'siswa2', password: 'siswa123', name: 'Dewi Anggraini', email: 'dewi@siswa.edu',
+        kelas: 'Kelas 11-A', targetUniv: 'Institut Teknologi Bandung', targetMajor: 'Teknik Elektro', phone: '081200000002', status: 'Aktif' },
+      { id: 'u_siswa3', role: 'siswa', username: 'siswa3', password: 'siswa123', name: 'Rendy Kurniawan', email: 'rendy@siswa.edu',
+        kelas: 'Kelas 11-B', targetUniv: 'Universitas Gadjah Mada', targetMajor: 'Kedokteran', phone: '081200000003', status: 'Aktif' },
+      { id: 'u_siswa4', role: 'siswa', username: 'siswa4', password: 'siswa123', name: 'Putri Lestari', email: 'putri@siswa.edu',
+        kelas: 'Kelas 12-A', targetUniv: 'Universitas Airlangga', targetMajor: 'Farmasi', phone: '081200000004', status: 'Aktif' },
+      { id: 'u_siswa5', role: 'siswa', username: 'siswa5', password: 'siswa123', name: 'Bagas Nugroho', email: 'bagas@siswa.edu',
+        kelas: 'Kelas 12-A', targetUniv: 'Institut Teknologi Sepuluh Nopember', targetMajor: 'Sistem Informasi', phone: '081200000005', status: 'Aktif' },
+      { id: 'u_siswa6', role: 'siswa', username: 'siswa6', password: 'siswa123', name: 'Salsa Ramadhani', email: 'salsa@siswa.edu',
+        kelas: 'Kelas 10-A', targetUniv: 'Universitas Padjadjaran', targetMajor: 'Hukum', phone: '081200000006', status: 'Aktif' },
+
       // Orang tua / wali: memantau perkembangan anak (childIds -> id siswa)
       { id: 'u_ortu1', role: 'orangtua', username: 'ortu1', password: 'ortu123', name: 'Bapak Hendra Pratama', email: 'hendra@wali.edu',
         phone: '081300000001', relation: 'Ayah', childIds: ['u_siswa1'] },
@@ -121,20 +386,58 @@
         phone: '081300000002', relation: 'Ibu', childIds: ['u_siswa2', 'u_siswa3'] }
     ];
 
+    /* ===== Kelas Subtest =====
+     * Satu kelas = 1 subtest + kelas utama yang mengisinya + 1..n tutor +
+     * jadwal mengajar. Contoh: "Kelas 11 - PK bersama Bu Maria" dan
+     * "Kelas 11 - PK bersama Bu Irana" adalah dua kelas berbeda.
+     */
     const courses = [
-      { id: 'c_mat1', title: 'Matematika Dasar', description: 'Pengantar aljabar dan operasi bilangan.', teacherId: 'u_guru1', category: 'Matematika', price: 500000, password: 'mat2026', createdAt: now - DAY * 10 },
-      { id: 'c_bind1', title: 'Bahasa Indonesia', description: 'Tata bahasa, menulis, dan apresiasi sastra.', teacherId: 'u_guru2', category: 'Bahasa', price: 450000, password: '', createdAt: now - DAY * 7 }
+      { id: 'c_pk_11a', subtest: SUBTESTS[3].name, label: '',
+        mainClasses: ['Kelas 11-A'], teacherIds: ['u_guru1'], teacherId: 'u_guru1',
+        title: 'Kelas 11-A • Pengetahuan Kuantitatif (PK) — Bu Maria Simbolon',
+        description: 'Kelas Pengetahuan Kuantitatif untuk Kelas 11-A. Fokus aljabar, barisan, dan logika bilangan.',
+        category: 'TPS', price: 500000, password: 'pk2026',
+        schedule: { days: ['Senin', 'Kamis'], time: '16:00', endTime: '17:30', startDate: ymdOf(now), sessions: 16 },
+        meetingLink: 'https://meet.google.com/abc-defg-hij',
+        createdAt: now - DAY * 10 },
+
+      { id: 'c_pk_11b', subtest: SUBTESTS[3].name, label: '',
+        mainClasses: ['Kelas 11-B'], teacherIds: ['u_guru2'], teacherId: 'u_guru2',
+        title: 'Kelas 11-B • Pengetahuan Kuantitatif (PK) — Bu Irana Dewi',
+        description: 'Kelas Pengetahuan Kuantitatif untuk Kelas 11-B dengan pendekatan latihan intensif.',
+        category: 'TPS', price: 500000, password: '',
+        schedule: { days: ['Selasa', 'Jumat'], time: '16:00', endTime: '17:30', startDate: ymdOf(now), sessions: 16 },
+        meetingLink: 'https://zoom.us/j/1234567890',
+        createdAt: now - DAY * 9 },
+
+      { id: 'c_pu_12', subtest: SUBTESTS[0].name, label: 'Gabungan',
+        mainClasses: ['Kelas 12-A'], teacherIds: ['u_guru3', 'u_guru1'], teacherId: 'u_guru3',
+        title: 'Kelas 12-A • Penalaran Umum (PU) — Pak Budi & Bu Maria',
+        description: 'Kelas Penalaran Umum gabungan dua tutor untuk Kelas 12-A.',
+        category: 'TPS', price: 550000, password: '',
+        schedule: { days: ['Rabu'], time: '19:00', endTime: '20:30', startDate: ymdOf(now), sessions: 12 },
+        meetingLink: 'https://meet.google.com/xyz-1234-abc',
+        createdAt: now - DAY * 8 },
+
+      { id: 'c_lbind_10', subtest: SUBTESTS[4].name, label: '',
+        mainClasses: ['Kelas 10-A'], teacherIds: ['u_guru4'], teacherId: 'u_guru4',
+        title: 'Kelas 10-A • Literasi dalam Bahasa Indonesia — Bu Sari Wulandari',
+        description: 'Literasi Bahasa Indonesia untuk Kelas 10-A: pemahaman bacaan dan penalaran teks.',
+        category: 'Literasi', price: 450000, password: '',
+        schedule: { days: ['Sabtu'], time: '09:00', endTime: '10:30', startDate: ymdOf(now), sessions: 12 },
+        meetingLink: '',
+        createdAt: now - DAY * 7 }
     ];
 
     const materials = [
-      { id: 'm_1', courseId: 'c_mat1', title: 'Bilangan Bulat', content: 'Bilangan bulat meliputi bilangan positif, nol, dan negatif. Operasi dasar: + - x :.', link: '', createdAt: now - DAY * 8 },
-      { id: 'm_2', courseId: 'c_mat1', title: 'Persamaan Linear', content: 'Bentuk umum ax + b = 0. Pelajari cara mencari nilai x.', link: '', createdAt: now - DAY * 5 },
-      { id: 'm_3', courseId: 'c_bind1', title: 'Kalimat Efektif', content: 'Ciri kalimat efektif: kesatuan, kehematan, kepaduan, kelogisan.', link: '', createdAt: now - DAY * 3 }
+      { id: 'm_1', courseId: 'c_pk_11a', title: 'Bilangan Bulat', content: 'Bilangan bulat meliputi bilangan positif, nol, dan negatif. Operasi dasar: + - x :.', link: '', createdAt: now - DAY * 8 },
+      { id: 'm_2', courseId: 'c_pk_11a', title: 'Persamaan Linear', content: 'Bentuk umum ax + b = 0. Pelajari cara mencari nilai x.', link: '', createdAt: now - DAY * 5 },
+      { id: 'm_3', courseId: 'c_lbind_10', title: 'Kalimat Efektif', content: 'Ciri kalimat efektif: kesatuan, kehematan, kepaduan, kelogisan.', link: '', createdAt: now - DAY * 3 }
     ];
 
     const modules = [
       {
-        id: 'mod_1', courseId: 'c_mat1', title: 'Modul 1 - Aljabar Dasar',
+        id: 'mod_1', courseId: 'c_pk_11a', title: 'Modul 1 - Aljabar Dasar',
         description: 'Modul pengantar aljabar dengan latihan.',
         sections: [
           { title: 'Pengertian Variabel', content: 'Variabel adalah simbol (biasanya huruf) yang mewakili nilai yang belum diketahui.' },
@@ -144,7 +447,7 @@
         link: '', createdAt: now - DAY * 9
       },
       {
-        id: 'mod_2', courseId: 'c_bind1', title: 'Modul 1 - Kaidah Bahasa',
+        id: 'mod_2', courseId: 'c_lbind_10', title: 'Modul 1 - Kaidah Bahasa',
         description: 'Dasar-dasar kaidah Bahasa Indonesia.',
         sections: [
           { title: 'EYD', content: 'Ejaan yang Disempurnakan - panduan penulisan resmi.' },
@@ -155,14 +458,14 @@
     ];
 
     const recordings = [
-      { id: 'rec_1', courseId: 'c_mat1', title: 'Pertemuan 1 - Pengantar', url: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ', duration: 3600, recordedAt: now - DAY * 8, notes: 'Membahas bab 1 dan 2.' },
-      { id: 'rec_2', courseId: 'c_mat1', title: 'Pertemuan 2 - Aljabar', url: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ', duration: 3300, recordedAt: now - DAY * 4, notes: 'Latihan soal aljabar.' },
-      { id: 'rec_3', courseId: 'c_bind1', title: 'Pertemuan 1 - EYD', url: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ', duration: 2700, recordedAt: now - DAY * 3, notes: 'Pengantar EYD.' }
+      { id: 'rec_1', courseId: 'c_pk_11a', title: 'Pertemuan 1 - Pengantar', url: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ', duration: 3600, recordedAt: now - DAY * 8, notes: 'Membahas bab 1 dan 2.' },
+      { id: 'rec_2', courseId: 'c_pk_11a', title: 'Pertemuan 2 - Aljabar', url: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ', duration: 3300, recordedAt: now - DAY * 4, notes: 'Latihan soal aljabar.' },
+      { id: 'rec_3', courseId: 'c_lbind_10', title: 'Pertemuan 1 - EYD', url: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ', duration: 2700, recordedAt: now - DAY * 3, notes: 'Pengantar EYD.' }
     ];
 
     const assignments = [
-      { id: 'a_1', courseId: 'c_mat1', title: 'Latihan Persamaan Linear', description: 'Kerjakan 5 soal tentang persamaan linear satu variabel.', dueDate: now + DAY * 5, createdAt: now - DAY * 4 },
-      { id: 'a_2', courseId: 'c_bind1', title: 'Esai Singkat', description: 'Tulis esai 300 kata tentang pahlawan favoritmu.', dueDate: now + DAY * 7, createdAt: now - DAY * 2 }
+      { id: 'a_1', courseId: 'c_pk_11a', title: 'Latihan Persamaan Linear', description: 'Kerjakan 5 soal tentang persamaan linear satu variabel.', dueDate: now + DAY * 5, createdAt: now - DAY * 4 },
+      { id: 'a_2', courseId: 'c_lbind_10', title: 'Esai Singkat', description: 'Tulis esai 300 kata tentang pahlawan favoritmu.', dueDate: now + DAY * 7, createdAt: now - DAY * 2 }
     ];
 
     const submissions = [
@@ -170,23 +473,26 @@
     ];
 
     const enrollments = [
-      { id: 'e_1', courseId: 'c_mat1', studentId: 'u_siswa1', enrolledAt: now - DAY * 6 },
-      { id: 'e_2', courseId: 'c_mat1', studentId: 'u_siswa2', enrolledAt: now - DAY * 5 },
-      { id: 'e_3', courseId: 'c_bind1', studentId: 'u_siswa1', enrolledAt: now - DAY * 3 }
+      { id: 'e_1', courseId: 'c_pk_11a', studentId: 'u_siswa1', enrolledAt: now - DAY * 6 },
+      { id: 'e_2', courseId: 'c_pk_11a', studentId: 'u_siswa2', enrolledAt: now - DAY * 5 },
+      { id: 'e_3', courseId: 'c_lbind_10', studentId: 'u_siswa6', enrolledAt: now - DAY * 3 },
+      { id: 'e_4', courseId: 'c_pk_11b', studentId: 'u_siswa3', enrolledAt: now - DAY * 4 },
+      { id: 'e_5', courseId: 'c_pu_12', studentId: 'u_siswa4', enrolledAt: now - DAY * 4 },
+      { id: 'e_6', courseId: 'c_pu_12', studentId: 'u_siswa5', enrolledAt: now - DAY * 4 }
     ];
 
     // Bank soal — memakai nama subtest UTBK resmi agar bisa dikelompokkan
     const N = (code) => SUBTESTS.find(s => s.code === code).name;
     const questions = [
       /* ---- Penalaran Umum (PU) ---- */
-      { id: 'q_pu1', authorId: 'u_guru1', subject: N('PU'), questionType: 'Pilihan Ganda', difficulty: 'sedang',
+      { id: 'q_pu1', authorId: 'u_guru3', subject: N('PU'), questionType: 'Pilihan Ganda', difficulty: 'sedang',
         text: 'Semua siswa yang rajin memperoleh nilai baik. Andi memperoleh nilai baik. Kesimpulan yang tepat adalah...',
         options: ['Andi pasti rajin', 'Andi belum tentu rajin', 'Andi tidak rajin', 'Andi malas'],
         correctIndex: 1, explanation: 'Premis tidak dapat dibalik; nilai baik bisa disebabkan hal lain.' },
-      { id: 'q_pu2', authorId: 'u_guru1', subject: N('PU'), questionType: 'Pilihan Ganda', difficulty: 'mudah',
+      { id: 'q_pu2', authorId: 'u_guru3', subject: N('PU'), questionType: 'Pilihan Ganda', difficulty: 'mudah',
         text: 'Lanjutkan pola bilangan: 2, 6, 12, 20, 30, ...',
         options: ['40', '42', '44', '46'], correctIndex: 1, explanation: 'Selisih bertambah 2: +4,+6,+8,+10,+12 → 30+12 = 42.' },
-      { id: 'q_pu3', authorId: 'u_guru1', subject: N('PU'), questionType: 'Pilihan Ganda', difficulty: 'sulit',
+      { id: 'q_pu3', authorId: 'u_guru3', subject: N('PU'), questionType: 'Pilihan Ganda', difficulty: 'sulit',
         text: 'Jika P lebih tinggi dari Q, Q lebih tinggi dari R, dan S lebih rendah dari R, siapa yang paling rendah?',
         options: ['P', 'Q', 'R', 'S'], correctIndex: 3, explanation: 'Urutan: P > Q > R > S, jadi S paling rendah.' },
 
@@ -223,20 +529,20 @@
         options: ['60', '100', '120', '150'], correctIndex: 2, explanation: '5! = 5×4×3×2×1 = 120.' },
 
       /* ---- Literasi dalam Bahasa Indonesia ---- */
-      { id: 'q_lbind1', authorId: 'u_guru2', subject: N('LBIND'), questionType: 'Pilihan Ganda', difficulty: 'sedang',
+      { id: 'q_lbind1', authorId: 'u_guru4', subject: N('LBIND'), questionType: 'Pilihan Ganda', difficulty: 'sedang',
         text: 'Gagasan utama sebuah paragraf umumnya dapat ditemukan pada...',
         options: ['kalimat penjelas', 'kalimat topik', 'kata hubung', 'tanda baca'],
         correctIndex: 1, explanation: 'Gagasan utama terdapat pada kalimat topik (kalimat utama).' },
-      { id: 'q_lbind2', authorId: 'u_guru2', subject: N('LBIND'), questionType: 'Esai', difficulty: 'sulit',
+      { id: 'q_lbind2', authorId: 'u_guru4', subject: N('LBIND'), questionType: 'Esai', difficulty: 'sulit',
         text: 'Tuliskan simpulan Anda mengenai dampak literasi digital bagi pelajar (maksimal 100 kata).',
         options: [], correctIndex: null, explanation: 'Dinilai manual oleh guru.' },
 
       /* ---- Literasi dalam Bahasa Inggris ---- */
-      { id: 'q_lbing1', authorId: 'u_guru2', subject: N('LBING'), questionType: 'Pilihan Ganda', difficulty: 'mudah',
+      { id: 'q_lbing1', authorId: 'u_guru4', subject: N('LBING'), questionType: 'Pilihan Ganda', difficulty: 'mudah',
         text: 'Choose the correct sentence.',
         options: ['She don\'t like coffee.', 'She doesn\'t likes coffee.', 'She doesn\'t like coffee.', 'She not like coffee.'],
         correctIndex: 2, explanation: 'Third person singular uses "doesn\'t" + base verb.' },
-      { id: 'q_lbing2', authorId: 'u_guru2', subject: N('LBING'), questionType: 'Pilihan Ganda', difficulty: 'sedang',
+      { id: 'q_lbing2', authorId: 'u_guru4', subject: N('LBING'), questionType: 'Pilihan Ganda', difficulty: 'sedang',
         text: 'The word "significant" is closest in meaning to...',
         options: ['tiny', 'important', 'unclear', 'random'], correctIndex: 1, explanation: 'Significant = important/considerable.' },
 
@@ -257,9 +563,9 @@
         id: 'cbt_1',
         title: 'Ujian Harian - Pengetahuan Kuantitatif',
         description: 'Ujian singkat materi aljabar dasar dan operasi bilangan. Pastikan koneksi internet stabil sebelum memulai.',
-        courseId: 'c_mat1',
-        courseIds: ['c_mat1'],
-        targetClasses: ['X-A', 'X-B'],
+        courseId: 'c_pk_11a',
+        courseIds: ['c_pk_11a'],
+        targetClasses: ['Kelas 11-A', 'Kelas 11-B'],
         subtestMode: 'single',
         selectedSubtest: N('PK'),
         sections: [
@@ -275,8 +581,8 @@
         id: 'cbt_2',
         title: 'Try Out UTBK - Gabungan 7 Subtest',
         description: 'Simulasi UTBK lengkap. Subtest dikerjakan berurutan mulai dari Penalaran Umum. Kamera dan mikrofon wajib aktif selama ujian untuk pemantauan.',
-        courseId: 'c_mat1',
-        courseIds: ['c_mat1', 'c_bind1'],
+        courseId: 'c_pk_11a',
+        courseIds: ['c_pk_11a', 'c_pk_11b', 'c_pu_12'],
         targetClasses: [ALL_CLASSES],
         subtestMode: 'full',
         selectedSubtest: null,
@@ -317,18 +623,18 @@
     const tm1 = ymd(new Date(Date.now() - DAY));
     const tm2 = ymd(new Date(Date.now() - DAY * 2));
     const attendance = [
-      { id: 'at_1', courseId: 'c_mat1', userId: 'u_guru1', role: 'guru', date: tm2, status: 'hadir', note: '', createdAt: now - DAY * 2 },
-      { id: 'at_2', courseId: 'c_mat1', userId: 'u_siswa1', role: 'siswa', date: tm2, status: 'hadir', note: '', createdAt: now - DAY * 2 },
-      { id: 'at_3', courseId: 'c_mat1', userId: 'u_siswa2', role: 'siswa', date: tm2, status: 'izin', note: 'Sakit', createdAt: now - DAY * 2 },
-      { id: 'at_4', courseId: 'c_mat1', userId: 'u_guru1', role: 'guru', date: tm1, status: 'hadir', note: '', createdAt: now - DAY },
-      { id: 'at_5', courseId: 'c_mat1', userId: 'u_siswa1', role: 'siswa', date: tm1, status: 'hadir', note: '', createdAt: now - DAY },
-      { id: 'at_6', courseId: 'c_bind1', userId: 'u_guru2', role: 'guru', date: t0, status: 'hadir', note: '', createdAt: now }
+      { id: 'at_1', courseId: 'c_pk_11a', userId: 'u_guru1', role: 'guru', date: tm2, status: 'hadir', note: '', createdAt: now - DAY * 2 },
+      { id: 'at_2', courseId: 'c_pk_11a', userId: 'u_siswa1', role: 'siswa', date: tm2, status: 'hadir', note: '', createdAt: now - DAY * 2 },
+      { id: 'at_3', courseId: 'c_pk_11a', userId: 'u_siswa2', role: 'siswa', date: tm2, status: 'izin', note: 'Sakit', createdAt: now - DAY * 2 },
+      { id: 'at_4', courseId: 'c_pk_11a', userId: 'u_guru1', role: 'guru', date: tm1, status: 'hadir', note: '', createdAt: now - DAY },
+      { id: 'at_5', courseId: 'c_pk_11a', userId: 'u_siswa1', role: 'siswa', date: tm1, status: 'hadir', note: '', createdAt: now - DAY },
+      { id: 'at_6', courseId: 'c_lbind_10', userId: 'u_guru4', role: 'guru', date: t0, status: 'hadir', note: '', createdAt: now }
     ];
 
     const payments = [
-      { id: 'pay_1', studentId: 'u_siswa1', courseId: 'c_mat1', amount: 500000, method: 'transfer', status: 'lunas', note: 'Bayar kelas Matematika', paidAt: now - DAY * 6, createdAt: now - DAY * 6 },
-      { id: 'pay_2', studentId: 'u_siswa2', courseId: 'c_mat1', amount: 500000, method: 'transfer', status: 'lunas', note: 'Bayar kelas Matematika', paidAt: now - DAY * 5, createdAt: now - DAY * 5 },
-      { id: 'pay_3', studentId: 'u_siswa1', courseId: 'c_bind1', amount: 450000, method: 'cash', status: 'lunas', note: 'Bayar kelas B.Indonesia', paidAt: now - DAY * 3, createdAt: now - DAY * 3 }
+      { id: 'pay_1', studentId: 'u_siswa1', courseId: 'c_pk_11a', amount: 500000, method: 'transfer', status: 'lunas', note: 'SPP kelas PK Kelas 11-A', paidAt: now - DAY * 6, createdAt: now - DAY * 6 },
+      { id: 'pay_2', studentId: 'u_siswa2', courseId: 'c_pk_11a', amount: 500000, method: 'transfer', status: 'lunas', note: 'SPP kelas PK Kelas 11-A', paidAt: now - DAY * 5, createdAt: now - DAY * 5 },
+      { id: 'pay_3', studentId: 'u_siswa6', courseId: 'c_lbind_10', amount: 450000, method: 'cash', status: 'lunas', note: 'SPP kelas Literasi Indonesia Kelas 10-A', paidAt: now - DAY * 3, createdAt: now - DAY * 3 }
     ];
 
     const expenses = [
@@ -347,6 +653,80 @@
       { id: 'nt_4', userId: 'u_guru1', type: 'tugas', icon: '✅', title: 'Submission masuk', body: 'Andi Pratama mengumpulkan Latihan Persamaan Linear.', link: 'grading', read: false, createdAt: now - 9000000 }
     ];
 
+    /* ===== War Jadwal Kelas (rencana kelas bulanan) =====
+     * Tutor mengisi rencana mulai H-3, memvalidasi (fix) mulai H-5, dan boleh
+     * mengubah bila mendadak tidak bisa mengajar.
+     */
+    const classPlans = [];
+    (function seedPlans() {
+      const plans = [
+        { courseId: 'c_pk_11a', teacherId: 'u_guru1', offset: 0, time: '16:00', endTime: '17:30',
+          topic: 'Barisan & Deret Aritmetika', status: 'fixed' },
+        { courseId: 'c_pk_11a', teacherId: 'u_guru1', offset: 3, time: '16:00', endTime: '17:30',
+          topic: 'Barisan & Deret Geometri', status: 'fixed' },
+        { courseId: 'c_pk_11a', teacherId: 'u_guru1', offset: 7, time: '16:00', endTime: '17:30',
+          topic: 'Latihan Soal Campuran', status: 'draft' },
+        { courseId: 'c_pk_11b', teacherId: 'u_guru2', offset: 1, time: '16:00', endTime: '17:30',
+          topic: 'Aljabar Dasar & Persamaan', status: 'fixed' },
+        { courseId: 'c_pk_11b', teacherId: 'u_guru2', offset: 4, time: '16:00', endTime: '17:30',
+          topic: 'Pertidaksamaan', status: 'draft' },
+        { courseId: 'c_pu_12', teacherId: 'u_guru3', offset: 2, time: '19:00', endTime: '20:30',
+          topic: 'Silogisme & Penarikan Kesimpulan', status: 'fixed' },
+        { courseId: 'c_pu_12', teacherId: 'u_guru3', offset: 9, time: '19:00', endTime: '20:30',
+          topic: 'Pola Bilangan & Analitik', status: 'draft' },
+        { courseId: 'c_lbind_10', teacherId: 'u_guru4', offset: 5, time: '09:00', endTime: '10:30',
+          topic: 'Gagasan Utama & Simpulan Teks', status: 'draft' }
+      ];
+      plans.forEach((pl, i) => {
+        const course = courses.find(c => c.id === pl.courseId);
+        classPlans.push({
+          id: 'plan_' + (i + 1),
+          courseId: pl.courseId,
+          teacherId: pl.teacherId,
+          date: ymdOf(now + pl.offset * DAY),
+          time: pl.time,
+          endTime: pl.endTime,
+          topic: pl.topic,
+          note: '',
+          status: pl.status,
+          meetingLink: (course && course.meetingLink) || '',
+          confirmedAt: pl.status === 'fixed' ? now - DAY : null,
+          createdBy: pl.teacherId,
+          createdAt: now - DAY * 2,
+          updatedAt: now - DAY * 2
+        });
+      });
+    })();
+
+    /* ===== Kata motivasi (dikelola admin, beda tiap peran) ===== */
+    const motivations = [
+      { id: 'mo_s1', role: 'siswa', text: 'Satu soal yang kamu kerjakan hari ini adalah satu langkah lebih dekat ke kampus impianmu.', author: 'Tim Rubela', active: true, createdAt: now },
+      { id: 'mo_s2', role: 'siswa', text: 'Tidak perlu jadi yang tercepat, cukup jadi yang tidak berhenti.', author: 'Tim Rubela', active: true, createdAt: now },
+      { id: 'mo_s3', role: 'siswa', text: 'Nilai hari ini bukan penentu masa depanmu, tapi kebiasaan belajarmu iya.', author: 'Tim Rubela', active: true, createdAt: now },
+      { id: 'mo_s4', role: 'siswa', text: 'Kerjakan yang sulit hari ini, agar UTBK terasa mudah nanti.', author: 'Tim Rubela', active: true, createdAt: now },
+      { id: 'mo_g1', role: 'guru', text: 'Satu penjelasan Anda hari ini bisa menjadi alasan seorang siswa tidak menyerah.', author: 'Manajemen Rubela', active: true, createdAt: now },
+      { id: 'mo_g2', role: 'guru', text: 'Mengajar bukan mengisi wadah, tetapi menyalakan api rasa ingin tahu.', author: 'Manajemen Rubela', active: true, createdAt: now },
+      { id: 'mo_g3', role: 'guru', text: 'Terima kasih sudah hadir tepat waktu — konsistensi Anda dicontoh siswa.', author: 'Manajemen Rubela', active: true, createdAt: now },
+      { id: 'mo_o1', role: 'orangtua', text: 'Dukungan kecil dari rumah sering kali lebih berarti daripada seribu nasihat.', author: 'Tim Rubela', active: true, createdAt: now },
+      { id: 'mo_o2', role: 'orangtua', text: 'Tanyakan “bagaimana perasaanmu belajar hari ini?”, bukan hanya “berapa nilaimu?”.', author: 'Tim Rubela', active: true, createdAt: now }
+    ];
+
+    save(KEYS.classPlans, classPlans);
+    save(KEYS.motivations, motivations);
+    save(KEYS.securityQuestions, buildSecurityQuestionBank());
+    save(KEYS.settings, {
+      loginQuizEnabled: true,
+      loginQuizRoles: ['siswa'],
+      loginQuizAttempts: 3,
+      motivationEnabled: true,
+      planFillLead: PLAN_FILL_LEAD,
+      planConfirmLead: PLAN_CONFIRM_LEAD,
+      examSecurityDefaults: {
+        requireCamera: false, requireMic: false, fullscreen: true,
+        blockTabSwitch: true, blockCopy: true, blockScreenshot: true,
+        detectScreenShare: true, lockScreen: true, maxViolations: 3
+      }
+    });
     save(KEYS.notifications, notifications);
     save(KEYS.users, users);
     save(KEYS.courses, courses);
@@ -401,7 +781,170 @@
 
     /* ===== Konstanta bersama ===== */
     SUBTESTS, SUBTEST_NAMES, QUESTION_TYPES, DIFFICULTIES, ALL_CLASSES,
-    subtestByName, subtestOrder,
+    subtestByName, subtestOrder, DAY_NAMES, PLAN_STATUS, ymdOf,
+
+    /* ===== Pengaturan aplikasi ===== */
+    getSettings: () => Object.assign({
+      loginQuizEnabled: true, loginQuizRoles: ['siswa'], loginQuizAttempts: 3,
+      motivationEnabled: true, planFillLead: PLAN_FILL_LEAD, planConfirmLead: PLAN_CONFIRM_LEAD,
+      examSecurityDefaults: {
+        requireCamera: false, requireMic: false, fullscreen: true,
+        blockTabSwitch: true, blockCopy: true, blockScreenshot: true,
+        detectScreenShare: true, lockScreen: true, maxViolations: 3
+      }
+    }, load(KEYS.settings, {})),
+    setSetting: (key, value) => {
+      const cur = load(KEYS.settings, {});
+      cur[key] = value;
+      save(KEYS.settings, cur);
+      return cur;
+    },
+
+    /* ===== Kelas Utama (Kelas 10/11/12) =====
+     * Dipakai untuk memisahkan ratusan siswa, dan menjadi dasar pengisian
+     * kelas subtest (tidak perlu mencentang siswa satu per satu).
+     */
+    getMainClasses: () => {
+      const stored = localStorage.getItem('lms_class_options');
+      if (stored) { try { return JSON.parse(stored); } catch (e) { /* noop */ } }
+      return ['Kelas 10-A', 'Kelas 10-B', 'Kelas 11-A', 'Kelas 11-B', 'Kelas 12-A', 'Kelas 12-B'];
+    },
+    setMainClasses: (list) => localStorage.setItem('lms_class_options', JSON.stringify(list)),
+    /** Daftar kelas utama beserta jumlah siswa aktif di dalamnya. */
+    getMainClassesWithCounts: () => {
+      const students = getAll(KEYS.users).filter(u => u.role === 'siswa');
+      return DB.getMainClasses().map(name => {
+        const inClass = students.filter(s => s.kelas === name);
+        return {
+          name,
+          total: inClass.length,
+          active: inClass.filter(s => (s.status || 'Aktif') === 'Aktif').length,
+          studentIds: inClass.map(s => s.id)
+        };
+      });
+    },
+    getStudentsByMainClass: (kelas) =>
+      getAll(KEYS.users).filter(u => u.role === 'siswa' && u.kelas === kelas),
+
+    /* ===== Kelas Subtest: tutor & jadwal ===== */
+    /** Daftar id tutor sebuah kelas (mendukung data lama teacherId tunggal). */
+    courseTeacherIds: (course) => {
+      if (!course) return [];
+      if (Array.isArray(course.teacherIds) && course.teacherIds.length) return course.teacherIds;
+      return course.teacherId ? [course.teacherId] : [];
+    },
+    courseTeachers: (course) => DB.courseTeacherIds(course).map(id => findById(KEYS.users, id)).filter(Boolean),
+    /** Nama tampilan kelas: "Kelas 11-A • PK — Bu Maria" (dibangun bila kosong). */
+    courseTitle: (course) => {
+      if (!course) return '-';
+      if (course.title && course.title.trim()) return course.title;
+      const st = subtestByName(course.subtest);
+      const mains = (course.mainClasses || []).join(', ');
+      const tutors = DB.courseTeachers(course).map(t => t.name).join(' & ');
+      return [mains, st ? st.short : course.subtest, tutors].filter(Boolean).join(' • ');
+    },
+    /** Ringkasan jadwal: "Senin, Kamis • 16:00–17:30". */
+    courseScheduleLabel: (course) => {
+      const s = course && course.schedule;
+      if (!s) return '-';
+      const days = (s.days || []).join(', ');
+      const time = s.time ? (s.endTime ? `${s.time}–${s.endTime}` : s.time) : '';
+      return [days, time].filter(Boolean).join(' • ') || '-';
+    },
+
+    /* ===== Enrolment berbasis kelas utama ===== */
+    /** Daftarkan seluruh siswa pada satu kelas utama ke sebuah kelas subtest. */
+    enrollMainClass: (courseId, kelas) => {
+      let added = 0;
+      DB.getStudentsByMainClass(kelas).forEach(s => {
+        if (!DB.isEnrolled(courseId, s.id)) { DB.enroll(courseId, s.id); added++; }
+      });
+      return added;
+    },
+    unenrollMainClass: (courseId, kelas) => {
+      let removed = 0;
+      DB.getStudentsByMainClass(kelas).forEach(s => {
+        if (DB.isEnrolled(courseId, s.id)) { DB.unenroll(courseId, s.id); removed++; }
+      });
+      return removed;
+    },
+    /** Samakan daftar kelas utama sebuah kelas subtest dengan enrolmennya. */
+    syncCourseMainClasses: (courseId, mainClasses) => {
+      const course = findById(KEYS.courses, courseId);
+      if (!course) return null;
+      const next = [...new Set(mainClasses || [])];
+      const prev = course.mainClasses || [];
+      prev.filter(k => !next.includes(k)).forEach(k => DB.unenrollMainClass(courseId, k));
+      let added = 0;
+      next.forEach(k => { added += DB.enrollMainClass(courseId, k); });
+      update(KEYS.courses, courseId, { mainClasses: next });
+      return { added, mainClasses: next };
+    },
+
+    /* ===== War Jadwal Kelas (rencana kelas) ===== */
+    getClassPlans: () => getAll(KEYS.classPlans),
+    getClassPlan: (id) => findById(KEYS.classPlans, id),
+    getClassPlansByCourse: (cid) => getAll(KEYS.classPlans).filter(p => p.courseId === cid),
+    getClassPlansByTeacher: (tid) => getAll(KEYS.classPlans).filter(p => p.teacherId === tid),
+    getClassPlansByDate: (ymd) => getAll(KEYS.classPlans).filter(p => p.date === ymd),
+    getClassPlansInRange: (fromYmd, toYmd) => getAll(KEYS.classPlans)
+      .filter(p => p.date >= fromYmd && p.date <= toYmd)
+      .sort((a, b) => (a.date + (a.time || '')).localeCompare(b.date + (b.time || ''))),
+    /** Rencana kelas yang relevan untuk seorang siswa (via enrolmennya). */
+    getClassPlansForStudent: (studentId) => {
+      const cids = getAll(KEYS.enrollments).filter(e => e.studentId === studentId).map(e => e.courseId);
+      return getAll(KEYS.classPlans)
+        .filter(p => cids.includes(p.courseId))
+        .sort((a, b) => (a.date + (a.time || '')).localeCompare(b.date + (b.time || '')));
+    },
+    addClassPlan: (p) => add(KEYS.classPlans, Object.assign({
+      status: 'draft', topic: '', note: '', meetingLink: '',
+      confirmedAt: null, createdAt: Date.now(), updatedAt: Date.now()
+    }, p)),
+    updateClassPlan: (id, patch) => update(KEYS.classPlans, id, Object.assign({ updatedAt: Date.now() }, patch)),
+    deleteClassPlan: (id) => remove(KEYS.classPlans, id),
+    /** Validasi tutor: tandai rencana sebagai FIX. */
+    confirmClassPlan: (id) => update(KEYS.classPlans, id, {
+      status: 'fixed', confirmedAt: Date.now(), updatedAt: Date.now()
+    }),
+    /** Selisih hari dari hari ini ke tanggal rencana (negatif = sudah lewat). */
+    planDaysAhead: (ymd) => {
+      if (!ymd) return 0;
+      const today = new Date(DB.ymdOf(Date.now()) + 'T00:00:00');
+      const target = new Date(ymd + 'T00:00:00');
+      return Math.round((target - today) / 86400000);
+    },
+
+    /* ===== Kata motivasi ===== */
+    getMotivations: (role) => {
+      const all = getAll(KEYS.motivations);
+      return role ? all.filter(m => m.role === role) : all;
+    },
+    getActiveMotivation: (role) => {
+      const list = getAll(KEYS.motivations).filter(m => m.role === role && m.active !== false);
+      if (!list.length) return null;
+      // Pilih stabil per hari agar tidak berubah setiap render
+      const seed = Number(DB.ymdOf(Date.now()).replace(/-/g, ''));
+      return list[seed % list.length];
+    },
+    addMotivation: (m) => add(KEYS.motivations, Object.assign({ active: true, createdAt: Date.now() }, m)),
+    updateMotivation: (id, p) => update(KEYS.motivations, id, p),
+    deleteMotivation: (id) => remove(KEYS.motivations, id),
+
+    /* ===== Soal verifikasi login ===== */
+    getSecurityQuestions: () => getAll(KEYS.securityQuestions),
+    getActiveSecurityQuestions: () => getAll(KEYS.securityQuestions).filter(q => q.active !== false),
+    addSecurityQuestion: (q) => add(KEYS.securityQuestions, Object.assign({
+      difficulty: 'mudah', active: true, source: 'admin', createdAt: Date.now()
+    }, q)),
+    updateSecurityQuestion: (id, p) => update(KEYS.securityQuestions, id, p),
+    deleteSecurityQuestion: (id) => remove(KEYS.securityQuestions, id),
+    /** Satu soal acak untuk gerbang login. */
+    randomSecurityQuestion: () => {
+      const list = DB.getActiveSecurityQuestions();
+      if (!list.length) return null;
+      return list[Math.floor(Math.random() * list.length)];
+    },
 
     /* ===== Users ===== */
     getUsers: () => getAll(KEYS.users),
@@ -412,7 +955,15 @@
     deleteUser: (id) => {
       const user = findById(KEYS.users, id);
       if (user && user.role === 'guru') {
-        getAll(KEYS.courses).filter(c => c.teacherId === id).forEach(c => DB.deleteCourse(c.id));
+        // Lepas guru dari kelas; kelas hanya dihapus bila tak ada tutor lain
+        getAll(KEYS.courses).forEach(c => {
+          const ids = DB.courseTeacherIds(c);
+          if (!ids.includes(id)) return;
+          const rest = ids.filter(x => x !== id);
+          if (rest.length === 0) DB.deleteCourse(c.id);
+          else update(KEYS.courses, c.id, { teacherIds: rest, teacherId: rest[0] });
+        });
+        setAll(KEYS.classPlans, getAll(KEYS.classPlans).filter(pl => pl.teacherId !== id));
         setAll(KEYS.salaries, getAll(KEYS.salaries).filter(s => s.teacherId !== id));
         setAll(KEYS.attendance, getAll(KEYS.attendance).filter(a => a.userId !== id));
         setAll(KEYS.questions, getAll(KEYS.questions).filter(q => q.authorId !== id));
@@ -478,9 +1029,21 @@
       if (!c.password || String(c.password).trim() === '') return true;
       return String(c.password).trim() === String(input || '').trim();
     },
-    getCoursesByTeacher: (tid) => getAll(KEYS.courses).filter(c => c.teacherId === tid),
-    addCourse: (c) => add(KEYS.courses, Object.assign({ createdAt: Date.now() }, c)),
-    updateCourse: (id, p) => update(KEYS.courses, id, p),
+    getCoursesByTeacher: (tid) => getAll(KEYS.courses).filter(c => DB.courseTeacherIds(c).includes(tid)),
+    addCourse: (c) => {
+      const rec = Object.assign({ createdAt: Date.now(), mainClasses: [], teacherIds: [] }, c);
+      if ((!rec.teacherIds || !rec.teacherIds.length) && rec.teacherId) rec.teacherIds = [rec.teacherId];
+      if (rec.teacherIds && rec.teacherIds.length) rec.teacherId = rec.teacherIds[0];
+      const created = add(KEYS.courses, rec);
+      // Langsung daftarkan siswa dari kelas utama yang dipilih
+      (created.mainClasses || []).forEach(k => DB.enrollMainClass(created.id, k));
+      return created;
+    },
+    updateCourse: (id, p) => {
+      const patch = Object.assign({}, p);
+      if (Array.isArray(patch.teacherIds)) patch.teacherId = patch.teacherIds[0] || null;
+      return update(KEYS.courses, id, patch);
+    },
     deleteCourse: (id) => {
       setAll(KEYS.materials, getAll(KEYS.materials).filter(m => m.courseId !== id));
       setAll(KEYS.modules, getAll(KEYS.modules).filter(m => m.courseId !== id));
@@ -494,6 +1057,7 @@
       setAll(KEYS.enrollments, getAll(KEYS.enrollments).filter(e => e.courseId !== id));
       setAll(KEYS.attendance, getAll(KEYS.attendance).filter(a => a.courseId !== id));
       setAll(KEYS.payments, getAll(KEYS.payments).filter(p => p.courseId !== id));
+      setAll(KEYS.classPlans, getAll(KEYS.classPlans).filter(pl => pl.courseId !== id));
       remove(KEYS.courses, id);
     },
 
@@ -694,15 +1258,9 @@
     updateSalary: (id, p) => update(KEYS.salaries, id, p),
     deleteSalary: (id) => remove(KEYS.salaries, id),
 
-    /* ===== Class Options (admin-configurable list of kelas names) ===== */
-    getClassOptions: () => {
-      const stored = localStorage.getItem('lms_class_options');
-      if (stored) try { return JSON.parse(stored); } catch(e) {}
-      return ['X-A', 'X-B', 'XI-A', 'XI-B', 'XII-A', 'XII-B'];
-    },
-    setClassOptions: (list) => {
-      localStorage.setItem('lms_class_options', JSON.stringify(list));
-    },
+    /* ===== Alias kompatibilitas: kelas utama ===== */
+    getClassOptions: () => DB.getMainClasses(),
+    setClassOptions: (list) => DB.setMainClasses(list),
 
     /* ===== Feedback (Kritik & Saran) ===== */
     getFeedbacks: () => {

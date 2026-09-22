@@ -187,6 +187,7 @@
         if (first) try { first.focus(); } catch (e) { /* noop */ }
       }, 60);
       if (global.Effects) Effects.enhance(el);
+      if (global.Responsive) Responsive.apply(el);
     },
     close() {
       const el = document.getElementById('genericModal');

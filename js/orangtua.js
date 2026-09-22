@@ -51,10 +51,13 @@
     else if (section === 'anak-tugas') renderTugas(body, child);
     else if (section === 'anak-kelas') renderKelas(body, child);
     else if (section === 'anak-perkembangan') renderPerkembangan(body, child);
+    else if (section === 'anak-jadwal') Jadwal.renderPlanTable(body, user, { studentId: child.id, showChildName: true });
     else if (section === 'keuangan') renderKeuangan(body, child);
     else body.innerHTML = emptyState('Halaman tidak dikenali.');
 
     if (global.Effects) Effects.enhance(container);
+    if (global.Responsive) Responsive.apply(container);
+    if (global.Shared && Shared.bindMotivation) Shared.bindMotivation(container);
   }
 
   function childSwitcherHtml(children) {
@@ -139,6 +142,8 @@
           </div>
         </div>
       </section>
+
+      ${Shared.motivationHtml('orangtua')}
 
       ${flags.length ? `
       <div class="card">

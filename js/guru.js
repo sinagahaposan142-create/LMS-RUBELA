@@ -17,6 +17,8 @@
     if (section === 'cbt') return CbtAdmin.renderCbtHome(container, user);
     if (section === 'grading') return renderGrading(container, user);
     if (section === 'absensi') return renderAbsensiSection(container, user);
+    if (section === 'jadwal-kelas') return Jadwal.renderJadwalPage(container, user);
+    if (section === 'rekap') return Rekap.render(container, user);
     if (section === 'leaderboard') return Shared.renderLeaderboard(container, user);
     if (section === 'kalender') return Shared.renderCalendar(container, user);
     if (section === 'pengumuman') return Shared.renderAnnouncements(container, user);
@@ -57,6 +59,8 @@
           </div>
         </div>
       </section>
+
+      ${Shared.motivationHtml('guru')}
 
       <div class="stats-grid">
         <div class="stat-card accent-primary">
@@ -1361,5 +1365,22 @@
     `;
   }
 
-  global.GuruPanel = { render };
+  /* Diekspor agar panel Admin dapat menampilkan isi kelas (modul, materi,
+   * tugas, CBT, presensi, siswa) memakai komponen yang sama persis dengan
+   * dashboard tutor — tanpa menduplikasi kode. */
+  global.GuruPanel = {
+    render,
+    renderCourseTab: (tab, course, user, el) => {
+      const target = el || document.getElementById('tabContent');
+      if (!target) return;
+      if (tab === 'materials') return renderMaterialsTab(target, course);
+      if (tab === 'modules') return renderModulesTab(target, course);
+      if (tab === 'recordings') return renderRecordingsTab(target, course);
+      if (tab === 'assignments') return renderAssignmentsTab(target, course);
+      if (tab === 'cbts') return renderCbtsTab(target, course, user);
+      if (tab === 'attendance') return renderAttendanceTab(target, course, user);
+      if (tab === 'students') return renderStudentsTab(target, course);
+    },
+    openCourseForm
+  };
 })(window);

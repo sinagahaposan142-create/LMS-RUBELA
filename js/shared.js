@@ -1583,6 +1583,65 @@
     }
   }
 
+  /* =====================================================================
+   * KOTAK KATA MOTIVASI
+   * Kalimatnya berbeda untuk siswa, tutor, dan orang tua, serta seluruhnya
+   * dikelola admin pada halaman "Kata Motivasi".
+   * ===================================================================*/
+  const MOTIV_LOOK = {
+    siswa:    { icon: '🚀', title: 'Semangat Hari Ini', cls: 'mv-siswa' },
+    guru:     { icon: '🌟', title: 'Untuk Tutor Hebat', cls: 'mv-guru' },
+    orangtua: { icon: '🤝', title: 'Pesan untuk Orang Tua', cls: 'mv-ortu' }
+  };
+
+  /** HTML kotak motivasi. Mengembalikan '' bila fitur dimatikan admin. */
+  function motivationHtml(role, opts) {
+    const o = opts || {};
+    const settings = DB.getSettings();
+    if (settings.motivationEnabled === false) return '';
+    const pool = DB.getMotivations(role).filter(m => m.active !== false);
+    if (!pool.length) return '';
+    const picked = o.id ? (pool.find(m => m.id === o.id) || pool[0]) : DB.getActiveMotivation(role);
+    if (!picked) return '';
+    const look = MOTIV_LOOK[role] || { icon: '💡', title: 'Kata Motivasi', cls: '' };
+    return `
+      <section class="motiv-box ${look.cls}" data-motiv-role="${UI.esc(role)}" data-motiv-id="${UI.esc(picked.id)}">
+        <div class="mv-ic">${look.icon}</div>
+        <div class="mv-body">
+          <div class="mv-title">${UI.esc(look.title)}</div>
+          <blockquote class="mv-text">${UI.esc(picked.text)}</blockquote>
+          <div class="mv-foot">
+            <span class="mv-author">— ${UI.esc(picked.author || 'Tim Rubela')}</span>
+            ${pool.length > 1 ? '<button type="button" class="btn btn-ghost btn-sm mv-next">🔄 Kutipan Lain</button>' : ''}
+          </div>
+        </div>
+      </section>`;
+  }
+
+  /** Aktifkan tombol "Kutipan Lain" pada setiap kotak motivasi di dalam scope. */
+  function bindMotivation(scope) {
+    const root = scope && scope.querySelectorAll ? scope : document;
+    root.querySelectorAll('.motiv-box').forEach(boxEl => {
+      const btn = boxEl.querySelector('.mv-next');
+      if (!btn) return;
+      btn.addEventListener('click', () => {
+        const role = boxEl.dataset.motivRole;
+        const pool = DB.getMotivations(role).filter(m => m.active !== false);
+        if (pool.length < 2) return;
+        const others = pool.filter(m => m.id !== boxEl.dataset.motivId);
+        const next = others[Math.floor(Math.random() * others.length)];
+        const html = motivationHtml(role, { id: next.id });
+        if (!html) return;
+        const holder = document.createElement('div');
+        holder.innerHTML = html.trim();
+        const fresh = holder.firstElementChild;
+        fresh.classList.add('mv-in');
+        boxEl.replaceWith(fresh);
+        bindMotivation(fresh.parentElement || document);
+      });
+    });
+  }
+
   /* ===== Public API =====
    * Diekspor di akhir file agar semua const (mis. ATT_STATUSES) sudah
    * terinisialisasi saat objek ini dibuat.
@@ -1595,6 +1654,8 @@
     // Gamifikasi & rekap lintas peran
     studentStats, renderLeaderboard, achievementsFor, achievementsHtml,
     // Absensi (layout pill / kotak berbaris)
-    renderAttendanceSheet, classChipsHtml, ATT_STATUSES
+    renderAttendanceSheet, classChipsHtml, ATT_STATUSES,
+    // Kata motivasi
+    motivationHtml, bindMotivation
   };
 })(window);

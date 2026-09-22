@@ -2,20 +2,28 @@
  * Manage guru, siswa, courses, view stats, reset data.
  */
 (function (global) {
+  // Kelas yang sedang dibuka di tampilan detail admin (null = daftar)
+  let adminCourseId = null;
+
   function render(container, section, user) {
     if (section === 'overview') return renderOverview(container);
     if (section === 'guru') return renderUsers(container, 'guru');
     if (section === 'siswa') return renderUsers(container, 'siswa');
     if (section === 'orangtua') return renderParents(container);
-    if (section === 'courses') return renderCourses(container);
+    if (section === 'courses') {
+      if (adminCourseId) return renderAdminCourseDetail(container, adminCourseId, user);
+      return renderCourses(container);
+    }
     // CBT & Bank Soal kini memakai workspace khusus (js/cbt.js)
     if (section === 'admin-cbt') return CbtAdmin.renderCbtHome(container, user);
     if (section === 'admin-bank-soal') return CbtAdmin.renderBankHome(container, user);
-    if (section === 'jadwal-kelas') return renderJadwalKelas(container);
+    if (section === 'jadwal-kelas') return renderJadwalKelas(container, user);
     if (section === 'batch') return renderBatch(container);
     if (section === 'alumni') return renderAlumni(container);
     if (section === 'attendance') return renderAttendance(container, user);
-    if (section === 'rekap') return renderRekap(container);
+    if (section === 'rekap') return renderRekap(container, user);
+    if (section === 'motivasi') return renderMotivasi(container);
+    if (section === 'keamanan-login') return renderKeamananLogin(container);
     if (section === 'leaderboard') return Shared.renderLeaderboard(container, user);
     if (section === 'kalender') return Shared.renderCalendar(container, user);
     if (section === 'pengumuman') return Shared.renderAnnouncements(container, user);
@@ -464,9 +472,9 @@
     });
   }
 
-  function renderCourses(container) {
+  function renderCourses(container, user) {
     const courses = DB.getCourses();
-    const gurus = DB.getUsers().filter(u => u.role === 'guru');
+    const currentUser = user || (global.Dashboard && Dashboard.currentUser) || { role: 'admin' };
     container.innerHTML = `
       <div class="card">
         <div class="card-header">
@@ -482,33 +490,45 @@
         <details class="demo-accounts" style="margin:0 0 14px;">
           <summary>Format kolom Excel untuk import kelas</summary>
           <p class="muted small" style="margin:8px 0 0;">
-            Kolom yang dikenali: <strong>Judul Kelas</strong>, <strong>Kategori</strong>, <strong>Deskripsi</strong>,
-            <strong>Biaya</strong>, <strong>Password</strong>, dan <strong>Username Guru</strong> (username akun guru pengajar).
-            Judul boleh salah satu dari 7 subtest UTBK atau judul bebas. Kelas dengan judul yang sudah ada akan dilewati.
+            Kolom yang dikenali: <strong>Judul Kelas</strong>, <strong>Subtest</strong>,
+            <strong>Kelas Utama</strong> (pisahkan koma, mis. "Kelas 11-A, Kelas 11-B"),
+            <strong>Username Guru</strong> (boleh beberapa, pisahkan koma untuk kelas dengan lebih dari satu tutor),
+            <strong>Hari</strong>, <strong>Jam Mulai</strong>, <strong>Jam Selesai</strong>,
+            <strong>Tanggal Mulai</strong>, <strong>Jumlah Pertemuan</strong>, <strong>Tautan Kelas</strong>,
+            <strong>Kategori</strong>, <strong>Deskripsi</strong>, <strong>Biaya</strong>, dan <strong>Password</strong>.
+            Siswa pada kelas utama yang dicantumkan otomatis terdaftar. Kelas dengan judul yang sama akan dilewati.
           </p>
         </details>
         ${courses.length === 0 ? emptyState('Belum ada kelas.') : `
         <div class="table-wrap"><table class="table">
-          <thead><tr><th>Judul</th><th>Kategori</th><th>Guru</th><th>Password</th><th>Materi</th><th>Tugas</th><th>Siswa</th><th>Aksi</th></tr></thead>
+          <thead><tr><th>Kelas</th><th>Subtest</th><th>Kelas Utama</th><th>Tutor</th><th>Jadwal</th><th>Password</th><th>Siswa</th><th>Aksi</th></tr></thead>
           <tbody>
             ${courses.map(c => {
-              const t = DB.getUser(c.teacherId);
+              const tutors = DB.courseTeachers(c);
               const enrollCount = DB.getEnrollmentsByCourse(c.id).length;
               const locked = DB.hasCoursePassword(c.id);
+              const st = DB.subtestByName(c.subtest);
               return `<tr>
-                <td><strong>${UI.esc(c.title)}</strong><div class="small muted">${UI.esc(c.description)}</div></td>
-                <td><span class="badge badge-info">${UI.esc(c.category || '-')}</span></td>
-                <td>${UI.esc(t ? t.name : '-')}</td>
+                <td><strong>${UI.esc(DB.courseTitle(c))}</strong>
+                  <div class="small muted">${UI.esc(RichText ? RichText.plain(c.description, 70) : (c.description || ''))}</div></td>
+                <td>${st ? `<span class="badge badge-info">${st.icon} ${UI.esc(st.short)}</span>`
+                          : `<span class="badge badge-gray">${UI.esc(c.subtest || c.category || '-')}</span>`}</td>
+                <td>${(c.mainClasses || []).length
+                  ? (c.mainClasses).map(k => `<span class="badge badge-gray" style="margin:1px;">${UI.esc(k)}</span>`).join('')
+                  : '<span class="muted small">-</span>'}</td>
+                <td>${tutors.length
+                  ? tutors.map(t => `<div class="small">${UI.esc(t.name)}</div>`).join('')
+                  : '<span class="muted small">-</span>'}</td>
+                <td class="small">${UI.esc(DB.courseScheduleLabel(c))}</td>
                 <td>${locked
                   ? `<span class="badge badge-warning" title="Password kelas">🔒 ${UI.esc(c.password)}</span>`
                   : '<span class="badge badge-gray">Terbuka</span>'}
                   <button class="btn btn-sm btn-secondary" data-set-pw="${c.id}" style="margin-left:6px;">Atur</button>
                 </td>
-                <td>${DB.getMaterialsByCourse(c.id).length}</td>
-                <td>${DB.getAssignmentsByCourse(c.id).length}</td>
                 <td>${enrollCount}</td>
                 <td class="actions">
-                  <button class="btn btn-sm btn-primary" data-manage-students="${c.id}">Kelola Siswa</button>
+                  <button class="btn btn-sm btn-primary" data-open-course="${c.id}">📂 Lihat Kelas</button>
+                  <button class="btn btn-sm btn-secondary" data-manage-students="${c.id}">Kelola Siswa</button>
                   <button class="btn btn-sm btn-secondary" data-edit-course="${c.id}">Edit</button>
                   <button class="btn btn-sm btn-danger" data-del="${c.id}">Hapus</button>
                 </td>
@@ -520,22 +540,36 @@
     `;
 
     container.querySelectorAll('[data-set-pw]').forEach(b => b.addEventListener('click', () => {
-      Shared.openCoursePasswordForm(b.dataset.setPw, () => renderCourses(container));
+      Shared.openCoursePasswordForm(b.dataset.setPw, () => renderCourses(container, currentUser));
+    }));
+    // Buka isi kelas seperti tampilan dashboard tutor
+    container.querySelectorAll('[data-open-course]').forEach(b => b.addEventListener('click', () => {
+      adminCourseId = b.dataset.openCourse;
+      renderAdminCourseDetail(container, adminCourseId, currentUser);
     }));
 
     /* ---- Export Excel kelas ---- */
     document.getElementById('exportCourseBtn').addEventListener('click', () => {
       if (typeof XLSX === 'undefined') { UI.toast('Library Excel belum termuat. Coba reload halaman.', 'error'); return; }
       let rows = DB.getCourses().map(c => {
-        const t = DB.getUser(c.teacherId);
+        const tutors = DB.courseTeachers(c);
+        const sc = c.schedule || {};
         return {
-          'Judul Kelas': c.title,
+          'Judul Kelas': DB.courseTitle(c),
+          Subtest: c.subtest || '',
+          'Kelas Utama': (c.mainClasses || []).join(', '),
           Kategori: c.category || '',
           Deskripsi: c.description || '',
           Biaya: c.price || 0,
           Password: c.password || '',
-          'Username Guru': t ? t.username : '',
-          'Nama Guru': t ? t.name : '',
+          'Username Guru': tutors.map(t => t.username).join(', '),
+          'Nama Guru': tutors.map(t => t.name).join(', '),
+          Hari: (sc.days || []).join(', '),
+          'Jam Mulai': sc.time || '',
+          'Jam Selesai': sc.endTime || '',
+          'Tanggal Mulai': sc.startDate || '',
+          'Jumlah Pertemuan': sc.sessions || '',
+          'Tautan Kelas': c.meetingLink || '',
           'Jumlah Siswa': DB.getEnrollmentsByCourse(c.id).length
         };
       });
@@ -583,13 +617,32 @@
             }
             if (!teacher) { skipped++; return; }
 
+            // Kolom opsional: beberapa username tutor & beberapa kelas utama
+            const extraTutors = String(row['Username Guru'] || '').split(/[,;]/).map(x => x.trim()).filter(Boolean)
+              .map(u => DB.findUserByUsername(u)).filter(t => t && t.role === 'guru').map(t => t.id);
+            const teacherIds = extraTutors.length ? [...new Set(extraTutors)] : [teacher.id];
+            const mains = String(row['Kelas Utama'] || row['kelas utama'] || '').split(/[,;]/)
+              .map(x => x.trim()).filter(Boolean);
+            const days = String(row.Hari || row.hari || '').split(/[,;]/).map(x => x.trim()).filter(Boolean);
+            const subtestCol = String(row.Subtest || row.subtest || '').trim();
+
             DB.addCourse({
+              subtest: subtestCol || (DB.SUBTEST_NAMES.includes(title) ? title : ''),
               title,
+              mainClasses: mains,
+              teacherIds,
               category: String(row.Kategori || row.kategori || row.Category || '').trim(),
               description: String(row.Deskripsi || row.deskripsi || row.Description || '').trim() || title,
               price: Number(row.Biaya || row.biaya || row.Price || row.harga || 0) || 0,
               password: String(row.Password || row.password || '').trim(),
-              teacherId: teacher.id
+              meetingLink: String(row['Tautan Kelas'] || row.Link || row.link || '').trim(),
+              schedule: {
+                days,
+                time: String(row['Jam Mulai'] || row.Jam || '').trim(),
+                endTime: String(row['Jam Selesai'] || '').trim(),
+                startDate: String(row['Tanggal Mulai'] || '').trim() || UI.todayYMD(),
+                sessions: Number(row['Jumlah Pertemuan'] || 16) || 16
+              }
             });
             existingTitles.add(title.toLowerCase());
             added++;
@@ -624,259 +677,395 @@
     }));
   }
 
+  /* ========== FORM KELAS SUBTEST ==========
+   * Satu kelas = 1 subtest + kelas utama yang mengisinya + 1..n tutor +
+   * jadwal mengajar (hari, jam, tanggal mulai).
+   */
   function openAdminCourseForm(container, editId) {
     const editing = editId ? DB.getCourse(editId) : null;
     const gurus = DB.getUsers().filter(u => u.role === 'guru' && (u.status || 'Aktif') === 'Aktif');
-    // Judul kelas: pilih salah satu subtest UTBK, atau "Lainnya" untuk diketik manual
-    const isPreset = editing ? DB.SUBTEST_NAMES.includes(editing.title) : false;
+    const mainClasses = DB.getMainClassesWithCounts();
+    const sched = (editing && editing.schedule) || {};
+    const selTeachers = new Set(editing ? DB.courseTeacherIds(editing) : []);
+    const selMains = new Set((editing && editing.mainClasses) || []);
+    const selDays = new Set(sched.days || []);
+    const curSubtest = editing ? (editing.subtest || '') : '';
+
     const body = `
       <form id="adminCourseForm" class="form">
         <div class="form-group">
-          <label>Judul Kelas</label>
-          <select name="titlePreset" id="titlePreset">
+          <label>Subtest yang Diajarkan</label>
+          <select name="subtest" id="acSubtest" required>
             <option value="">-- Pilih Subtest UTBK --</option>
-            ${DB.SUBTESTS.map(s => `<option value="${UI.esc(s.name)}" ${isPreset && editing.title === s.name ? 'selected' : ''}>${s.icon} ${UI.esc(s.name)}</option>`).join('')}
-            <option value="__OTHER__" ${editing && !isPreset ? 'selected' : ''}>✏️ Lainnya (tulis manual)</option>
+            ${DB.SUBTESTS.map(x => `<option value="${UI.esc(x.name)}" ${curSubtest === x.name ? 'selected' : ''}>${x.icon} ${UI.esc(x.name)}</option>`).join('')}
+            <option value="__OTHER__" ${editing && curSubtest && !DB.SUBTEST_NAMES.includes(curSubtest) ? 'selected' : ''}>✏️ Lainnya (tulis manual)</option>
           </select>
         </div>
-        <div class="form-group ${editing && !isPreset ? '' : 'hidden'}" id="titleCustomBox">
-          <label>Judul Kelas (manual)</label>
-          <input name="titleCustom" id="titleCustom" value="${UI.esc(editing && !isPreset ? editing.title : '')}" placeholder="mis. Kelas Intensif Saintek" />
+        <div class="form-group ${editing && curSubtest && !DB.SUBTEST_NAMES.includes(curSubtest) ? '' : 'hidden'}" id="acSubtestOtherBox">
+          <label>Nama Subtest / Materi (manual)</label>
+          <input name="subtestOther" id="acSubtestOther" value="${UI.esc(editing && !DB.SUBTEST_NAMES.includes(curSubtest) ? curSubtest : '')}" placeholder="mis. Kelas Intensif Saintek" />
+        </div>
+
+        <div class="form-group">
+          <label>Kelas Utama yang Mengisi Kelas Ini</label>
+          <div class="tgt-grid">
+            ${mainClasses.length === 0
+              ? '<div class="muted small">Belum ada kelas utama. Tambahkan lewat menu Pengaturan.</div>'
+              : mainClasses.map(mc => `
+                <label class="tgt-box ${selMains.has(mc.name) ? 'is-on' : ''}">
+                  <input type="checkbox" name="mainClass" value="${UI.esc(mc.name)}" ${selMains.has(mc.name) ? 'checked' : ''} />
+                  <div>
+                    <div class="tgt-name">${UI.esc(mc.name)}</div>
+                    <div class="tgt-meta">${mc.active} siswa aktif</div>
+                  </div>
+                </label>`).join('')}
+          </div>
+          <p class="muted small" style="margin:8px 0 0;">Seluruh siswa pada kelas utama yang dicentang otomatis terdaftar di kelas ini.</p>
+        </div>
+
+        <div class="form-group">
+          <label>Tutor Pengajar <span class="muted small">(boleh lebih dari satu)</span></label>
+          <div class="tgt-grid">
+            ${gurus.length === 0
+              ? '<div class="muted small">Belum ada guru aktif.</div>'
+              : gurus.map(g => `
+                <label class="tgt-box ${selTeachers.has(g.id) ? 'is-on' : ''}">
+                  <input type="checkbox" name="teacherIds" value="${g.id}" ${selTeachers.has(g.id) ? 'checked' : ''} />
+                  <div>
+                    <div class="tgt-name">${UI.esc(g.name)}</div>
+                    <div class="tgt-meta">${UI.esc(g.subject ? (DB.subtestByName(g.subject)?.short || g.subject) : 'Tanpa subtest')}</div>
+                  </div>
+                </label>`).join('')}
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label>Hari Mengajar</label>
+          <div class="day-chips">
+            ${DB.DAY_NAMES.map(d => `
+              <label class="day-chip ${selDays.has(d) ? 'is-on' : ''}">
+                <input type="checkbox" name="days" value="${d}" ${selDays.has(d) ? 'checked' : ''} />
+                <span>${d.slice(0, 3)}</span>
+              </label>`).join('')}
+          </div>
+        </div>
+
+        <div class="form-row">
+          <div class="form-group"><label>Jam Mulai</label>
+            <input name="time" type="time" value="${UI.esc(sched.time || '16:00')}" /></div>
+          <div class="form-group"><label>Jam Selesai</label>
+            <input name="endTime" type="time" value="${UI.esc(sched.endTime || '17:30')}" /></div>
         </div>
         <div class="form-row">
+          <div class="form-group"><label>Tanggal Mulai Kelas</label>
+            <input name="startDate" type="date" value="${UI.esc(sched.startDate || UI.todayYMD())}" /></div>
+          <div class="form-group"><label>Jumlah Pertemuan</label>
+            <input name="sessions" type="number" min="1" max="200" value="${sched.sessions || 16}" /></div>
+        </div>
+
+        <div class="form-row">
           <div class="form-group"><label>Kategori</label>
-            <input name="category" value="${UI.esc(editing?.category || '')}" placeholder="mis. Matematika" /></div>
+            <input name="category" value="${UI.esc(editing?.category || '')}" placeholder="mis. TPS / Literasi" /></div>
           <div class="form-group"><label>Biaya / SPP (Rp)</label>
             <input name="price" type="number" min="0" value="${editing?.price || 0}" /></div>
         </div>
-        <div class="form-group"><label>Guru Pengajar</label>
-          <select name="teacherId" required>
-            <option value="">-- Pilih Guru --</option>
-            ${gurus.map(g => `<option value="${g.id}" ${editing?.teacherId === g.id ? 'selected' : ''}>${UI.esc(g.name)} (${UI.esc(g.subject || '-')})</option>`).join('')}
-          </select>
+
+        <div class="form-group"><label>Tautan Zoom / Google Meet</label>
+          <input name="meetingLink" type="url" value="${UI.esc(editing?.meetingLink || '')}" placeholder="https://meet.google.com/xxx-xxxx-xxx" />
+          <p class="muted small" style="margin:6px 0 0;">Dipakai sebagai tautan bawaan saat kelas masuk agenda "Hari Ini".</p>
         </div>
+
         <div class="form-group"><label>Deskripsi</label>
           <textarea name="description" required>${UI.esc(editing?.description || '')}</textarea></div>
+
         <div class="form-group">
           <label>🔒 Password Kelas (untuk "Jelajah Kelas")</label>
           <input name="password" value="${UI.esc(editing?.password || '')}" placeholder="Kosongkan bila kelas terbuka tanpa password" />
-          <p class="muted small" style="margin:6px 0 0;">Siswa wajib memasukkan password ini saat bergabung sendiri lewat halaman
-          <strong>Jelajah Kelas</strong>. Pendaftaran melalui menu <strong>Kelola Siswa</strong> oleh admin tidak memerlukan password.
-          Guru pengajar juga dapat mengubah password ini.</p>
+          <p class="muted small" style="margin:6px 0 0;">Hanya diminta saat siswa bergabung sendiri lewat halaman
+          <strong>Jelajah Kelas</strong>. Pendaftaran lewat kelas utama tidak memerlukan password.</p>
         </div>
+
+        <div id="acPreview" class="alert alert-info"></div>
         <div class="flex-gap" style="justify-content:flex-end;">
           <button type="button" class="btn btn-secondary" id="cancelBtn">Batal</button>
           <button type="submit" class="btn btn-primary">Simpan</button>
         </div>
       </form>`;
-    UI.modal.open(editing ? 'Edit Kelas' : 'Buat Kelas Baru', body);
+
+    UI.modal.open(editing ? 'Edit Kelas Subtest' : 'Buat Kelas Subtest Baru', body);
     document.getElementById('cancelBtn').addEventListener('click', () => UI.modal.close());
 
-    // Tampilkan input manual hanya bila memilih "Lainnya"
-    const presetSel = document.getElementById('titlePreset');
-    const customBox = document.getElementById('titleCustomBox');
-    const customInput = document.getElementById('titleCustom');
-    const syncTitleMode = () => {
-      const other = presetSel.value === '__OTHER__';
-      customBox.classList.toggle('hidden', !other);
-      customInput.required = other;
-      if (other) setTimeout(() => customInput.focus(), 50);
-    };
-    presetSel.addEventListener('change', syncTitleMode);
-    syncTitleMode();
+    const form = document.getElementById('adminCourseForm');
+    const subSel = document.getElementById('acSubtest');
+    const otherBox = document.getElementById('acSubtestOtherBox');
+    const otherInp = document.getElementById('acSubtestOther');
 
-    document.getElementById('adminCourseForm').addEventListener('submit', (e) => {
+    const syncOther = () => {
+      const other = subSel.value === '__OTHER__';
+      otherBox.classList.toggle('hidden', !other);
+      otherInp.required = other;
+    };
+    subSel.addEventListener('change', () => { syncOther(); updatePreview(); });
+    syncOther();
+
+    // Sorot pilihan & tampilkan pratinjau nama kelas
+    form.querySelectorAll('.tgt-box input, .day-chip input').forEach(cb => {
+      cb.addEventListener('change', () => {
+        const wrap = cb.closest('.tgt-box') || cb.closest('.day-chip');
+        if (wrap) wrap.classList.toggle('is-on', cb.checked);
+        updatePreview();
+      });
+    });
+    form.querySelectorAll('[name="time"], [name="endTime"], [name="subtestOther"]')
+      .forEach(el => el.addEventListener('input', updatePreview));
+
+    function currentSubtest() {
+      return subSel.value === '__OTHER__' ? (otherInp.value || '').trim() : subSel.value;
+    }
+    function updatePreview() {
+      const fd = new FormData(form);
+      const mains = fd.getAll('mainClass');
+      const tIds = fd.getAll('teacherIds');
+      const days = fd.getAll('days');
+      const st = DB.subtestByName(currentSubtest());
+      const tutorNames = tIds.map(id => (DB.getUser(id) || {}).name).filter(Boolean);
+      const studentCount = mains.reduce((n, k) =>
+        n + DB.getStudentsByMainClass(k).filter(x => (x.status || 'Aktif') === 'Aktif').length, 0);
+      const title = [mains.join(', '), st ? st.short : currentSubtest(), tutorNames.join(' & ')]
+        .filter(Boolean).join(' • ') || '(lengkapi data di atas)';
+      document.getElementById('acPreview').innerHTML =
+        `<strong>Nama kelas:</strong> ${UI.esc(title)}<br>
+         <strong>Jadwal:</strong> ${days.length ? UI.esc(days.join(', ')) : '(belum dipilih)'} ${UI.esc(fd.get('time') || '')}${fd.get('endTime') ? '–' + UI.esc(fd.get('endTime')) : ''}<br>
+         <strong>Perkiraan siswa:</strong> ${studentCount} siswa dari ${mains.length} kelas utama`;
+    }
+    updatePreview();
+
+    form.addEventListener('submit', (e) => {
       e.preventDefault();
       const fd = new FormData(e.target);
-      const preset = fd.get('titlePreset');
-      const title = preset === '__OTHER__' ? (fd.get('titleCustom') || '').trim() : (preset || '').trim();
-      if (!title) {
-        UI.toast('Pilih subtest atau tulis judul kelas secara manual.', 'error');
-        return;
-      }
+      const subtest = currentSubtest();
+      if (!subtest) { UI.toast('Pilih subtest atau tulis namanya secara manual.', 'error'); return; }
+
+      const teacherIds = fd.getAll('teacherIds');
+      if (teacherIds.length === 0) { UI.toast('Pilih minimal satu tutor pengajar.', 'error'); return; }
+      const mains = fd.getAll('mainClass');
+      const days = fd.getAll('days');
+
+      const st = DB.subtestByName(subtest);
+      const tutorNames = teacherIds.map(id => (DB.getUser(id) || {}).name).filter(Boolean);
+      const title = [mains.join(', '), st ? st.short : subtest, tutorNames.join(' & ')]
+        .filter(Boolean).join(' • ');
+
       const payload = {
+        subtest,
         title,
-        category: fd.get('category').trim(),
+        mainClasses: mains,
+        teacherIds,
+        category: (fd.get('category') || '').trim(),
         price: Number(fd.get('price') || 0),
-        description: fd.get('description').trim(),
+        description: (fd.get('description') || '').trim(),
         password: (fd.get('password') || '').trim(),
-        teacherId: fd.get('teacherId')
+        meetingLink: (fd.get('meetingLink') || '').trim(),
+        schedule: {
+          days,
+          time: fd.get('time') || '',
+          endTime: fd.get('endTime') || '',
+          startDate: fd.get('startDate') || UI.todayYMD(),
+          sessions: Number(fd.get('sessions') || 16)
+        }
       };
+
       if (editing) {
         DB.updateCourse(editing.id, payload);
-        UI.toast('Kelas diperbarui.');
+        const r = DB.syncCourseMainClasses(editing.id, mains);
+        UI.toast(`Kelas diperbarui.${r && r.added ? ' ' + r.added + ' siswa baru terdaftar.' : ''}`);
       } else {
-        DB.addCourse(payload);
-        UI.toast('Kelas dibuat.');
+        const created = DB.addCourse(payload);
+        const n = DB.getEnrollmentsByCourse(created.id).length;
+        UI.toast(`Kelas dibuat dengan ${n} siswa dari ${mains.length} kelas utama.`);
       }
       UI.modal.close();
       renderCourses(container);
     });
   }
 
+  /* ========== KELOLA SISWA DI KELAS (berbasis kelas utama) ==========
+   * Tidak perlu mencentang siswa satu per satu: cukup pilih kelas utama,
+   * lengkap dengan keterangan jumlah siswa di dalamnya.
+   */
   function openBulkEnrollModal(courseId, container) {
     const course = DB.getCourse(courseId);
-    const allStudents = DB.getUsers().filter(u => u.role === 'siswa' && (u.status || 'Aktif') === 'Aktif');
-    const enrolled = DB.getEnrollmentsByCourse(courseId);
-    const enrolledIds = new Set(enrolled.map(e => e.studentId));
+    const mainClasses = DB.getMainClassesWithCounts();
+    const enrolledIds = new Set(DB.getEnrollmentsByCourse(courseId).map(e => e.studentId));
+    const selMains = new Set(course.mainClasses || []);
+
+    // Siswa yang terdaftar namun kelas utamanya tidak dicentang (perorangan)
+    const extraStudents = [...enrolledIds]
+      .map(id => DB.getUser(id))
+      .filter(u => u && !selMains.has(u.kelas));
 
     const body = `
-      <div class="muted small mb-1">Centang siswa yang ingin didaftarkan ke kelas <strong>${UI.esc(course.title)}</strong>. Perubahan disimpan saat klik "Simpan".</div>
-      <div class="form" style="margin-bottom:12px;">
-        <input id="studentSearch" placeholder="Cari nama siswa..." style="width:100%;padding:8px 12px;border:1px solid var(--gray-300);border-radius:6px;" />
+      <div class="muted small mb-2">
+        Pilih <strong>kelas utama</strong> yang mengisi kelas
+        <strong>${UI.esc(DB.courseTitle(course))}</strong>. Semua siswa di dalam kelas utama
+        tersebut akan terdaftar otomatis — tidak perlu mencentang satu per satu.
       </div>
-      <div id="studentCheckList" style="max-height:350px;overflow-y:auto;border:1px solid var(--gray-200);border-radius:6px;padding:4px;">
-        ${allStudents.map(s => `
-          <label style="display:flex;align-items:center;gap:8px;padding:8px 12px;border-bottom:1px solid var(--gray-100);cursor:pointer;" data-name="${s.name.toLowerCase()}">
-            <input type="checkbox" name="sid" value="${s.id}" ${enrolledIds.has(s.id) ? 'checked' : ''} />
-            <div style="flex:1;">
-              <div style="font-size:13px;font-weight:500;">${UI.esc(s.name)}</div>
-              <div class="muted small">${UI.esc(s.kelas || '-')} • ${UI.esc(s.email || '-')}</div>
-            </div>
-            ${enrolledIds.has(s.id) ? '<span class="badge badge-success" style="font-size:10px;">Terdaftar</span>' : ''}
-          </label>`).join('')}
+      <div class="tgt-grid">
+        ${mainClasses.length === 0
+          ? '<div class="muted small">Belum ada kelas utama. Tambahkan lewat menu Pengaturan.</div>'
+          : mainClasses.map(mc => {
+            const already = mc.studentIds.filter(id => enrolledIds.has(id)).length;
+            return `<label class="tgt-box ${selMains.has(mc.name) ? 'is-on' : ''}">
+              <input type="checkbox" name="mc" value="${UI.esc(mc.name)}" ${selMains.has(mc.name) ? 'checked' : ''} />
+              <div>
+                <div class="tgt-name">${UI.esc(mc.name)}</div>
+                <div class="tgt-meta">${mc.active} siswa aktif${already ? ` • ${already} sudah terdaftar` : ''}</div>
+              </div>
+            </label>`;
+          }).join('')}
       </div>
-      <div class="muted small mt-1">${allStudents.length} siswa tersedia, ${enrolledIds.size} sudah terdaftar</div>
+
+      ${extraStudents.length ? `
+      <div class="alert alert-warning mt-2">
+        <strong>${extraStudents.length} siswa terdaftar perorangan</strong>
+        (kelas utamanya tidak dicentang): ${extraStudents.map(s => UI.esc(s.name)).join(', ')}.
+        Mereka tetap terdaftar kecuali Anda menghapusnya di bawah.
+      </div>
+      <label class="qe-check"><input type="checkbox" id="dropExtra" /> Hapus juga pendaftaran perorangan tersebut</label>` : ''}
+
+      <div id="enrollPreview" class="alert alert-info mt-2"></div>
       <div class="flex-gap mt-2" style="justify-content:flex-end;">
         <button type="button" class="btn btn-secondary" id="cancelBtn">Batal</button>
         <button type="button" class="btn btn-primary" id="saveEnrollBtn">Simpan Perubahan</button>
       </div>`;
+
     UI.modal.open('Kelola Siswa di Kelas', body);
     document.getElementById('cancelBtn').addEventListener('click', () => UI.modal.close());
 
-    // Search filter
-    document.getElementById('studentSearch').addEventListener('input', (e) => {
-      const q = e.target.value.toLowerCase();
-      document.querySelectorAll('#studentCheckList label').forEach(el => {
-        el.style.display = el.dataset.name.includes(q) ? '' : 'none';
-      });
-    });
+    const boxes = [...document.querySelectorAll('[name="mc"]')];
+    const preview = document.getElementById('enrollPreview');
+    const updatePreview = () => {
+      const picked = boxes.filter(b => b.checked).map(b => b.value);
+      const total = picked.reduce((n, k) =>
+        n + DB.getStudentsByMainClass(k).filter(x => (x.status || 'Aktif') === 'Aktif').length, 0);
+      preview.innerHTML = picked.length
+        ? `Akan terdaftar: <strong>${total} siswa</strong> dari ${picked.length} kelas utama (${UI.esc(picked.join(', '))}).`
+        : 'Belum ada kelas utama dipilih — seluruh pendaftaran berbasis kelas utama akan dilepas.';
+    };
+    boxes.forEach(b => b.addEventListener('change', () => {
+      b.closest('.tgt-box').classList.toggle('is-on', b.checked);
+      updatePreview();
+    }));
+    updatePreview();
 
-    // Save
     document.getElementById('saveEnrollBtn').addEventListener('click', () => {
-      const checks = document.querySelectorAll('#studentCheckList input[name="sid"]');
-      const selected = new Set();
-      checks.forEach(ch => { if (ch.checked) selected.add(ch.value); });
-
-      let added = 0, removed = 0;
-      // Enroll new students
-      selected.forEach(sid => {
-        if (!enrolledIds.has(sid)) {
-          DB.enroll(courseId, sid);
-          added++;
-        }
-      });
-      // Unenroll unchecked students
-      enrolledIds.forEach(sid => {
-        if (!selected.has(sid)) {
-          DB.unenroll(courseId, sid);
-          removed++;
-        }
-      });
-
-      UI.toast(`Selesai: ${added} ditambahkan, ${removed} dihapus.`);
+      const picked = boxes.filter(b => b.checked).map(b => b.value);
+      const res = DB.syncCourseMainClasses(courseId, picked);
+      let dropped = 0;
+      const dropExtra = document.getElementById('dropExtra');
+      if (dropExtra && dropExtra.checked) {
+        extraStudents.forEach(s => { DB.unenroll(courseId, s.id); dropped++; });
+      }
+      const total = DB.getEnrollmentsByCourse(courseId).length;
+      UI.toast(`Tersimpan: ${total} siswa terdaftar${res && res.added ? ` (+${res.added} baru)` : ''}${dropped ? `, ${dropped} perorangan dilepas` : ''}.`);
       UI.modal.close();
       renderCourses(container);
     });
   }
 
-  /* ========== JADWAL KELAS AKTIF ========== */
-  function renderJadwalKelas(container) {
-    const events = DB.getEvents().filter(e => e.category === 'Jadwal Kelas');
-    const today = UI.todayYMD();
-    const upcoming = events.filter(e => e.date >= today).sort((a, b) => a.date.localeCompare(b.date));
-    const past = events.filter(e => e.date < today).sort((a, b) => b.date.localeCompare(a.date));
-    const todayEvents = events.filter(e => e.date === today);
+  /* ========== DETAIL KELAS (tampilan admin, sama seperti dashboard tutor) ==========
+   * Memakai komponen tab milik GuruPanel agar admin melihat modul, materi,
+   * tugas, CBT, presensi, dan siswa dengan tampilan yang identik.
+   */
+  function renderAdminCourseDetail(container, courseId, user) {
+    const course = DB.getCourse(courseId);
+    if (!course) { adminCourseId = null; return renderCourses(container); }
+    const tutors = DB.courseTeachers(course);
+    const enrollments = DB.getEnrollmentsByCourse(course.id);
+    const plans = DB.getClassPlansByCourse(course.id);
+    const st = DB.subtestByName(course.subtest);
 
     container.innerHTML = `
-      <div class="stats-grid">
-        <div class="stat-card accent-success"><div class="label">Hari Ini</div><div class="value">${todayEvents.length}</div><div class="sub">jadwal aktif</div></div>
-        <div class="stat-card accent-primary"><div class="label">Akan Datang</div><div class="value">${upcoming.length}</div></div>
-        <div class="stat-card accent-warning"><div class="label">Selesai</div><div class="value">${past.length}</div></div>
-      </div>
-
-      <div class="subtabs">
-        <button class="subtab-btn active" data-jtab="today">Hari Ini (${todayEvents.length})</button>
-        <button class="subtab-btn" data-jtab="upcoming">Akan Datang (${upcoming.length})</button>
-        <button class="subtab-btn" data-jtab="past">Selesai (${past.length})</button>
+      <div class="flex-between mb-2" style="flex-wrap:wrap;gap:8px;">
+        <button class="btn btn-secondary btn-sm" id="acBack">← Kembali ke Semua Kelas</button>
+        <div class="flex-gap">
+          <button class="btn btn-secondary btn-sm" id="acPw">🔒 Password Kelas</button>
+          <button class="btn btn-secondary btn-sm" id="acStudents">👥 Kelola Siswa</button>
+          <button class="btn btn-primary btn-sm" id="acEdit">Edit Kelas</button>
+        </div>
       </div>
 
       <div class="card">
-        <div class="card-header">
-          <h3 id="jadwalTitle">Jadwal Hari Ini</h3>
-          <button class="btn btn-primary btn-sm" id="addJadwalBtn">+ Tambah Jadwal</button>
+        <div class="flex-between mb-1" style="flex-wrap:wrap;gap:8px;">
+          <div>
+            <h3 class="mt-0">${st ? st.icon + ' ' : ''}${UI.esc(DB.courseTitle(course))}</h3>
+            <div class="muted small">
+              ${UI.esc(course.subtest || course.category || 'Umum')} •
+              ${enrollments.length} siswa • ${tutors.length} tutor
+            </div>
+          </div>
+          <span class="badge ${DB.hasCoursePassword(course.id) ? 'badge-warning' : 'badge-gray'}">
+            ${DB.hasCoursePassword(course.id) ? '🔒 Password: ' + UI.esc(course.password) : '🔓 Terbuka'}
+          </span>
         </div>
-        <div id="jadwalBox"></div>
+        <p>${UI.esc(course.description || '')}</p>
+        <div class="table-wrap"><table class="table">
+          <tbody>
+            <tr><th style="width:170px;">Kelas Utama</th><td>${(course.mainClasses || []).length
+              ? (course.mainClasses).map(k => `<span class="badge badge-info" style="margin:2px;">${UI.esc(k)} (${DB.getStudentsByMainClass(k).length} siswa)</span>`).join('')
+              : '<span class="muted">Belum diisi</span>'}</td></tr>
+            <tr><th>Tutor</th><td>${tutors.length
+              ? tutors.map(t => `<span class="badge badge-success" style="margin:2px;">${UI.esc(t.name)}</span>`).join('')
+              : '<span class="muted">Belum ada tutor</span>'}</td></tr>
+            <tr><th>Jadwal</th><td>${UI.esc(DB.courseScheduleLabel(course))}${course.schedule && course.schedule.startDate ? ` • mulai ${UI.fmtYMD(course.schedule.startDate)}` : ''}${course.schedule && course.schedule.sessions ? ` • ${course.schedule.sessions} pertemuan` : ''}</td></tr>
+            <tr><th>Tautan Kelas</th><td>${course.meetingLink
+              ? `<a href="${UI.esc(course.meetingLink)}" target="_blank" rel="noopener noreferrer">${UI.esc(course.meetingLink)}</a>`
+              : '<span class="muted">Belum diisi</span>'}</td></tr>
+            <tr><th>Rencana Kelas</th><td>${plans.length} rencana • ${plans.filter(p => p.status === 'fixed').length} sudah fix</td></tr>
+            <tr><th>Biaya / SPP</th><td>${UI.fmtRp(course.price || 0)}</td></tr>
+          </tbody>
+        </table></div>
       </div>
+
+      <div class="tabs">
+        <button class="tab-btn active" data-atab="materials">Materi (${DB.getMaterialsByCourse(course.id).length})</button>
+        <button class="tab-btn" data-atab="modules">Modul (${DB.getModulesByCourse(course.id).length})</button>
+        <button class="tab-btn" data-atab="recordings">Rekaman (${DB.getRecordingsByCourse(course.id).length})</button>
+        <button class="tab-btn" data-atab="assignments">Tugas (${DB.getAssignmentsByCourse(course.id).length})</button>
+        <button class="tab-btn" data-atab="cbts">CBT (${DB.getCbtsByCourse(course.id).length})</button>
+        <button class="tab-btn" data-atab="attendance">Presensi</button>
+        <button class="tab-btn" data-atab="students">Siswa (${enrollments.length})</button>
+      </div>
+      <div id="tabContent"></div>
     `;
 
-    let currentTab = 'today';
-    const renderTab = () => {
-      const box = document.getElementById('jadwalBox');
-      const titleEl = document.getElementById('jadwalTitle');
-      let list;
-      if (currentTab === 'today') { list = todayEvents; titleEl.textContent = 'Jadwal Hari Ini'; }
-      else if (currentTab === 'upcoming') { list = upcoming; titleEl.textContent = 'Jadwal Akan Datang'; }
-      else { list = past.slice(0, 30); titleEl.textContent = 'Jadwal Selesai'; }
-
-      if (list.length === 0) { box.innerHTML = '<div class="empty"><div class="empty-icon">🗓️</div>Tidak ada jadwal.</div>'; return; }
-      box.innerHTML = list.map(ev => `
-        <div class="list-item">
-          <div class="flex-between">
-            <div class="title">${UI.esc(ev.title)}</div>
-            <span class="muted small">${UI.fmtYMD(ev.date)}${ev.time ? ' • ' + UI.esc(ev.time) : ''}</span>
-          </div>
-          ${ev.description ? `<div class="content">${UI.esc(ev.description)}</div>` : ''}
-        </div>`).join('');
-    };
-
-    container.querySelectorAll('[data-jtab]').forEach(b => b.addEventListener('click', () => {
-      container.querySelectorAll('[data-jtab]').forEach(x => x.classList.remove('active'));
-      b.classList.add('active');
-      currentTab = b.dataset.jtab;
-      renderTab();
-    }));
-
-    document.getElementById('addJadwalBtn').addEventListener('click', () => {
-      // Reuse calendar event form but preset category
-      const body = `
-        <form id="jadwalForm" class="form">
-          <div class="form-group"><label>Judul Jadwal</label>
-            <input name="title" required placeholder="mis. Kelas Matematika - Sesi 5" /></div>
-          <div class="form-row">
-            <div class="form-group"><label>Tanggal</label>
-              <input name="date" type="date" required value="${today}" /></div>
-            <div class="form-group"><label>Waktu</label>
-              <input name="time" type="time" /></div>
-          </div>
-          <div class="form-group"><label>Deskripsi</label>
-            <textarea name="description" rows="2"></textarea></div>
-          <div class="flex-gap" style="justify-content:flex-end;">
-            <button type="button" class="btn btn-secondary" id="cancelBtn">Batal</button>
-            <button type="submit" class="btn btn-primary">Simpan</button>
-          </div>
-        </form>`;
-      UI.modal.open('Tambah Jadwal Kelas', body);
-      document.getElementById('cancelBtn').addEventListener('click', () => UI.modal.close());
-      document.getElementById('jadwalForm').addEventListener('submit', (e) => {
-        e.preventDefault();
-        const fd = new FormData(e.target);
-        DB.addEvent({
-          title: fd.get('title').trim(),
-          date: fd.get('date'),
-          time: fd.get('time') || '',
-          category: 'Jadwal Kelas',
-          color: '#dcfce7',
-          description: fd.get('description').trim(),
-          authorId: 'u_admin'
-        });
-        UI.toast('Jadwal ditambahkan!');
-        UI.modal.close();
-        renderJadwalKelas(container);
-      });
+    document.getElementById('acBack').addEventListener('click', () => {
+      adminCourseId = null;
+      renderCourses(container);
     });
+    document.getElementById('acEdit').addEventListener('click', () => openAdminCourseForm(container, course.id));
+    document.getElementById('acPw').addEventListener('click', () =>
+      Shared.openCoursePasswordForm(course.id, () => renderAdminCourseDetail(container, course.id, user)));
+    document.getElementById('acStudents').addEventListener('click', () => openBulkEnrollModal(course.id, container));
 
-    renderTab();
+    const showTab = (tab) => {
+      GuruPanel.renderCourseTab(tab, course, user, document.getElementById('tabContent'));
+      if (global.Effects) Effects.enhance(container);
+      if (global.Responsive) Responsive.apply(container);
+    };
+    container.querySelectorAll('[data-atab]').forEach(btn => btn.addEventListener('click', () => {
+      container.querySelectorAll('[data-atab]').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      showTab(btn.dataset.atab);
+    }));
+    showTab('materials');
+  }
+
+  /* ========== JADWAL KELAS (agenda + War Jadwal) ==========
+   * Seluruh logika ada di js/jadwal.js agar dipakai bersama panel tutor.
+   */
+  function renderJadwalKelas(container, user) {
+    Jadwal.renderJadwalPage(container, user || (global.Dashboard && Dashboard.currentUser) || { role: 'admin' });
   }
 
   /* ========== TAHUN AKADEMIK / BATCH ========== */
@@ -1071,6 +1260,548 @@
       UI.toast('Siswa diaktifkan kembali.');
       renderAlumni(container);
     }));
+  }
+
+  /* ========== KATA MOTIVASI ==========
+   * Kotak motivasi yang tampil di dashboard siswa, tutor, dan orang tua.
+   * Kalimatnya berbeda per peran dan sepenuhnya dikelola dari sini.
+   */
+  const MOTIV_ROLES = [
+    { key: 'siswa', label: '👨‍🎓 Siswa', hint: 'Tampil di Overview siswa' },
+    { key: 'guru', label: '👨‍🏫 Tutor', hint: 'Tampil di Overview tutor' },
+    { key: 'orangtua', label: '👨‍👩‍👦 Orang Tua', hint: 'Tampil di Overview orang tua' }
+  ];
+  let motivRole = 'siswa';
+
+  function renderMotivasi(container) {
+    const settings = DB.getSettings();
+    const enabled = settings.motivationEnabled !== false;
+
+    container.innerHTML = `
+      <div class="card">
+        <div class="card-header">
+          ${UI.secHead('💡', 'Kata Motivasi Dashboard', 'Kotak semangat yang tampil di halaman Overview tiap peran')}
+          <label class="switch">
+            <input type="checkbox" id="mvEnabled" ${enabled ? 'checked' : ''} />
+            <span>Aktifkan kotak motivasi</span>
+          </label>
+        </div>
+        <p class="muted small">
+          Setiap peran memiliki daftar kalimat sendiri. Sistem memilih satu kalimat aktif
+          secara bergilir tiap hari, dan pengguna dapat menekan “Kutipan Lain” untuk melihat kalimat lainnya.
+          Menonaktifkan sakelar di atas menyembunyikan kotak ini dari semua dashboard.
+        </p>
+        ${!enabled ? '<div class="alert alert-info" style="margin-bottom:0;">Kotak motivasi sedang dimatikan — tidak tampil di dashboard mana pun.</div>' : ''}
+      </div>
+
+      <div class="card">
+        <div class="card-header">${UI.secHead('👁️', 'Pratinjau', 'tampilan kotak seperti yang dilihat pengguna')}</div>
+        <div id="mvPreview" class="mv-preview"></div>
+      </div>
+
+      <div class="subtabs">
+        ${MOTIV_ROLES.map(r => `<button class="subtab-btn ${motivRole === r.key ? 'active' : ''}" data-mvrole="${r.key}">${r.label} (${DB.getMotivations(r.key).length})</button>`).join('')}
+      </div>
+      <div id="mvBox"></div>
+    `;
+
+    // Pratinjau ketiga peran sekaligus
+    const prev = document.getElementById('mvPreview');
+    prev.innerHTML = MOTIV_ROLES.map(r => Shared.motivationHtml(r.key) ||
+      `<div class="empty"><div class="empty-icon">💤</div>Belum ada kutipan aktif untuk ${UI.esc(r.label.replace(/^\S+\s/, ''))}.</div>`).join('');
+    Shared.bindMotivation(prev);
+
+    document.getElementById('mvEnabled').addEventListener('change', (e) => {
+      DB.setSetting('motivationEnabled', e.target.checked);
+      UI.toast(e.target.checked ? 'Kotak motivasi diaktifkan.' : 'Kotak motivasi dimatikan.', 'info');
+      renderMotivasi(container);
+    });
+
+    container.querySelectorAll('[data-mvrole]').forEach(b => b.addEventListener('click', () => {
+      motivRole = b.dataset.mvrole;
+      renderMotivasi(container);
+    }));
+
+    paintMotivList(container);
+  }
+
+  function paintMotivList(container) {
+    const box = document.getElementById('mvBox');
+    const role = motivRole;
+    const meta = MOTIV_ROLES.find(r => r.key === role);
+    const list = DB.getMotivations(role);
+    const activeCount = list.filter(m => m.active !== false).length;
+
+    box.innerHTML = `
+      <div class="card">
+        <div class="card-header">
+          ${UI.secHead('📝', `Kutipan untuk ${meta.label.replace(/^\S+\s/, '')}`, `${list.length} kalimat • ${activeCount} aktif • ${meta.hint}`)}
+          <div class="flex-gap">
+            <button class="btn btn-sm btn-secondary" id="mvBulk">⚡ Tambah Banyak</button>
+            <button class="btn btn-sm btn-primary" id="mvAdd">+ Tambah Kutipan</button>
+          </div>
+        </div>
+        ${list.length === 0 ? emptyState('Belum ada kutipan untuk peran ini.') : `
+        <div class="table-wrap"><table class="table">
+          <thead><tr><th>Kalimat</th><th>Penulis</th><th>Status</th><th>Dibuat</th><th>Aksi</th></tr></thead>
+          <tbody>${list.map(m => `<tr>
+            <td><strong>${UI.esc(m.text)}</strong></td>
+            <td class="muted small">${UI.esc(m.author || '-')}</td>
+            <td>${m.active === false ? '<span class="badge badge-gray">Nonaktif</span>' : '<span class="badge badge-success">Aktif</span>'}</td>
+            <td class="muted small">${m.createdAt ? UI.fmtDate(m.createdAt) : '-'}</td>
+            <td class="actions">
+              <button class="btn btn-sm btn-secondary" data-mv-toggle="${m.id}">${m.active === false ? 'Aktifkan' : 'Matikan'}</button>
+              <button class="btn btn-sm btn-secondary" data-mv-edit="${m.id}">Edit</button>
+              <button class="btn btn-sm btn-danger" data-mv-del="${m.id}">Hapus</button>
+            </td>
+          </tr>`).join('')}</tbody>
+        </table></div>`}
+      </div>
+    `;
+
+    document.getElementById('mvAdd').addEventListener('click', () => openMotivForm(container, role, null));
+    document.getElementById('mvBulk').addEventListener('click', () => openMotivBulk(container, role));
+    box.querySelectorAll('[data-mv-edit]').forEach(b => b.addEventListener('click', () =>
+      openMotivForm(container, role, b.dataset.mvEdit)));
+    box.querySelectorAll('[data-mv-toggle]').forEach(b => b.addEventListener('click', () => {
+      const m = DB.getMotivations().find(x => x.id === b.dataset.mvToggle);
+      if (!m) return;
+      DB.updateMotivation(m.id, { active: m.active === false });
+      UI.toast(m.active === false ? 'Kutipan diaktifkan.' : 'Kutipan dimatikan.');
+      renderMotivasi(container);
+    }));
+    box.querySelectorAll('[data-mv-del]').forEach(b => b.addEventListener('click', () => {
+      if (!UI.confirmDialog('Hapus kutipan ini?')) return;
+      DB.deleteMotivation(b.dataset.mvDel);
+      UI.toast('Kutipan dihapus.');
+      renderMotivasi(container);
+    }));
+
+    if (global.Responsive) Responsive.apply(box);
+  }
+
+  function openMotivForm(container, role, editId) {
+    const editing = editId ? DB.getMotivations().find(m => m.id === editId) : null;
+    const body = `
+      <form id="mvForm" class="form">
+        <div class="form-group"><label>Untuk Peran</label>
+          <select name="role">
+            ${MOTIV_ROLES.map(r => `<option value="${r.key}" ${(editing ? editing.role : role) === r.key ? 'selected' : ''}>${UI.esc(r.label.replace(/^\S+\s/, ''))}</option>`).join('')}
+          </select>
+        </div>
+        <div class="form-group"><label>Kalimat Motivasi</label>
+          <textarea name="text" rows="3" required maxlength="240"
+            placeholder="mis. Satu soal hari ini adalah satu langkah menuju kampus impian.">${UI.esc(editing ? editing.text : '')}</textarea>
+          <div class="muted small">Maksimal 240 karakter agar tetap rapi di layar ponsel.</div>
+        </div>
+        <div class="form-group"><label>Penulis / Sumber</label>
+          <input name="author" value="${UI.esc(editing ? (editing.author || '') : 'Tim Rubela')}" placeholder="Tim Rubela" />
+        </div>
+        <div class="form-group">
+          <label class="switch">
+            <input type="checkbox" name="active" ${editing && editing.active === false ? '' : 'checked'} />
+            <span>Aktif (ikut ditampilkan bergilir)</span>
+          </label>
+        </div>
+        <div class="flex-gap" style="justify-content:flex-end;">
+          <button type="button" class="btn btn-secondary" id="mvCancel">Batal</button>
+          <button type="submit" class="btn btn-primary">${editing ? 'Simpan Perubahan' : 'Tambah Kutipan'}</button>
+        </div>
+      </form>
+    `;
+    UI.modal.open(editing ? 'Edit Kata Motivasi' : 'Tambah Kata Motivasi', body);
+    document.getElementById('mvCancel').addEventListener('click', () => UI.modal.close());
+    document.getElementById('mvForm').addEventListener('submit', (e) => {
+      e.preventDefault();
+      const f = new FormData(e.target);
+      const payload = {
+        role: f.get('role'),
+        text: String(f.get('text') || '').trim(),
+        author: String(f.get('author') || '').trim() || 'Tim Rubela',
+        active: f.get('active') === 'on'
+      };
+      if (!payload.text) { UI.toast('Kalimat tidak boleh kosong.', 'error'); return; }
+      if (editing) DB.updateMotivation(editing.id, payload);
+      else DB.addMotivation(payload);
+      UI.modal.close();
+      UI.toast(editing ? 'Kutipan diperbarui.' : 'Kutipan ditambahkan.');
+      motivRole = payload.role;
+      renderMotivasi(container);
+    });
+  }
+
+  function openMotivBulk(container, role) {
+    const body = `
+      <form id="mvBulkForm" class="form">
+        <div class="form-group"><label>Untuk Peran</label>
+          <select name="role">
+            ${MOTIV_ROLES.map(r => `<option value="${r.key}" ${role === r.key ? 'selected' : ''}>${UI.esc(r.label.replace(/^\S+\s/, ''))}</option>`).join('')}
+          </select>
+        </div>
+        <div class="form-group"><label>Daftar Kalimat — satu kalimat per baris</label>
+          <textarea name="lines" rows="9" required placeholder="Kalimat pertama&#10;Kalimat kedua&#10;Kalimat ketiga"></textarea>
+          <div class="muted small">Baris kosong diabaikan. Kalimat yang sudah ada tidak akan diduplikasi.</div>
+        </div>
+        <div class="form-group"><label>Penulis / Sumber</label>
+          <input name="author" value="Tim Rubela" />
+        </div>
+        <div class="flex-gap" style="justify-content:flex-end;">
+          <button type="button" class="btn btn-secondary" id="mvBulkCancel">Batal</button>
+          <button type="submit" class="btn btn-primary">Tambahkan Semua</button>
+        </div>
+      </form>
+    `;
+    UI.modal.open('Tambah Banyak Kutipan', body);
+    document.getElementById('mvBulkCancel').addEventListener('click', () => UI.modal.close());
+    document.getElementById('mvBulkForm').addEventListener('submit', (e) => {
+      e.preventDefault();
+      const f = new FormData(e.target);
+      const targetRole = f.get('role');
+      const author = String(f.get('author') || '').trim() || 'Tim Rubela';
+      const existing = new Set(DB.getMotivations(targetRole).map(m => m.text.trim().toLowerCase()));
+      let added = 0, skipped = 0;
+      String(f.get('lines') || '').split('\n').forEach(line => {
+        const text = line.trim();
+        if (!text) return;
+        if (existing.has(text.toLowerCase())) { skipped++; return; }
+        existing.add(text.toLowerCase());
+        DB.addMotivation({ role: targetRole, text: text.slice(0, 240), author, active: true });
+        added++;
+      });
+      UI.modal.close();
+      UI.toast(added ? `${added} kutipan ditambahkan${skipped ? `, ${skipped} duplikat dilewati` : ''}.`
+        : 'Tidak ada kutipan baru untuk ditambahkan.', added ? 'success' : 'info');
+      motivRole = targetRole;
+      renderMotivasi(container);
+    });
+  }
+
+  /* ========== KEAMANAN LOGIN (bank soal verifikasi) ==========
+   * Setelah username & password benar, pengguna pada peran terpilih harus
+   * menjawab satu soal UTBK mudah. Admin dapat menambah soal, mematikan
+   * fitur, memilih peran, dan mengatur jumlah kesempatan.
+   */
+  let sqFilterSubtest = '';
+  let sqSearch = '';
+
+  function renderKeamananLogin(container) {
+    const settings = DB.getSettings();
+    const enabled = settings.loginQuizEnabled !== false;
+    const roles = Array.isArray(settings.loginQuizRoles) ? settings.loginQuizRoles : ['siswa'];
+    const attempts = Number(settings.loginQuizAttempts) || 3;
+    const all = DB.getSecurityQuestions();
+    const active = all.filter(q => q.active !== false);
+    const bySubtest = {};
+    all.forEach(q => {
+      const k = q.subtest || 'Lainnya';
+      if (!bySubtest[k]) bySubtest[k] = { total: 0, active: 0 };
+      bySubtest[k].total++;
+      if (q.active !== false) bySubtest[k].active++;
+    });
+    const roleOpts = [
+      { key: 'siswa', label: 'Siswa' },
+      { key: 'guru', label: 'Tutor' },
+      { key: 'orangtua', label: 'Orang Tua' },
+      { key: 'admin', label: 'Admin' }
+    ];
+
+    container.innerHTML = `
+      <div class="stats-grid">
+        <div class="stat-card accent-primary"><div class="label">Total Soal</div><div class="value">${all.length}</div><div class="sub">${active.length} aktif</div></div>
+        <div class="stat-card accent-${enabled ? 'success' : 'danger'}"><div class="label">Status Fitur</div><div class="value" style="font-size:20px;">${enabled ? 'Aktif' : 'Mati'}</div><div class="sub">${enabled ? roles.length + ' peran diverifikasi' : 'tidak ada verifikasi'}</div></div>
+        <div class="stat-card accent-info"><div class="label">Kesempatan</div><div class="value">${attempts}</div><div class="sub">sebelum jeda 1 menit</div></div>
+        <div class="stat-card accent-warning"><div class="label">Cakupan Subtest</div><div class="value">${Object.keys(bySubtest).length}</div><div class="sub">dari 7 subtest UTBK</div></div>
+      </div>
+
+      <div class="card">
+        <div class="card-header">
+          ${UI.secHead('🔐', 'Verifikasi Keamanan Login', 'Satu soal UTBK mudah sebelum sesi dibuat')}
+          <label class="switch">
+            <input type="checkbox" id="sqEnabled" ${enabled ? 'checked' : ''} />
+            <span>Aktifkan verifikasi</span>
+          </label>
+        </div>
+        <p class="muted small">
+          Ketika aktif, pengguna pada peran terpilih harus menjawab satu soal acak dari bank di bawah
+          setelah kata sandinya benar. Jawaban salah berulang membuat proses masuk dijeda satu menit.
+          Mematikan sakelar di atas melewati verifikasi untuk semua peran.
+        </p>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label>Peran yang Wajib Diverifikasi</label>
+            <div class="tgt-grid">
+              ${roleOpts.map(r => `
+                <label class="pick-item ${roles.includes(r.key) ? 'is-on' : ''}">
+                  <input type="checkbox" name="sqRole" value="${r.key}" ${roles.includes(r.key) ? 'checked' : ''} />
+                  <span>${UI.esc(r.label)}</span>
+                </label>`).join('')}
+            </div>
+          </div>
+          <div class="form-group">
+            <label for="sqAttempts">Jumlah Kesempatan Menjawab</label>
+            <input type="number" id="sqAttempts" min="1" max="10" value="${attempts}" />
+            <div class="muted small">Setiap jawaban salah menampilkan soal baru. Bila habis, masuk dijeda 1 menit.</div>
+          </div>
+        </div>
+        <div class="flex-gap">
+          <button class="btn btn-primary btn-sm" id="sqSaveCfg">Simpan Pengaturan</button>
+          <button class="btn btn-secondary btn-sm" id="sqTry">▶ Uji Coba Gerbang</button>
+        </div>
+        ${active.length === 0 ? '<div class="alert alert-error mt-2" style="margin-bottom:0;">Bank soal kosong atau semua soal nonaktif — verifikasi otomatis dilewati agar pengguna tidak terkunci.</div>' : ''}
+      </div>
+
+      <div class="card">
+        <div class="card-header">${UI.secHead('🧩', 'Sebaran per Subtest', 'pastikan setiap subtest punya cukup soal')}</div>
+        <div class="table-wrap"><table class="table">
+          <thead><tr><th>Subtest</th><th>Total</th><th>Aktif</th><th>Porsi</th></tr></thead>
+          <tbody>${Object.entries(bySubtest).sort((a, b) => b[1].total - a[1].total).map(([k, v]) => `<tr>
+            <td><strong>${UI.esc(k)}</strong></td>
+            <td>${v.total}</td>
+            <td>${v.active}</td>
+            <td>${UI.progressHtml(all.length ? Math.round(v.total / all.length * 100) : 0, '', 'auto')}</td>
+          </tr>`).join('')}</tbody>
+        </table></div>
+      </div>
+
+      <div class="card">
+        <div class="card-header">
+          ${UI.secHead('📚', `Bank Soal Verifikasi (${all.length})`, 'soal singkat agar proses masuk tetap cepat')}
+          <div class="flex-gap">
+            <button class="btn btn-sm btn-secondary" id="sqBulk">⚡ Tambah Banyak</button>
+            <button class="btn btn-sm btn-primary" id="sqAdd">+ Tambah Soal</button>
+          </div>
+        </div>
+        <div class="rk-filters">
+          <input type="search" id="sqSearch" class="input" placeholder="Cari teks soal…" value="${UI.esc(sqSearch)}" />
+          <select id="sqSubtest" class="input">
+            <option value="">Semua subtest</option>
+            ${Object.keys(bySubtest).map(k => `<option value="${UI.esc(k)}" ${sqFilterSubtest === k ? 'selected' : ''}>${UI.esc(k)}</option>`).join('')}
+          </select>
+        </div>
+        <div id="sqList"></div>
+      </div>
+    `;
+
+    document.getElementById('sqEnabled').addEventListener('change', (e) => {
+      DB.setSetting('loginQuizEnabled', e.target.checked);
+      UI.toast(e.target.checked ? 'Verifikasi login diaktifkan.' : 'Verifikasi login dimatikan.', 'info');
+      renderKeamananLogin(container);
+    });
+
+    container.querySelectorAll('[name="sqRole"]').forEach(cb => cb.addEventListener('change', () => {
+      cb.closest('.pick-item').classList.toggle('is-on', cb.checked);
+    }));
+
+    document.getElementById('sqSaveCfg').addEventListener('click', () => {
+      const picked = [...container.querySelectorAll('[name="sqRole"]:checked')].map(c => c.value);
+      const n = Math.max(1, Math.min(10, Number(document.getElementById('sqAttempts').value) || 3));
+      DB.setSetting('loginQuizRoles', picked);
+      DB.setSetting('loginQuizAttempts', n);
+      UI.toast(picked.length ? `Pengaturan disimpan untuk ${picked.length} peran.` : 'Disimpan — tidak ada peran yang diverifikasi.', 'success');
+      renderKeamananLogin(container);
+    });
+
+    document.getElementById('sqTry').addEventListener('click', () => {
+      if (!window.LoginQuiz) { UI.toast('Modul verifikasi tidak tersedia di halaman ini.', 'error'); return; }
+      if (!DB.getActiveSecurityQuestions().length) { UI.toast('Bank soal masih kosong.', 'error'); return; }
+      const me = (global.Dashboard && Dashboard.currentUser) || { name: 'Admin', username: '__preview__', role: 'admin' };
+      LoginQuiz.open({ name: me.name, username: '__preview__', role: me.role },
+        () => UI.toast('Jawaban benar — pengguna akan diteruskan ke dashboard.', 'success'),
+        (msg) => UI.toast('Uji coba selesai: ' + msg, 'info'));
+    });
+
+    const reFilter = () => {
+      sqSearch = document.getElementById('sqSearch').value;
+      sqFilterSubtest = document.getElementById('sqSubtest').value;
+      paintSqList(container);
+    };
+    document.getElementById('sqSearch').addEventListener('input', reFilter);
+    document.getElementById('sqSubtest').addEventListener('change', reFilter);
+    document.getElementById('sqAdd').addEventListener('click', () => openSecQForm(container, null));
+    document.getElementById('sqBulk').addEventListener('click', () => openSecQBulk(container));
+
+    paintSqList(container);
+  }
+
+  function paintSqList(container) {
+    const box = document.getElementById('sqList');
+    const q = sqSearch.trim().toLowerCase();
+    const rows = DB.getSecurityQuestions().filter(x => {
+      if (sqFilterSubtest && (x.subtest || 'Lainnya') !== sqFilterSubtest) return false;
+      if (!q) return true;
+      return String(x.text || '').toLowerCase().includes(q) ||
+        (x.options || []).some(o => String(o).toLowerCase().includes(q));
+    });
+
+    box.innerHTML = rows.length === 0 ? emptyState('Tidak ada soal yang cocok.') : `
+      <p class="muted small">Menampilkan ${rows.length} soal.</p>
+      <div class="table-wrap"><table class="table">
+        <thead><tr><th>Soal</th><th>Subtest</th><th>Pilihan</th><th>Kunci</th><th>Sumber</th><th>Status</th><th>Aksi</th></tr></thead>
+        <tbody>${rows.map(x => `<tr>
+          <td><strong>${UI.esc(x.text)}</strong></td>
+          <td>${UI.esc(x.subtest || '-')}</td>
+          <td class="muted small">${(x.options || []).map((o, i) => `${String.fromCharCode(65 + i)}. ${UI.esc(o)}`).join('<br>')}</td>
+          <td><span class="badge badge-success">${String.fromCharCode(65 + Number(x.correctIndex || 0))}</span></td>
+          <td class="muted small">${x.source === 'admin' ? 'Admin' : 'Bawaan'}</td>
+          <td>${x.active === false ? '<span class="badge badge-gray">Nonaktif</span>' : '<span class="badge badge-success">Aktif</span>'}</td>
+          <td class="actions">
+            <button class="btn btn-sm btn-secondary" data-sq-toggle="${x.id}">${x.active === false ? 'Aktifkan' : 'Matikan'}</button>
+            <button class="btn btn-sm btn-secondary" data-sq-edit="${x.id}">Edit</button>
+            <button class="btn btn-sm btn-danger" data-sq-del="${x.id}">Hapus</button>
+          </td>
+        </tr>`).join('')}</tbody>
+      </table></div>`;
+
+    box.querySelectorAll('[data-sq-edit]').forEach(b => b.addEventListener('click', () =>
+      openSecQForm(container, b.dataset.sqEdit)));
+    box.querySelectorAll('[data-sq-toggle]').forEach(b => b.addEventListener('click', () => {
+      const x = DB.getSecurityQuestions().find(y => y.id === b.dataset.sqToggle);
+      if (!x) return;
+      DB.updateSecurityQuestion(x.id, { active: x.active === false });
+      UI.toast(x.active === false ? 'Soal diaktifkan.' : 'Soal dimatikan.');
+      renderKeamananLogin(container);
+    }));
+    box.querySelectorAll('[data-sq-del]').forEach(b => b.addEventListener('click', () => {
+      if (!UI.confirmDialog('Hapus soal verifikasi ini?')) return;
+      DB.deleteSecurityQuestion(b.dataset.sqDel);
+      UI.toast('Soal dihapus.');
+      renderKeamananLogin(container);
+    }));
+
+    if (global.Responsive) Responsive.apply(box);
+  }
+
+  function openSecQForm(container, editId) {
+    const editing = editId ? DB.getSecurityQuestions().find(x => x.id === editId) : null;
+    const opts = editing ? (editing.options || []).slice() : ['', '', '', ''];
+    while (opts.length < 4) opts.push('');
+    const key = editing ? Number(editing.correctIndex || 0) : 0;
+    const subtests = DB.SUBTESTS.map(s => s.name);
+
+    const body = `
+      <form id="sqForm" class="form">
+        <div class="form-row">
+          <div class="form-group"><label>Subtest</label>
+            <select name="subtest">
+              ${subtests.map(s => `<option value="${UI.esc(s)}" ${editing && editing.subtest === s ? 'selected' : ''}>${UI.esc(s)}</option>`).join('')}
+            </select>
+          </div>
+          <div class="form-group"><label>Tingkat Kesulitan</label>
+            <select name="difficulty">
+              ${['mudah', 'sedang'].map(d => `<option value="${d}" ${editing && editing.difficulty === d ? 'selected' : ''}>${d === 'mudah' ? 'Mudah' : 'Sedang'}</option>`).join('')}
+            </select>
+          </div>
+        </div>
+        <div class="form-group"><label>Pertanyaan</label>
+          <textarea name="text" rows="2" required maxlength="300"
+            placeholder="mis. Hasil dari 15% × 200 adalah …">${UI.esc(editing ? editing.text : '')}</textarea>
+          <div class="muted small">Gunakan soal singkat agar proses masuk tidak melambat. Dukungan LaTeX: tulis di antara tanda $ … $.</div>
+        </div>
+        <div class="form-group"><label>Pilihan Jawaban — klik bulatan untuk menandai kunci</label>
+          <div class="qe-list">
+            ${opts.map((o, i) => `
+              <div class="qe-row">
+                <label class="qe-key" title="Tandai sebagai jawaban benar">
+                  <input type="radio" name="correctIndex" value="${i}" ${key === i ? 'checked' : ''} />
+                  <span>${String.fromCharCode(65 + i)}</span>
+                </label>
+                <input name="opt${i}" value="${UI.esc(o)}" placeholder="Pilihan ${String.fromCharCode(65 + i)}" ${i < 2 ? 'required' : ''} />
+              </div>`).join('')}
+          </div>
+        </div>
+        <div class="form-group">
+          <label class="switch">
+            <input type="checkbox" name="active" ${editing && editing.active === false ? '' : 'checked'} />
+            <span>Aktif (ikut diundi saat login)</span>
+          </label>
+        </div>
+        <div class="flex-gap" style="justify-content:flex-end;">
+          <button type="button" class="btn btn-secondary" id="sqCancel">Batal</button>
+          <button type="submit" class="btn btn-primary">${editing ? 'Simpan Perubahan' : 'Tambah Soal'}</button>
+        </div>
+      </form>
+    `;
+    UI.modal.open(editing ? 'Edit Soal Verifikasi' : 'Tambah Soal Verifikasi', body);
+    document.getElementById('sqCancel').addEventListener('click', () => UI.modal.close());
+    document.getElementById('sqForm').addEventListener('submit', (e) => {
+      e.preventDefault();
+      const f = new FormData(e.target);
+      const options = [0, 1, 2, 3].map(i => String(f.get('opt' + i) || '').trim()).filter(Boolean);
+      const correctIndex = Number(f.get('correctIndex'));
+      if (options.length < 2) { UI.toast('Minimal dua pilihan jawaban harus diisi.', 'error'); return; }
+      if (correctIndex >= options.length) { UI.toast('Kunci jawaban menunjuk pilihan yang kosong.', 'error'); return; }
+      const payload = {
+        subtest: f.get('subtest'),
+        difficulty: f.get('difficulty'),
+        text: String(f.get('text') || '').trim(),
+        options, correctIndex,
+        active: f.get('active') === 'on',
+        source: 'admin'
+      };
+      if (!payload.text) { UI.toast('Pertanyaan tidak boleh kosong.', 'error'); return; }
+      if (editing) DB.updateSecurityQuestion(editing.id, payload);
+      else DB.addSecurityQuestion(payload);
+      UI.modal.close();
+      UI.toast(editing ? 'Soal diperbarui.' : 'Soal ditambahkan.');
+      renderKeamananLogin(container);
+    });
+  }
+
+  function openSecQBulk(container) {
+    const subtests = DB.SUBTESTS.map(s => s.name);
+    const body = `
+      <form id="sqBulkForm" class="form">
+        <div class="form-group"><label>Subtest</label>
+          <select name="subtest">${subtests.map(s => `<option value="${UI.esc(s)}">${UI.esc(s)}</option>`).join('')}</select>
+        </div>
+        <div class="form-group"><label>Daftar Soal — satu soal per baris</label>
+          <textarea name="lines" rows="9" required placeholder="Pertanyaan | pilihan A | pilihan B | pilihan C | pilihan D | nomor kunci (1-4)&#10;Hasil 15% dari 200 | 20 | 30 | 35 | 40 | 2"></textarea>
+          <div class="muted small">
+            Format tiap baris: <code>pertanyaan | A | B | C | D | nomor kunci</code>.
+            Pemisahnya tanda <code>|</code>. Nomor kunci 1 berarti pilihan A. Minimal dua pilihan.
+          </div>
+        </div>
+        <div class="flex-gap" style="justify-content:flex-end;">
+          <button type="button" class="btn btn-secondary" id="sqBulkCancel">Batal</button>
+          <button type="submit" class="btn btn-primary">Tambahkan Semua</button>
+        </div>
+      </form>
+    `;
+    UI.modal.open('Tambah Banyak Soal Verifikasi', body);
+    document.getElementById('sqBulkCancel').addEventListener('click', () => UI.modal.close());
+    document.getElementById('sqBulkForm').addEventListener('submit', (e) => {
+      e.preventDefault();
+      const f = new FormData(e.target);
+      const subtest = f.get('subtest');
+      let added = 0;
+      const errors = [];
+      String(f.get('lines') || '').split('\n').forEach((line, idx) => {
+        const raw = line.trim();
+        if (!raw) return;
+        const parts = raw.split('|').map(p => p.trim());
+        const text = parts.shift();
+        const keyRaw = parts.pop();
+        const keyNum = Number(keyRaw);
+        const options = parts.filter(Boolean);
+        if (!text || options.length < 2 || !keyNum || keyNum < 1 || keyNum > options.length) {
+          errors.push(`Baris ${idx + 1}`);
+          return;
+        }
+        DB.addSecurityQuestion({
+          subtest, difficulty: 'mudah', text: text.slice(0, 300),
+          options, correctIndex: keyNum - 1, active: true, source: 'admin'
+        });
+        added++;
+      });
+      UI.modal.close();
+      if (added) {
+        UI.toast(`${added} soal ditambahkan${errors.length ? `, ${errors.length} baris dilewati (${errors.slice(0, 3).join(', ')})` : ''}.`, 'success');
+      } else {
+        UI.toast(errors.length ? `Format tidak dikenali pada ${errors.length} baris. Periksa contoh format.` : 'Tidak ada soal untuk ditambahkan.', 'error');
+      }
+      renderKeamananLogin(container);
+    });
   }
 
   function renderSettings(container) {
@@ -1676,99 +2407,11 @@
   }
 
   /* ========== REKAPAN ========== */
-  function renderRekap(container) {
-    const courses = DB.getCourses();
-    // Academic rekap
-    const rows = courses.map(c => {
-      const students = DB.getEnrollmentsByCourse(c.id).length;
-      const materials = DB.getMaterialsByCourse(c.id).length;
-      const modules = DB.getModulesByCourse(c.id).length;
-      const recordings = DB.getRecordingsByCourse(c.id).length;
-      const assignments = DB.getAssignmentsByCourse(c.id);
-      const asgIds = assignments.map(a => a.id);
-      const subs = DB.getSubmissions().filter(s => asgIds.includes(s.assignmentId));
-      const cbts = DB.getCbtsByCourse(c.id);
-      const cbtIds = cbts.map(x => x.id);
-      const attempts = DB.getCbtAttempts().filter(a => cbtIds.includes(a.cbtId) && a.submittedAt);
-      const avgAsg = subs.filter(s => s.grade != null).length
-        ? Math.round(subs.filter(s => s.grade != null).reduce((sum, s) => sum + s.grade, 0) / subs.filter(s => s.grade != null).length) : null;
-      const avgCbt = attempts.length ? Math.round(attempts.reduce((sum, a) => sum + (a.score || 0), 0) / attempts.length) : null;
-      const att = DB.getAttendanceByCourse(c.id).filter(a => a.role === 'siswa');
-      const presentPct = att.length ? Math.round(att.filter(a => a.status === 'hadir').length / att.length * 100) : 0;
-      return { c, students, materials, modules, recordings, assignments: assignments.length, cbts: cbts.length, avgAsg, avgCbt, presentPct };
-    });
-
-    // Per-student rekap (top-level)
-    const siswas = DB.getUsers().filter(u => u.role === 'siswa');
-    const studentRows = siswas.map(s => {
-      const subs = DB.getSubmissionsByStudent(s.id);
-      const graded = subs.filter(x => x.grade != null);
-      const avg = graded.length ? Math.round(graded.reduce((sum, x) => sum + x.grade, 0) / graded.length) : null;
-      const attempts = DB.getCbtAttemptsByStudent(s.id).filter(a => a.submittedAt);
-      const avgCbt = attempts.length ? Math.round(attempts.reduce((sum, a) => sum + (a.score || 0), 0) / attempts.length) : null;
-      const att = DB.getAttendanceByUser(s.id).filter(a => a.role === 'siswa');
-      const presentPct = att.length ? Math.round(att.filter(a => a.status === 'hadir').length / att.length * 100) : 0;
-      const payments = DB.getPaymentsByStudent(s.id);
-      const paid = payments.filter(p => p.status === 'lunas').reduce((sum, p) => sum + (p.amount || 0), 0);
-      return { s, subs: subs.length, avgAsg: avg, attemptsCount: attempts.length, avgCbt, presentPct, paid };
-    });
-
-    container.innerHTML = `
-      <div class="subtabs">
-        <button class="subtab-btn active" data-rtab="class">Rekap per Kelas</button>
-        <button class="subtab-btn" data-rtab="student">Rekap per Siswa</button>
-      </div>
-      <div id="rekapBox"></div>
-    `;
-
-    const renderTab = (tab) => {
-      const box = document.getElementById('rekapBox');
-      if (tab === 'class') {
-        box.innerHTML = `<div class="card">
-          <div class="card-header"><h3>Rekap Aktivitas per Kelas</h3></div>
-          ${rows.length === 0 ? emptyState('Belum ada kelas.') : `
-          <div class="table-wrap"><table class="table">
-            <thead><tr><th>Kelas</th><th>Siswa</th><th>Materi</th><th>Modul</th><th>Rekaman</th><th>Tugas</th><th>CBT</th><th>Rata Tugas</th><th>Rata CBT</th><th>Kehadiran</th></tr></thead>
-            <tbody>${rows.map(r => `<tr>
-              <td><strong>${UI.esc(r.c.title)}</strong></td>
-              <td>${r.students}</td>
-              <td>${r.materials}</td>
-              <td>${r.modules}</td>
-              <td>${r.recordings}</td>
-              <td>${r.assignments}</td>
-              <td>${r.cbts}</td>
-              <td>${r.avgAsg ?? '-'}</td>
-              <td>${r.avgCbt ?? '-'}</td>
-              <td><strong>${r.presentPct}%</strong></td>
-            </tr>`).join('')}</tbody>
-          </table></div>`}
-        </div>`;
-      } else {
-        box.innerHTML = `<div class="card">
-          <div class="card-header"><h3>Rekap per Siswa</h3></div>
-          ${studentRows.length === 0 ? emptyState('Belum ada siswa.') : `
-          <div class="table-wrap"><table class="table">
-            <thead><tr><th>Siswa</th><th>Kelas</th><th>Submission</th><th>Rata Tugas</th><th>CBT Selesai</th><th>Rata CBT</th><th>Kehadiran</th><th>Terbayar</th></tr></thead>
-            <tbody>${studentRows.map(r => `<tr>
-              <td><strong>${UI.esc(r.s.name)}</strong></td>
-              <td>${UI.esc(r.s.kelas || '-')}</td>
-              <td>${r.subs}</td>
-              <td>${r.avgAsg ?? '-'}</td>
-              <td>${r.attemptsCount}</td>
-              <td>${r.avgCbt ?? '-'}</td>
-              <td><strong>${r.presentPct}%</strong></td>
-              <td>${UI.fmtRp(r.paid)}</td>
-            </tr>`).join('')}</tbody>
-          </table></div>`}
-        </div>`;
-      }
-    };
-    container.querySelectorAll('[data-rtab]').forEach(b => b.addEventListener('click', () => {
-      container.querySelectorAll('[data-rtab]').forEach(x => x.classList.remove('active'));
-      b.classList.add('active');
-      renderTab(b.dataset.rtab);
-    }));
-    renderTab('class');
+  /* Rekap lengkap (tutor, siswa, kelas, subtest) ditangani oleh js/rekap.js */
+  function renderRekap(container, user) {
+    const me = user || (global.Dashboard && Dashboard.currentUser) || { role: 'admin' };
+    if (global.Rekap) return Rekap.render(container, me);
+    container.innerHTML = `<div class="empty"><div class="empty-icon">📈</div>Modul rekap tidak tersedia.</div>`;
   }
 
   /* ========== KEUANGAN ========== */

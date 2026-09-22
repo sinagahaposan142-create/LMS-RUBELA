@@ -46,7 +46,7 @@
       <label class="q-card ${checked ? 'is-on' : ''}" data-qid="${q.id}"
              data-hay="${UI.esc((q.text + ' ' + (q.subject || '') + ' ' + (q.questionType || '')).toLowerCase())}">
         <input type="checkbox" name="qid" value="${q.id}" ${checked ? 'checked' : ''} />
-        <div class="qc-text">${UI.esc(q.text)}</div>
+        <div class="qc-text rt-content">${RichText.render(q.text)}</div>
         <div class="qc-tags">
           <span class="qc-chip sub">${st ? st.icon : '📘'} ${UI.esc(st ? st.short : (q.subject || 'Umum'))}</span>
           <span class="qc-chip type">${UI.esc(q.questionType || 'Pilihan Ganda')}</span>
@@ -171,7 +171,9 @@
             const sec = c.security || {};
             const secIcons = [
               sec.requireCamera ? '📷' : '', sec.requireMic ? '🎙️' : '',
-              sec.fullscreen ? '🖥️' : '', sec.blockTabSwitch ? '🚫' : ''
+              sec.requireScreenShare ? '🖲️' : '', sec.fullscreen ? '🖥️' : '',
+              sec.lockScreen ? '🔒' : '', sec.blockTabSwitch ? '🚫' : '',
+              sec.blockCopy ? '📋' : '', sec.blockScreenshot ? '📸' : ''
             ].filter(Boolean).join(' ');
             return `<tr>
               <td>
@@ -251,7 +253,10 @@
       picked: {},
       durations: {},
       security: Object.assign(
-        { requireCamera: false, requireMic: false, fullscreen: false, blockTabSwitch: true, maxViolations: 3 },
+        { requireCamera: false, requireMic: false, requireScreenShare: false,
+          fullscreen: true, lockScreen: true, blockTabSwitch: true,
+          blockCopy: true, blockScreenshot: true, maxViolations: 3 },
+        DB.getSettings().examSecurityDefaults || {},
         editing?.security || {}
       ),
       startAt: editing?.startAt || Date.now(),
@@ -660,10 +665,18 @@
           ds: 'Peserta harus mengizinkan akses kamera sebelum ujian dimulai. Pratinjau kamera tetap tampil selama ujian sebagai bukti kehadiran.' },
         { key: 'requireMic', ic: '🎙️', nm: 'Wajib Mikrofon Aktif',
           ds: 'Mikrofon diaktifkan untuk memantau tingkat kebisingan/suara di sekitar peserta. Indikator level suara terlihat oleh peserta.' },
+        { key: 'requireScreenShare', ic: '🖲️', nm: 'Wajib Berbagi Layar',
+          ds: 'Peserta harus membagikan SELURUH layar. Bila hanya membagikan tab/jendela, permintaan ditolak. Menghentikan berbagi layar akan mengunci ujian.' },
         { key: 'fullscreen', ic: '🖥️', nm: 'Paksa Mode Layar Penuh',
-          ds: 'Ujian dijalankan dalam layar penuh. Keluar dari layar penuh dicatat sebagai pelanggaran.' },
+          ds: 'Ujian dijalankan dalam layar penuh. Bila peserta keluar, ujian terkunci hingga mereka kembali.' },
+        { key: 'lockScreen', ic: '🔒', nm: 'Kunci Layar Ujian',
+          ds: 'Menampilkan overlay pengunci saat peserta keluar dari layar penuh, berpindah tab, atau menghentikan berbagi layar. Waktu ujian tetap berjalan.' },
         { key: 'blockTabSwitch', ic: '🚫', nm: 'Deteksi Pindah Tab / Aplikasi',
-          ds: 'Setiap kali peserta meninggalkan halaman ujian, sistem mencatatnya sebagai pelanggaran dan memberi peringatan.' }
+          ds: 'Setiap kali peserta meninggalkan halaman ujian, sistem mencatatnya sebagai pelanggaran dan memberi peringatan.' },
+        { key: 'blockCopy', ic: '📋', nm: 'Anti Salin Soal',
+          ds: 'Menonaktifkan klik kanan, seleksi teks, drag gambar, dan pintasan salin/simpan/cetak. Papan klip dikosongkan saat ada upaya menyalin.' },
+        { key: 'blockScreenshot', ic: '📸', nm: 'Anti Tangkapan Layar',
+          ds: 'Mencatat penekanan Print Screen, mengosongkan papan klip, dan mengaburkan soal ketika jendela ujian tidak aktif.' }
       ];
       panel.innerHTML = `
         <div class="card">
@@ -685,9 +698,15 @@
           </div>
 
           <div class="alert alert-info">
-            <strong>Catatan privasi:</strong> kamera dan mikrofon hanya dipakai di perangkat peserta untuk
-            menampilkan pratinjau dan mendeteksi aktivitas. Tidak ada rekaman video/audio yang dikirim atau
+            <strong>Catatan privasi:</strong> kamera, mikrofon, dan layar hanya diakses di perangkat peserta untuk
+            menampilkan pratinjau dan mendeteksi aktivitas. Tidak ada rekaman video/audio/layar yang dikirim atau
             disimpan — sistem hanya mencatat <em>kejadian</em> pelanggaran (mis. pindah tab) untuk dilihat pengawas.
+          </div>
+          <div class="alert alert-warning">
+            <strong>Batas teknis yang perlu diketahui:</strong> proteksi anti-salin dan anti-tangkapan-layar
+            berjalan di dalam peramban sehingga bersifat <em>pencegah</em>. Alat tingkat sistem operasi,
+            kamera ponsel, atau ekstensi peramban tertentu tetap tidak dapat diblokir sepenuhnya oleh kode web.
+            Karena itu setiap upaya dicatat sebagai pelanggaran agar pengawas dapat menindaklanjuti.
           </div>
         </div>`;
 
@@ -731,7 +750,10 @@
               <tr><th>Jadwal</th><td>${UI.fmtDateTime(draft.startAt)} &nbsp;s.d.&nbsp; ${UI.fmtDateTime(draft.endAt)}</td></tr>
               <tr><th>Keamanan</th><td>
                 ${[sec.requireCamera ? '📷 Kamera wajib' : '', sec.requireMic ? '🎙️ Mikrofon wajib' : '',
-                   sec.fullscreen ? '🖥️ Layar penuh' : '', sec.blockTabSwitch ? '🚫 Deteksi pindah tab' : '']
+                   sec.requireScreenShare ? '🖲️ Berbagi layar wajib' : '',
+                   sec.fullscreen ? '🖥️ Layar penuh' : '', sec.lockScreen ? '🔒 Kunci layar' : '',
+                   sec.blockTabSwitch ? '🚫 Deteksi pindah tab' : '',
+                   sec.blockCopy ? '📋 Anti salin' : '', sec.blockScreenshot ? '📸 Anti tangkapan layar' : '']
                   .filter(Boolean).map(x => `<span class="badge badge-info" style="margin:2px;">${x}</span>`).join('')
                   || '<span class="muted">Tanpa pengawasan khusus</span>'}
               </td></tr>
@@ -881,7 +903,7 @@
           ? emptyState('Belum ada soal pada kategori ini. Klik "+ Tambah Soal" untuk menambahkan.', '📭')
           : `<div class="q-cards">${list.map(q => `
               <div class="q-card" style="padding-left:14px;cursor:default;">
-                <div class="qc-text">${UI.esc(q.text)}</div>
+                <div class="qc-text rt-content">${RichText.render(q.text)}</div>
                 <div class="qc-tags">
                   <span class="qc-chip sub">${st ? st.icon : '📘'} ${UI.esc(st ? st.short : activeSub)}</span>
                   <span class="qc-chip type">${UI.esc(q.questionType || 'Pilihan Ganda')}</span>
@@ -908,89 +930,20 @@
   /* =====================================================================
    * 4) FORM SOAL (dipakai bank browser)
    * ===================================================================*/
+  /**
+   * Buka editor soal.
+   * Sebelumnya memakai UI.modal yang tertimpa oleh overlay workspace
+   * (.modal z-index 100 < .cbt-workspace 120) sehingga tombol terasa "tidak
+   * berfungsi". Sekarang memakai QEditor: halaman penuh dengan z-index 140.
+   */
   function openQuestionForm(user, editId, onDone) {
-    const editing = editId ? DB.getQuestion(editId) : null;
-    const opts = editing?.options || [];
-    const body = `
-      <form id="cbtQForm" class="form">
-        <div class="form-row">
-          <div class="form-group"><label>Subtest</label>
-            <select name="subject" required>
-              <option value="">-- Pilih Subtest --</option>
-              ${DB.SUBTESTS.map(s => `<option value="${UI.esc(s.name)}" ${editing?.subject === s.name ? 'selected' : ''}>${s.icon} ${UI.esc(s.name)}</option>`).join('')}
-            </select>
-          </div>
-          <div class="form-group"><label>Format Soal</label>
-            <select name="questionType" id="cqType">
-              ${DB.QUESTION_TYPES.map(t => `<option value="${UI.esc(t)}" ${(editing?.questionType || 'Pilihan Ganda') === t ? 'selected' : ''}>${UI.esc(t)}</option>`).join('')}
-            </select>
-          </div>
-        </div>
-        <div class="form-group"><label>Tingkat Kesulitan</label>
-          <select name="difficulty">
-            ${DB.DIFFICULTIES.map(d => `<option value="${d}" ${(editing?.difficulty || 'sedang') === d ? 'selected' : ''}>${d.charAt(0).toUpperCase() + d.slice(1)}</option>`).join('')}
-          </select>
-        </div>
-        <div class="form-group"><label>Pertanyaan</label>
-          <textarea name="text" required rows="3" placeholder="Tulis soal...">${UI.esc(editing?.text || '')}</textarea></div>
-        <div id="cqOptions"></div>
-        <div class="form-group"><label>Pembahasan (opsional)</label>
-          <textarea name="explanation" rows="2">${UI.esc(editing?.explanation || '')}</textarea></div>
-        <div class="flex-gap" style="justify-content:flex-end;">
-          <button type="button" class="btn btn-secondary" id="cancelBtn">Batal</button>
-          <button type="submit" class="btn btn-primary">${editing ? 'Simpan Perubahan' : 'Simpan Soal'}</button>
-        </div>
-      </form>`;
-    UI.modal.open(editing ? 'Edit Soal' : 'Tambah Soal', body);
-    document.getElementById('cancelBtn').addEventListener('click', () => UI.modal.close());
-
-    const typeSel = document.getElementById('cqType');
-    const optBox = document.getElementById('cqOptions');
-    function paintOptions() {
-      const t = typeSel.value;
-      if (t === 'Esai') {
-        optBox.innerHTML = '<div class="alert alert-info">Soal esai tidak memerlukan pilihan jawaban. Jawaban peserta dinilai manual oleh guru.</div>';
-        return;
-      }
-      if (t === 'Benar/Salah') {
-        optBox.innerHTML = `<div class="form-group"><label>Jawaban Benar</label>
-          <select name="correctIndex">
-            <option value="0" ${editing?.correctIndex === 0 ? 'selected' : ''}>Benar</option>
-            <option value="1" ${editing?.correctIndex === 1 ? 'selected' : ''}>Salah</option>
-          </select></div>`;
-        return;
-      }
-      optBox.innerHTML = `
-        ${[0, 1, 2, 3, 4].map(i => `
-          <div class="form-group"><label>Pilihan ${String.fromCharCode(65 + i)}${i === 4 ? ' (opsional)' : ''}</label>
-            <input name="opt${i}" ${i < 4 ? 'required' : ''} value="${UI.esc(opts[i] || '')}" /></div>`).join('')}
-        <div class="form-group"><label>Jawaban Benar</label>
-          <select name="correctIndex">
-            ${[0, 1, 2, 3, 4].map(i => `<option value="${i}" ${editing?.correctIndex === i ? 'selected' : ''}>${String.fromCharCode(65 + i)}</option>`).join('')}
-          </select></div>`;
+    if (!global.QEditor) {
+      UI.toast('Editor soal belum termuat. Muat ulang halaman.', 'error');
+      return;
     }
-    typeSel.addEventListener('change', paintOptions);
-    paintOptions();
-
-    document.getElementById('cbtQForm').addEventListener('submit', (e) => {
-      e.preventDefault();
-      const fd = new FormData(e.target);
-      const qType = fd.get('questionType');
-      const options = [0, 1, 2, 3, 4].map(i => fd.get('opt' + i)).filter(v => v && String(v).trim() !== '');
-      const payload = {
-        authorId: editing?.authorId || user.id,
-        subject: fd.get('subject'),
-        questionType: qType,
-        difficulty: fd.get('difficulty'),
-        text: fd.get('text').trim(),
-        options: qType === 'Esai' ? [] : (qType === 'Benar/Salah' ? ['Benar', 'Salah'] : options),
-        correctIndex: qType === 'Esai' ? null : Number(fd.get('correctIndex') || 0),
-        explanation: (fd.get('explanation') || '').trim()
-      };
-      if (editing) { DB.updateQuestion(editing.id, payload); UI.toast('Soal diperbarui.'); }
-      else { DB.addQuestion(payload); UI.toast('Soal ditambahkan ke bank soal.'); }
-      UI.modal.close();
-      if (typeof onDone === 'function') onDone();
+    QEditor.open(user, editId, (saved) => {
+      if (saved && typeof onDone === 'function') onDone(saved);
+      else if (!saved && typeof onDone === 'function') onDone(null);
     });
   }
 
@@ -1031,7 +984,9 @@
           <div class="flex-gap">
             ${[
               ['📷 Kamera wajib', sec.requireCamera], ['🎙️ Mikrofon wajib', sec.requireMic],
-              ['🖥️ Layar penuh', sec.fullscreen], ['🚫 Deteksi pindah tab', sec.blockTabSwitch]
+              ['🖲️ Berbagi layar', sec.requireScreenShare], ['🖥️ Layar penuh', sec.fullscreen],
+              ['🔒 Kunci layar', sec.lockScreen], ['🚫 Deteksi pindah tab', sec.blockTabSwitch],
+              ['📋 Anti salin', sec.blockCopy], ['📸 Anti tangkapan layar', sec.blockScreenshot]
             ].map(([lbl, on]) => `<span class="badge ${on ? 'badge-success' : 'badge-gray'}">${lbl}: ${on ? 'AKTIF' : 'nonaktif'}</span>`).join('')}
             <span class="badge badge-info">Batas pelanggaran: ${sec.maxViolations || 3}</span>
           </div>
