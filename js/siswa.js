@@ -2,6 +2,11 @@
  * Browse + enroll courses, view materials, submit assignments, view grades.
  */
 (function (global) {
+  /* Lencana "oleh <tutor>" agar siswa tahu tutor mana yang menyiapkan konten. */
+  function credit(rec, course) {
+    return global.ContentEditor ? ContentEditor.creditHtml(rec, course) : '';
+  }
+
   let currentCourseId = null;
 
   function render(container, section, user) {
@@ -324,6 +329,8 @@
         <p class="mt-2">${UI.esc(course.description)}</p>
       </div>
 
+      ${Jadwal.courseScheduleCardHtml(course, user, { linkToJadwal: true })}
+
       <div class="tabs">
         <button class="tab-btn active" data-tab="materials">Materi (${materials.length})</button>
         <button class="tab-btn" data-tab="modules">Modul (${DB.getModulesByCourse(course.id).length})</button>
@@ -338,6 +345,8 @@
       currentCourseId = null;
       Dashboard.navigate('my-courses');
     });
+    const goJ = document.getElementById('csGoJadwal');
+    if (goJ) goJ.addEventListener('click', () => Dashboard.navigate('jadwal-siswa'));
     document.getElementById('leaveBtn').addEventListener('click', () => {
       if (!UI.confirmDialog('Keluar dari kelas ini?')) return;
       DB.unenroll(course.id, user.id);
@@ -369,9 +378,9 @@
           materials.map(m => `
             <div class="list-item">
               <div class="title">${UI.esc(m.title)}</div>
-              <div class="meta">${UI.fmtDate(m.createdAt)}</div>
-              <div class="content">${UI.esc(m.content)}</div>
-              ${m.link ? `<div><a href="${UI.esc(m.link)}" target="_blank" rel="noopener">Buka tautan →</a></div>` : ''}
+              <div class="meta">${credit(m, course)} • ${UI.fmtDate(m.createdAt)}</div>
+              <div class="content rt-content">${RichText.render(m.content || '')}</div>
+              ${m.link ? `<div class="mt-1"><a href="${UI.esc(m.link)}" target="_blank" rel="noopener">Buka tautan →</a></div>` : ''}
             </div>`).join('')}
       </div>
     `;
@@ -390,14 +399,18 @@
             if (sub && sub.grade != null) statusBadge = `<span class="badge badge-success">Nilai: ${sub.grade}</span>`;
             else if (sub) statusBadge = '<span class="badge badge-warning">Menunggu Nilai</span>';
             else if (overdue) statusBadge = '<span class="badge badge-warning">Terlambat</span>';
+            const qCount = (a.questionIds || []).length;
             return `
               <div class="list-item">
                 <div class="flex-between">
                   <div class="title">${UI.esc(a.title)}</div>
-                  ${statusBadge}
+                  <div class="flex-gap">
+                    <span class="badge badge-gray">${a.mode === 'soal' ? `🧮 ${qCount} soal` : '✍️ Uraian'}</span>
+                    ${statusBadge}
+                  </div>
                 </div>
-                <div class="meta">Deadline ${UI.fmtDate(a.dueDate)}</div>
-                <div class="content">${UI.esc(a.description)}</div>
+                <div class="meta">${credit(a, course)} • Deadline ${UI.fmtDate(a.dueDate)}</div>
+                <div class="content rt-content">${RichText.render(a.description || '')}</div>
                 ${sub ? `<div class="muted small">Dikirim ${UI.fmtDateTime(sub.submittedAt)}${sub.feedback ? ' • Feedback: ' + UI.esc(sub.feedback) : ''}</div>` : ''}
                 <div class="flex-gap mt-1">
                   <button class="btn btn-sm btn-primary" data-submit="${a.id}">${sub ? 'Ubah Jawaban' : 'Kerjakan'}</button>
@@ -410,57 +423,285 @@
     el.querySelectorAll('[data-submit]').forEach(b => b.addEventListener('click', () => openSubmitForm(b.dataset.submit, user)));
   }
 
+  /**
+   * Kerjakan tugas.
+   * Tugas "uraian" memakai editor teks kaya; tugas "berbasis soal" memakai
+   * kedelapan format soal yang sama dengan CBT dan langsung dinilai otomatis
+   * untuk format objektif.
+   */
   function openSubmitForm(assignmentId, user) {
     const asg = DB.getAssignment(assignmentId);
+    if (!asg) { UI.toast('Tugas tidak ditemukan.', 'error'); return; }
     const sub = DB.getSubmissionByStudent(assignmentId, user.id);
-    const body = `
-      <div class="muted small mb-1">${UI.esc(asg.title)} — Deadline ${UI.fmtDate(asg.dueDate)}</div>
-      <div class="content mb-2" style="color:var(--gray-700);">${UI.esc(asg.description)}</div>
+    const course = DB.getCourse(asg.courseId);
+    const isSoal = asg.mode === 'soal' && (asg.questionIds || []).length;
+    const overdue = Date.now() > asg.dueDate;
+
+    const answers = Object.assign({}, (sub && sub.answers) || {});
+    const questions = isSoal ? (asg.questionIds || []).map(id => DB.getQuestion(id)).filter(Boolean) : [];
+
+    const header = `
+      <div class="alert ${overdue ? 'alert-error' : 'alert-info'}" style="margin-bottom:12px;">
+        <strong>${UI.esc(asg.title)}</strong>
+        <div class="small">${credit(asg, course)} • Batas ${UI.fmtDate(asg.dueDate)}${overdue ? ' — sudah lewat' : ''}
+          ${isSoal ? ` • ${questions.length} soal` : ''}</div>
+      </div>
+      <div class="content rt-content mb-2">${RichText.render(asg.description || '')}</div>`;
+
+    const body = isSoal ? `
+      ${header}
       <form id="submitForm" class="form">
-        <div class="form-group"><label>Jawaban</label>
-          <textarea name="content" required rows="8">${UI.esc(sub?.content || '')}</textarea></div>
+        <div id="asgQuestions"></div>
         ${sub && sub.grade != null ? `
-          <div class="alert alert-info">
-            <strong>Nilai: ${sub.grade}</strong>${sub.feedback ? ` — ${UI.esc(sub.feedback)}` : ''}
-          </div>` : ''}
+          <div class="alert alert-info"><strong>Nilai: ${sub.grade}</strong>${sub.feedback ? ' — ' + UI.esc(sub.feedback) : ''}</div>` : ''}
         <div class="flex-gap" style="justify-content:flex-end;">
           <button type="button" class="btn btn-secondary" id="cancelBtn">Batal</button>
           <button type="submit" class="btn btn-primary">${sub ? 'Perbarui' : 'Kirim'} Jawaban</button>
         </div>
-      </form>
-    `;
+      </form>` : `
+      ${header}
+      <form id="submitForm" class="form">
+        <div class="form-group">
+          <label>Jawaban Anda</label>
+          ${Editor.toolbarHtml('asgAnswer')}
+          <div id="asgAnswer" class="qe-editor" contenteditable="true"
+               data-ph="Tulis jawaban Anda di sini. Rumus, tabel, dan gambar tersedia di bilah alat.">${(sub && sub.content) || ''}</div>
+        </div>
+        ${sub && sub.grade != null ? `
+          <div class="alert alert-info"><strong>Nilai: ${sub.grade}</strong>${sub.feedback ? ' — ' + UI.esc(sub.feedback) : ''}</div>` : ''}
+        <div class="flex-gap" style="justify-content:flex-end;">
+          <button type="button" class="btn btn-secondary" id="cancelBtn">Batal</button>
+          <button type="submit" class="btn btn-primary">${sub ? 'Perbarui' : 'Kirim'} Jawaban</button>
+        </div>
+      </form>`;
+
     UI.modal.open(sub ? 'Ubah Jawaban' : 'Kerjakan Tugas', body);
-    document.getElementById('cancelBtn').addEventListener('click', () => UI.modal.close());
+
+    if (isSoal) {
+      const box = document.getElementById('asgQuestions');
+      box.innerHTML = questions.map((q, i) => `
+        <div class="asg-q" data-qid="${UI.esc(q.id)}">
+          <div class="asg-q-head">
+            <span class="asg-q-n">${i + 1}</span>
+            <span class="badge badge-gray">${UI.esc(q.questionType || 'Pilihan Ganda')}</span>
+          </div>
+          <div class="asg-q-text rt-content">${RichText.render(q.text || '')}</div>
+          <div class="asg-q-answer">${answerInputHtml(q, answers[q.id])}</div>
+        </div>`).join('');
+      bindAnswerInputs(box, answers);
+    } else {
+      Editor.setHost(document.getElementById('genericModal'));
+      Editor.attach(document.getElementById('modalBody'), {});
+    }
+
+    document.getElementById('cancelBtn').addEventListener('click', () => { Editor.setHost(null); UI.modal.close(); });
     document.getElementById('submitForm').addEventListener('submit', (e) => {
       e.preventDefault();
-      const fd = new FormData(e.target);
-      const content = fd.get('content').trim();
-      if (sub) {
-        DB.updateSubmission(sub.id, { content, submittedAt: Date.now() });
+      let payload;
+      if (isSoal) {
+        const answered = questions.filter(q => {
+          const v = answers[q.id];
+          if (v == null || v === '') return false;
+          if (Array.isArray(v)) return v.some(x => x != null && x !== '');
+          return true;
+        }).length;
+        if (!answered) { UI.toast('Jawab minimal satu soal sebelum mengirim.', 'error'); return; }
+        // Skor otomatis untuk format objektif; esai tetap dinilai tutor
+        let auto = 0, autoTotal = 0;
+        questions.forEach(q => {
+          const g = global.Exam ? Exam.gradeQuestion(q, answers[q.id]) : { auto: false };
+          if (g.auto) { autoTotal++; if (g.correct) auto++; }
+        });
+        const hasEssay = questions.some(q => (q.questionType || '') === 'Esai');
+        payload = {
+          answers,
+          content: '',
+          autoCorrect: auto,
+          autoTotal,
+          submittedAt: Date.now()
+        };
+        // Bila seluruh soal objektif, nilai final bisa langsung ditetapkan
+        if (!hasEssay && autoTotal) {
+          payload.grade = Math.round((auto / autoTotal) * (asg.maxScore || 100));
+          payload.feedback = `Dinilai otomatis: ${auto}/${autoTotal} benar.`;
+        }
       } else {
-        DB.addSubmission({ assignmentId, studentId: user.id, content });
+        const ed = document.getElementById('asgAnswer');
+        const content = RichText.sanitize(ed ? ed.innerHTML : '');
+        if (!RichText.plain(content, 400).trim()) { UI.toast('Jawaban masih kosong.', 'error'); return; }
+        payload = { content, submittedAt: Date.now() };
       }
-      // Sinkron ke guru pengajar dan orang tua
-      const course = asg ? DB.getCourse(asg.courseId) : null;
-      if (course && course.teacherId) {
+
+      if (sub) DB.updateSubmission(sub.id, payload);
+      else DB.addSubmission(Object.assign({ assignmentId, studentId: user.id }, payload));
+
+      // Notifikasi ke tutor PEMBUAT tugas (bukan sembarang tutor kelas)
+      const ownerId = (asg.createdBy) || (course && DB.courseTeacherIds(course)[0]);
+      if (ownerId) {
         DB.addNotification({
-          userId: course.teacherId, type: 'tugas', icon: '📥',
+          userId: ownerId, type: 'tugas', icon: '📥',
           title: sub ? 'Jawaban diperbarui' : 'Submission baru',
-          body: `${user.name} — ${asg.title} (${course.title}).`,
+          body: `${user.name} — ${asg.title}${course ? ' (' + DB.courseTitle(course) + ')' : ''}.`,
           link: 'grading'
         });
       }
       DB.getParentsOfStudent(user.id).forEach(p => DB.addNotification({
         userId: p.id, type: 'tugas', icon: '✅',
         title: `${user.name} mengumpulkan tugas`,
-        body: `${asg.title}${course ? ' • ' + course.title : ''}.`,
+        body: `${asg.title}${course ? ' • ' + DB.courseTitle(course) : ''}.`,
         link: 'anak-tugas'
       }));
-      UI.toast('Jawaban terkirim. 🚀');
+      UI.toast(payload.grade != null
+        ? `Jawaban terkirim. Nilai otomatis: ${payload.grade}. 🚀`
+        : 'Jawaban terkirim. 🚀', 'success');
+      Editor.setHost(null);
       UI.modal.close();
-      // refresh the dashboard view
-      const currentKey = document.querySelector('.side-nav a.active')?.dataset.key || 'assignments';
-      Dashboard.navigate(currentKey);
+      const currentKey = (document.querySelector('.side-nav a.active') || {}).dataset
+        ? document.querySelector('.side-nav a.active').dataset.key : 'assignments';
+      Dashboard.navigate(currentKey || 'assignments');
+    });
+  }
+
+  /**
+   * Pengacakan tetap (deterministik) berdasarkan kunci teks.
+   * Dipakai agar soal Urutan dan Menjodohkan tidak menampilkan kunci apa
+   * adanya, tetapi urutannya tidak berubah setiap kali dirender ulang.
+   */
+  function seededShuffle(arr, seed) {
+    const out = arr.slice();
+    let h = 2166136261;
+    const key = String(seed || '');
+    for (let i = 0; i < key.length; i++) { h ^= key.charCodeAt(i); h = Math.imul(h, 16777619); }
+    let x = (h >>> 0) || 1;
+    const next = () => { x ^= x << 13; x ^= x >>> 17; x ^= x << 5; return (x >>> 0) / 4294967296; };
+    for (let i = out.length - 1; i > 0; i--) {
+      const j = Math.floor(next() * (i + 1));
+      const t = out[i]; out[i] = out[j]; out[j] = t;
+    }
+    return out;
+  }
+
+  /**
+   * Kolom jawaban sesuai format soal.
+   * PENTING: bentuk nilai jawaban harus sama persis dengan yang diharapkan
+   * Exam.gradeQuestion agar penilaian otomatis konsisten dengan CBT:
+   *   Pilihan Ganda / Benar-Salah -> Number (indeks)
+   *   Pilihan Lebih dari Satu     -> Array<Number>
+   *   Majemuk Kompleks            -> Array<Boolean> (indeks = pernyataan)
+   *   Menjodohkan                 -> Array<String>  (indeks = pasangan)
+   *   Urutan                      -> Array<String>  (teks asli item)
+   *   Isian Singkat / Esai        -> String
+   */
+  function answerInputHtml(q, val) {
+    const fmt = q.questionType || 'Pilihan Ganda';
+    const opts = q.options || [];
+    if (fmt === 'Pilihan Ganda' || fmt === 'Benar/Salah') {
+      return opts.map((o, i) => `
+        <label class="asg-opt ${Number(val) === i ? 'is-on' : ''}">
+          <input type="radio" name="q_${UI.esc(q.id)}" value="${i}" ${Number(val) === i ? 'checked' : ''} />
+          <span class="ao-k">${String.fromCharCode(65 + i)}</span>
+          <span class="rt-content">${RichText.render(o)}</span>
+        </label>`).join('');
+    }
+    if (fmt === 'Pilihan Lebih dari Satu') {
+      const arr = Array.isArray(val) ? val.map(String) : [];
+      return opts.map((o, i) => `
+        <label class="asg-opt ${arr.includes(String(i)) ? 'is-on' : ''}">
+          <input type="checkbox" data-multi="${UI.esc(q.id)}" value="${i}" ${arr.includes(String(i)) ? 'checked' : ''} />
+          <span class="ao-k">${String.fromCharCode(65 + i)}</span>
+          <span class="rt-content">${RichText.render(o)}</span>
+        </label>`).join('');
+    }
+    if (fmt === 'Isian Singkat') {
+      return `<input type="text" class="input" data-short="${UI.esc(q.id)}" value="${UI.esc(val || '')}"
+                     placeholder="Tulis jawaban singkat" />`;
+    }
+    if (fmt === 'Majemuk Kompleks') {
+      return `<div class="table-wrap"><table class="table"><thead><tr><th>Pernyataan</th><th>Benar</th><th>Salah</th></tr></thead><tbody>
+        ${(q.statements || []).map((st, si) => {
+          const cur = (Array.isArray(val) && val[si] != null) ? String(val[si]) : '';
+          return `<tr>
+            <td class="rt-content">${RichText.render(st.text || '')}</td>
+            <td><input type="radio" name="cplx_${UI.esc(q.id)}_${si}" data-cplx="${UI.esc(q.id)}" data-si="${si}" value="true" ${cur === 'true' ? 'checked' : ''} /></td>
+            <td><input type="radio" name="cplx_${UI.esc(q.id)}_${si}" data-cplx="${UI.esc(q.id)}" data-si="${si}" value="false" ${cur === 'false' ? 'checked' : ''} /></td>
+          </tr>`;
+        }).join('')}
+      </tbody></table></div>`;
+    }
+    if (fmt === 'Menjodohkan') {
+      const rights = seededShuffle((q.pairs || []).map(pp => pp.right), q.id + '|match');
+      return `<div class="asg-match">
+        ${(q.pairs || []).map((pp, pi) => `
+          <div class="am-row">
+            <span class="rt-content">${RichText.render(pp.left || '')}</span>
+            <select class="input" data-match="${UI.esc(q.id)}" data-pi="${pi}">
+              <option value="">— pilih —</option>
+              ${rights.map(r => `<option value="${UI.esc(r)}" ${(Array.isArray(val) && val[pi] === r) ? 'selected' : ''}>${UI.esc(RichText.plain(r, 60))}</option>`).join('')}
+            </select>
+          </div>`).join('')}
+      </div>`;
+    }
+    if (fmt === 'Urutan') {
+      const items = Array.isArray(val) && val.length
+        ? val
+        : seededShuffle((q.orderItems || []).slice(), q.id + '|order');
+      return `<ol class="asg-order" data-order="${UI.esc(q.id)}">
+        ${items.map(it => `<li data-raw="${UI.esc(it)}"><span class="rt-content">${RichText.render(it)}</span>
+          <span class="ao-move"><button type="button" class="btn btn-sm btn-secondary" data-mv="up">↑</button>
+          <button type="button" class="btn btn-sm btn-secondary" data-mv="down">↓</button></span></li>`).join('')}
+      </ol>`;
+    }
+    // Esai
+    return `<textarea class="input" rows="5" data-essay="${UI.esc(q.id)}"
+                      placeholder="Tulis uraian jawaban Anda">${UI.esc(val || '')}</textarea>`;
+  }
+
+  /** Sambungkan semua kolom jawaban ke objek answers (bentuk sesuai grader). */
+  function bindAnswerInputs(box, answers) {
+    box.querySelectorAll('input[type="radio"][name^="q_"]').forEach(r => r.addEventListener('change', () => {
+      const qid = r.name.slice(2);
+      answers[qid] = Number(r.value);          // indeks sebagai ANGKA, seperti CBT
+      r.closest('.asg-q-answer').querySelectorAll('.asg-opt').forEach(l =>
+        l.classList.toggle('is-on', !!l.querySelector('input').checked));
+    }));
+    box.querySelectorAll('[data-multi]').forEach(cb => cb.addEventListener('change', () => {
+      const qid = cb.dataset.multi;
+      answers[qid] = [...box.querySelectorAll(`[data-multi="${qid}"]:checked`)].map(x => Number(x.value));
+      box.querySelectorAll(`[data-multi="${qid}"]`).forEach(x =>
+        x.closest('.asg-opt').classList.toggle('is-on', x.checked));
+    }));
+    box.querySelectorAll('[data-short]').forEach(inp => inp.addEventListener('input', () => {
+      answers[inp.dataset.short] = inp.value;
+    }));
+    box.querySelectorAll('[data-essay]').forEach(t => t.addEventListener('input', () => {
+      answers[t.dataset.essay] = t.value;
+    }));
+    // Majemuk Kompleks & Menjodohkan memakai ARRAY berindeks, bukan objek,
+    // karena grader membacanya dengan ans[i].
+    box.querySelectorAll('[data-cplx]').forEach(r => r.addEventListener('change', () => {
+      const qid = r.dataset.cplx;
+      if (!Array.isArray(answers[qid])) answers[qid] = [];
+      answers[qid][Number(r.dataset.si)] = r.value === 'true';
+    }));
+    box.querySelectorAll('[data-match]').forEach(sel => sel.addEventListener('change', () => {
+      const qid = sel.dataset.match;
+      if (!Array.isArray(answers[qid])) answers[qid] = [];
+      answers[qid][Number(sel.dataset.pi)] = sel.value;
+    }));
+    box.querySelectorAll('[data-order]').forEach(ol => {
+      const qid = ol.dataset.order;
+      // Simpan teks ASLI item (data-raw), bukan HTML hasil render, agar
+      // perbandingan dengan kunci urutan tepat.
+      const sync = () => {
+        answers[qid] = [...ol.querySelectorAll('li')].map(li => li.dataset.raw || '');
+      };
+      ol.querySelectorAll('[data-mv]').forEach(btn => btn.addEventListener('click', () => {
+        const li = btn.closest('li');
+        if (btn.dataset.mv === 'up' && li.previousElementSibling) li.parentNode.insertBefore(li, li.previousElementSibling);
+        if (btn.dataset.mv === 'down' && li.nextElementSibling) li.parentNode.insertBefore(li.nextElementSibling, li);
+        sync();
+      }));
+      sync();
     });
   }
 
@@ -623,13 +864,13 @@
           <div class="module-card">
             <div class="module-head">
               <h4>${UI.esc(m.title)}</h4>
-              <div class="meta">${UI.esc(m.description || '')} • ${(m.sections || []).length} bagian</div>
+              <div class="meta">${credit(m, course)} • ${UI.esc(m.description || '')} • ${(m.sections || []).length} bagian</div>
             </div>
             <div class="module-body">
               ${(m.sections || []).map(s => `
                 <div class="module-section">
                   <div class="module-section-title">${UI.esc(s.title)}</div>
-                  <div class="module-section-content">${UI.esc(s.content)}</div>
+                  <div class="module-section-content rt-content">${RichText.render(s.content || '')}</div>
                 </div>`).join('') || '<div class="module-section muted">Belum ada bagian.</div>'}
               ${m.link ? `<div class="module-section"><a href="${UI.esc(m.link)}" target="_blank" rel="noopener">Buka tautan modul →</a></div>` : ''}
             </div>
@@ -649,8 +890,9 @@
               <div class="title">${UI.esc(r.title)}</div>
               <span class="muted small">${UI.fmtDate(r.recordedAt)} • ${UI.fmtDuration(r.duration)}</span>
             </div>
+            <div class="meta">${credit(r, course)}</div>
             ${Shared.videoEmbedHtml(r.url)}
-            ${r.notes ? `<div class="content">${UI.esc(r.notes)}</div>` : ''}
+            ${r.notes ? `<div class="content rt-content">${RichText.render(r.notes)}</div>` : ''}
           </div>`).join('')}
       </div>
     `;
@@ -784,13 +1026,13 @@
           <div class="module-card">
             <div class="module-head">
               <h4>${UI.esc(m.title)}</h4>
-              <div class="meta">${UI.esc(c ? c.title : '-')} • ${(m.sections || []).length} bagian</div>
+              <div class="meta">${UI.esc(c ? DB.courseTitle(c) : '-')} • ${credit(m, c)} • ${(m.sections || []).length} bagian</div>
             </div>
             <div class="module-body">
               ${(m.sections || []).map(s => `
                 <div class="module-section">
                   <div class="module-section-title">${UI.esc(s.title)}</div>
-                  <div class="module-section-content">${UI.esc(s.content)}</div>
+                  <div class="module-section-content rt-content">${RichText.render(s.content || '')}</div>
                 </div>`).join('') || '<div class="module-section muted">Belum ada bagian.</div>'}
               ${m.link ? `<div class="module-section"><a href="${UI.esc(m.link)}" target="_blank" rel="noopener">Buka tautan →</a></div>` : ''}
             </div>

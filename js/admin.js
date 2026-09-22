@@ -322,16 +322,12 @@
     const editing = editId ? DB.getUser(editId) : null;
     const title = editing ? `Edit ${isGuru ? 'Guru' : 'Siswa'}` : `Tambah ${isGuru ? 'Guru' : 'Siswa'}`;
 
-    // Subtest options for guru
-    const SUBTESTS = [
-      'Penalaran Umum (PU)',
-      'Pengetahuan dan Pemahaman Umum (PPU)',
-      'Kemampuan Memahami Bacaan dan Menulis (PBM)',
-      'Pengetahuan Kuantitatif (PK)',
-      'Literasi dalam Bahasa Indonesia',
-      'Literasi dalam Bahasa Inggris',
-      'Penalaran Matematika'
-    ];
+    /* Daftar subtest diambil dari konstanta bersama DB.SUBTESTS supaya tidak
+     * ada dua sumber kebenaran, dan selalu tersedia opsi "Lainnya" agar
+     * bimbel bisa menambah materi di luar tujuh subtest UTBK. */
+    const SUBTESTS = DB.SUBTEST_NAMES;
+    const curSubject = editing ? (editing.subject || '') : '';
+    const isOtherSubject = !!curSubject && !SUBTESTS.includes(curSubject);
 
     // Status options
     const STATUSES = ['Aktif', 'Nonaktif', 'Dikeluarkan'];
@@ -360,11 +356,18 @@
               </select>
             </div>
           </div>
-          <div class="form-group"><label>Guru Subtest</label>
-            <select name="subject" required>
+          <div class="form-group"><label for="guSubject">Guru Subtest</label>
+            <select name="subject" id="guSubject" required>
               <option value="">-- Pilih Subtest --</option>
-              ${SUBTESTS.map(s => `<option value="${s}" ${editing?.subject === s ? 'selected' : ''}>${s}</option>`).join('')}
+              ${SUBTESTS.map(s => `<option value="${UI.esc(s)}" ${curSubject === s ? 'selected' : ''}>${UI.esc(s)}</option>`).join('')}
+              <option value="__OTHER__" ${isOtherSubject ? 'selected' : ''}>✏️ Lainnya (tulis manual)</option>
             </select>
+          </div>
+          <div class="form-group ${isOtherSubject ? '' : 'hidden'}" id="guSubjectOtherBox">
+            <label for="guSubjectOther">Nama Subtest / Materi (manual)</label>
+            <input name="subjectOther" id="guSubjectOther" value="${UI.esc(isOtherSubject ? curSubject : '')}"
+                   placeholder="mis. Kimia Dasar, Kelas Intensif Saintek" />
+            <div class="muted small">Dipakai bila materi yang diampu di luar tujuh subtest UTBK.</div>
           </div>
           <div class="form-group"><label>Tarif Gaji per Bulan (Rp)</label>
             <input name="salaryRate" type="number" min="0" value="${editing?.salaryRate || 0}" /></div>
@@ -420,6 +423,24 @@
 
     UI.modal.open(title, body);
     document.getElementById('cancelBtn').addEventListener('click', () => UI.modal.close());
+
+    /* Opsi "Lainnya" pada subtest tutor: tampilkan kolom manual bila dipilih.
+     * Pola yang sama dipakai pada form kelas agar konsisten. */
+    const subjSel = document.getElementById('guSubject');
+    const subjBox = document.getElementById('guSubjectOtherBox');
+    const subjInp = document.getElementById('guSubjectOther');
+    const syncSubject = () => {
+      if (!subjSel) return;
+      const other = subjSel.value === '__OTHER__';
+      subjBox.classList.toggle('hidden', !other);
+      subjInp.required = other;
+    };
+    if (subjSel) { subjSel.addEventListener('change', syncSubject); syncSubject(); }
+    const currentSubject = () => {
+      if (!subjSel) return '';
+      return subjSel.value === '__OTHER__' ? (subjInp.value || '').trim() : subjSel.value;
+    };
+
     document.getElementById('userForm').addEventListener('submit', (e) => {
       e.preventDefault();
       const fd = new FormData(e.target);
@@ -437,9 +458,14 @@
           err.classList.remove('hidden');
           return;
         }
+        if (isGuru && !currentSubject()) {
+          err.textContent = 'Pilih subtest atau tulis nama materinya secara manual.';
+          err.classList.remove('hidden');
+          return;
+        }
         const record = { id: DB.uid('u'), role, name, username, email, password, status };
         if (isGuru) {
-          record.subject = fd.get('subject');
+          record.subject = currentSubject();
           record.whatsapp = fd.get('whatsapp').trim();
           record.salaryRate = Number(fd.get('salaryRate') || 0);
         } else {
@@ -451,9 +477,14 @@
         DB.addUser(record);
         UI.toast('Berhasil menambahkan.');
       } else {
+        if (isGuru && !currentSubject()) {
+          err.textContent = 'Pilih subtest atau tulis nama materinya secara manual.';
+          err.classList.remove('hidden');
+          return;
+        }
         const patch = { name, email, status };
         if (isGuru) {
-          patch.subject = fd.get('subject');
+          patch.subject = currentSubject();
           patch.whatsapp = fd.get('whatsapp').trim();
           patch.salaryRate = Number(fd.get('salaryRate') || 0);
         } else {
@@ -1027,6 +1058,8 @@
         </table></div>
       </div>
 
+      ${Jadwal.courseScheduleCardHtml(course, user, { linkToJadwal: true })}
+
       <div class="tabs">
         <button class="tab-btn active" data-atab="materials">Materi (${DB.getMaterialsByCourse(course.id).length})</button>
         <button class="tab-btn" data-atab="modules">Modul (${DB.getModulesByCourse(course.id).length})</button>
@@ -1058,6 +1091,8 @@
       btn.classList.add('active');
       showTab(btn.dataset.atab);
     }));
+    const goJ = document.getElementById('csGoJadwal');
+    if (goJ) goJ.addEventListener('click', () => Dashboard.navigate('jadwal-kelas'));
     showTab('materials');
   }
 
@@ -1820,6 +1855,43 @@
       </div>
 
       <div class="card">
+        <div class="card-header">
+          ${UI.secHead('🎨', 'Identitas & Logo Rubela', 'tampil di halaman masuk dan sidebar semua panel')}
+        </div>
+        <div class="brand-setting">
+          <div class="bs-preview">
+            <div class="bs-logo" id="brandPreview">${(() => {
+              const st = DB.getSettings();
+              return st.appLogo
+                ? `<img src="${UI.esc(st.appLogo)}" alt="Logo" />`
+                : UI.esc((st.appName || 'R').trim().charAt(0).toUpperCase());
+            })()}</div>
+            <div>
+              <strong id="brandNamePrev">${UI.esc(DB.getSettings().appName || 'LMS Rubela')}</strong>
+              <div class="muted small" id="brandTagPrev">${UI.esc(DB.getSettings().appTagline || '')}</div>
+            </div>
+          </div>
+          <div class="bs-fields">
+            <div class="form-row">
+              <div class="form-group"><label for="appName">Nama Aplikasi</label>
+                <input id="appName" value="${UI.esc(DB.getSettings().appName || 'LMS Rubela')}" /></div>
+              <div class="form-group"><label for="appTagline">Tagline</label>
+                <input id="appTagline" value="${UI.esc(DB.getSettings().appTagline || '')}" /></div>
+            </div>
+            <div class="form-group">
+              <label for="appLogoFile">Unggah Logo (PNG/JPG/SVG)</label>
+              <input type="file" id="appLogoFile" accept="image/*" />
+              <div class="muted small">Gambar otomatis diperkecil agar hemat penyimpanan. Disarankan bentuk persegi.</div>
+            </div>
+            <div class="flex-gap">
+              <button class="btn btn-primary btn-sm" id="saveBrandBtn">Simpan Identitas</button>
+              <button class="btn btn-secondary btn-sm" id="removeLogoBtn" ${DB.getSettings().appLogo ? '' : 'disabled'}>Hapus Logo</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
         <div class="card-header"><h3>Pengaturan Sistem</h3></div>
         <p class="muted">Data LMS disimpan di browser Anda (localStorage). Gunakan tombol di bawah untuk mereset ke data contoh.</p>
         <div class="flex-gap">
@@ -1851,6 +1923,51 @@
       UI.toast('Kelas dihapus.');
       renderSettings(container);
     }));
+
+    /* ---- Identitas & logo ---- */
+    let pendingLogo = null;
+    const brandPrev = document.getElementById('brandPreview');
+    document.getElementById('appName').addEventListener('input', (e) => {
+      document.getElementById('brandNamePrev').textContent = e.target.value || 'LMS Rubela';
+      if (!DB.getSettings().appLogo && !pendingLogo) {
+        brandPrev.textContent = (e.target.value || 'R').trim().charAt(0).toUpperCase();
+      }
+    });
+    document.getElementById('appTagline').addEventListener('input', (e) => {
+      document.getElementById('brandTagPrev').textContent = e.target.value;
+    });
+    document.getElementById('appLogoFile').addEventListener('change', async (e) => {
+      const f = e.target.files[0];
+      if (!f) return;
+      brandPrev.innerHTML = '<span class="spinner"></span>';
+      try {
+        // SVG tidak perlu (dan tidak bisa) dikompres lewat canvas
+        pendingLogo = /svg/i.test(f.type)
+          ? await Editor.readAsDataUrl(f)
+          : await Editor.compressImage(f);
+        brandPrev.innerHTML = `<img src="${UI.esc(pendingLogo)}" alt="Logo" />`;
+        UI.toast('Logo siap disimpan. Tekan "Simpan Identitas".', 'info');
+      } catch (err) {
+        brandPrev.textContent = 'R';
+        UI.toast(err.message || 'Gagal membaca gambar.', 'error');
+      }
+    });
+    document.getElementById('saveBrandBtn').addEventListener('click', () => {
+      const name = document.getElementById('appName').value.trim() || 'LMS Rubela';
+      DB.setSetting('appName', name);
+      DB.setSetting('appTagline', document.getElementById('appTagline').value.trim());
+      if (pendingLogo) DB.setSetting('appLogo', pendingLogo);
+      UI.toast('Identitas aplikasi disimpan.', 'success');
+      if (global.Branding) Branding.apply();
+      renderSettings(container);
+    });
+    document.getElementById('removeLogoBtn').addEventListener('click', () => {
+      DB.setSetting('appLogo', '');
+      pendingLogo = null;
+      UI.toast('Logo dihapus, kembali memakai inisial nama.', 'info');
+      if (global.Branding) Branding.apply();
+      renderSettings(container);
+    });
 
     document.getElementById('resetBtn').addEventListener('click', () => {
       if (!UI.confirmDialog('Reset SEMUA data? Akun dan kelas akan kembali ke default.')) return;
@@ -2415,6 +2532,9 @@
   }
 
   /* ========== KEUANGAN ========== */
+  /* Penyaring jenis pemasukan pada halaman Keuangan */
+  let incomeKindFilter = '';
+
   function renderKeuangan(container) {
     const renderAll = () => {
       const payments = DB.getPayments();
@@ -2426,12 +2546,38 @@
       const salTotal = salaries.filter(s => s.status === 'dibayar').reduce((s, p) => s + (p.amount || 0), 0);
       const expense = expTotal + salTotal;
 
+      /* Pemasukan bimbel tidak hanya SPP: denda pelanggaran/keterlambatan dan
+       * biaya lain juga masuk hitungan, jadi dirinci per jenis. */
+      const byKind = DB.incomeByKind();
+      const fineTotal = byKind.denda ? byKind.denda.lunas : 0;
+      const fineCount = DB.getFines().length;
+
       container.innerHTML = `
         <div class="finance-summary">
           <div class="fin-card income"><div class="label">Pemasukan</div><div class="value">${UI.fmtRp(income)}</div></div>
           <div class="fin-card expense"><div class="label">Pengeluaran</div><div class="value">${UI.fmtRp(expense)}</div></div>
           <div class="fin-card profit"><div class="label">Laba Bersih</div><div class="value">${UI.fmtRp(income - expense)}</div></div>
           <div class="fin-card" style="border-left:4px solid var(--warning);"><div class="label">Piutang</div><div class="value" style="color:var(--warning);">${UI.fmtRp(pendingIncome)}</div></div>
+        </div>
+
+        <div class="card">
+          <div class="card-header">${UI.secHead('📊', 'Rincian Pemasukan per Jenis', 'SPP, pendaftaran, denda siswa, dan pemasukan lain')}</div>
+          <div class="kind-grid">
+            ${DB.PAYMENT_KINDS.map(k => {
+              const v = byKind[k.key] || { lunas: 0, pending: 0, count: 0 };
+              return `<div class="kind-card ${k.fine ? 'is-fine' : ''}">
+                <div class="kk-ic">${k.icon}</div>
+                <div class="kk-body">
+                  <div class="kk-nm">${UI.esc(k.label)}</div>
+                  <div class="kk-val">${UI.fmtRp(v.lunas)}</div>
+                  <div class="kk-sub">${v.count} transaksi${v.pending ? ` • piutang ${UI.fmtRp(v.pending)}` : ''}</div>
+                </div>
+              </div>`;
+            }).join('')}
+          </div>
+          ${fineCount ? `<p class="muted small mt-1">
+            Denda tercatat ${fineCount} kali dengan total ${UI.fmtRp(fineTotal)}. Alasan denda tersimpan
+            pada tiap transaksi agar bisa ditelusuri.</p>` : ''}
         </div>
 
         <div class="subtabs">
@@ -2457,21 +2603,33 @@
     };
 
     const renderIncome = (box) => {
-      const payments = DB.getPayments().slice().sort((a, b) => (b.paidAt || b.createdAt) - (a.paidAt || a.createdAt));
+      let payments = DB.getPayments().slice().sort((a, b) => (b.paidAt || b.createdAt) - (a.paidAt || a.createdAt));
+      if (incomeKindFilter) payments = payments.filter(p => DB.paymentKind(p) === incomeKindFilter);
       box.innerHTML = `
         <div class="card">
-          <div class="card-header"><h3>Pembayaran Siswa</h3>
-            <button class="btn btn-primary btn-sm" id="addPayBtn">+ Tambah Pembayaran</button></div>
-          ${payments.length === 0 ? emptyState('Belum ada pembayaran.') : `
+          <div class="card-header">
+            ${UI.secHead('💵', `Pemasukan (${payments.length})`, 'SPP, pendaftaran, denda siswa, dan pemasukan lain')}
+            <div class="flex-gap">
+              <select id="payKindFilter" class="input" style="max-width:190px;">
+                <option value="">Semua jenis</option>
+                ${DB.PAYMENT_KINDS.map(k => `<option value="${k.key}" ${incomeKindFilter === k.key ? 'selected' : ''}>${k.icon} ${UI.esc(k.label)}</option>`).join('')}
+              </select>
+              <button class="btn btn-primary btn-sm" id="addPayBtn">+ Tambah Pemasukan</button>
+            </div>
+          </div>
+          ${payments.length === 0 ? emptyState('Belum ada pemasukan pada jenis ini.') : `
           <div class="table-wrap"><table class="table">
-            <thead><tr><th>Tanggal</th><th>Siswa</th><th>Kelas</th><th>Jumlah</th><th>Metode</th><th>Status</th><th>Catatan</th><th>Aksi</th></tr></thead>
+            <thead><tr><th>Tanggal</th><th>Siswa</th><th>Jenis</th><th>Kelas</th><th>Jumlah</th><th>Metode</th><th>Status</th><th>Catatan</th><th>Aksi</th></tr></thead>
             <tbody>${payments.map(p => {
               const s = DB.getUser(p.studentId);
               const c = p.courseId ? DB.getCourse(p.courseId) : null;
               return `<tr>
                 <td>${UI.fmtDate(p.paidAt || p.createdAt)}</td>
                 <td><strong>${UI.esc(s ? s.name : '-')}</strong></td>
-                <td>${UI.esc(c ? c.title : 'Umum')}</td>
+                <td>${(() => { const k = DB.paymentKindMeta(DB.paymentKind(p));
+                  return `<span class="badge ${k.fine ? 'badge-warning' : 'badge-info'}">${k.icon} ${UI.esc(k.label)}</span>
+                    ${p.fineReason ? `<div class="muted small">${UI.esc(p.fineReason)}</div>` : ''}`; })()}</td>
+                <td>${UI.esc(c ? DB.courseTitle(c) : 'Umum')}</td>
                 <td>${UI.fmtRp(p.amount)}</td>
                 <td>${UI.esc(p.method || '-')}</td>
                 <td>${p.status === 'lunas' ? '<span class="badge badge-success">Lunas</span>' : '<span class="badge badge-warning">' + UI.esc(p.status || '-') + '</span>'}</td>
@@ -2486,6 +2644,11 @@
         </div>
       `;
       document.getElementById('addPayBtn').addEventListener('click', () => openPaymentForm());
+      const kindSel = document.getElementById('payKindFilter');
+      if (kindSel) kindSel.addEventListener('change', () => {
+        incomeKindFilter = kindSel.value;
+        renderIncome(box);
+      });
       box.querySelectorAll('[data-edit-pay]').forEach(b => b.addEventListener('click', () => openPaymentForm(b.dataset.editPay)));
       box.querySelectorAll('[data-del-pay]').forEach(b => b.addEventListener('click', () => {
         if (!UI.confirmDialog('Hapus pembayaran ini?')) return;
@@ -2516,22 +2679,38 @@
             </div>
           </div>
           <div class="form-row">
+            <div class="form-group"><label for="payKind">Jenis Pemasukan</label>
+              <select name="kind" id="payKind">
+                ${DB.PAYMENT_KINDS.map(k => `<option value="${k.key}" ${DB.paymentKind(editing || {}) === k.key ? 'selected' : ''}>${k.icon} ${UI.esc(k.label)}</option>`).join('')}
+              </select>
+            </div>
             <div class="form-group"><label>Jumlah (Rp)</label>
               <input name="amount" type="number" min="0" required value="${editing?.amount || 0}" /></div>
+          </div>
+
+          <div class="form-group ${DB.paymentKind(editing || {}) === 'denda' ? '' : 'hidden'}" id="payFineBox">
+            <label for="payFine">Alasan Denda</label>
+            <select name="fineReason" id="payFine">
+              ${DB.FINE_REASONS.map(r => `<option value="${UI.esc(r)}" ${editing && editing.fineReason === r ? 'selected' : ''}>${UI.esc(r)}</option>`).join('')}
+            </select>
+            <input name="fineReasonOther" id="payFineOther" class="mt-1 hidden"
+                   placeholder="Tulis alasan denda" value="${UI.esc(editing && !DB.FINE_REASONS.includes(editing.fineReason || '') ? (editing.fineReason || '') : '')}" />
+            <div class="muted small">Alasan ini tercatat pada transaksi agar denda dapat ditelusuri.</div>
+          </div>
+
+          <div class="form-row">
             <div class="form-group"><label>Metode</label>
               <select name="method">
                 ${['transfer', 'cash', 'qris', 'lainnya'].map(m => `<option value="${m}" ${editing?.method === m ? 'selected' : ''}>${m}</option>`).join('')}
               </select>
             </div>
-          </div>
-          <div class="form-row">
-            <div class="form-group"><label>Status</label>
-              <select name="status">
-                ${['lunas', 'pending', 'dibatalkan'].map(s => `<option value="${s}" ${editing?.status === s ? 'selected' : ''}>${s}</option>`).join('')}
-              </select>
-            </div>
             <div class="form-group"><label>Tanggal</label>
               <input name="paidAt" type="date" required value="${UI.toDateInput(editing?.paidAt || Date.now())}" /></div>
+          </div>
+          <div class="form-group"><label>Status</label>
+            <select name="status">
+              ${['lunas', 'pending', 'dibatalkan'].map(s => `<option value="${s}" ${editing?.status === s ? 'selected' : ''}>${s}</option>`).join('')}
+            </select>
           </div>
           <div class="form-group"><label>Catatan</label>
             <input name="note" value="${UI.esc(editing?.note || '')}" /></div>
@@ -2540,20 +2719,45 @@
             <button type="submit" class="btn btn-primary">Simpan</button>
           </div>
         </form>`;
-      UI.modal.open(editing ? 'Edit Pembayaran' : 'Tambah Pembayaran', body);
+      UI.modal.open(editing ? 'Edit Pemasukan' : 'Tambah Pemasukan', body);
       document.getElementById('cancelBtn').addEventListener('click', () => UI.modal.close());
+
+      // Alasan denda hanya relevan untuk jenis "denda"
+      const kindEl = document.getElementById('payKind');
+      const fineBox = document.getElementById('payFineBox');
+      const fineSel = document.getElementById('payFine');
+      const fineOther = document.getElementById('payFineOther');
+      const syncFine = () => {
+        const isFine = kindEl.value === 'denda';
+        fineBox.classList.toggle('hidden', !isFine);
+        fineOther.classList.toggle('hidden', !(isFine && fineSel.value === 'Lainnya'));
+      };
+      kindEl.addEventListener('change', syncFine);
+      fineSel.addEventListener('change', syncFine);
+      syncFine();
       document.getElementById('payForm').addEventListener('submit', (e) => {
         e.preventDefault();
         const fd = new FormData(e.target);
+        const kind = fd.get('kind') || 'spp';
         const payload = {
           studentId: fd.get('studentId'),
           courseId: fd.get('courseId') || null,
+          kind,
           amount: Number(fd.get('amount')),
           method: fd.get('method'),
           status: fd.get('status'),
           note: fd.get('note').trim(),
           paidAt: new Date(fd.get('paidAt')).getTime()
         };
+        if (kind === 'denda') {
+          const picked = fd.get('fineReason') || '';
+          payload.fineReason = picked === 'Lainnya'
+            ? (String(fd.get('fineReasonOther') || '').trim() || 'Lainnya')
+            : picked;
+          if (!payload.fineReason) { UI.toast('Pilih atau tulis alasan denda.', 'error'); return; }
+        } else {
+          payload.fineReason = null;
+        }
         if (editing) DB.updatePayment(editing.id, payload);
         else DB.addPayment(payload);
         UI.toast('Pembayaran disimpan.');

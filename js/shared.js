@@ -261,17 +261,50 @@
       const ymd = (y, m, d) => `${y}-${p(m + 1)}-${p(d)}`;
       const todayStr = UI.todayYMD();
 
+      /* Rencana kelas (War Jadwal) ikut tampil di kalender agar jadwal belajar
+       * dan acara lain terlihat di satu tempat. Cakupannya otomatis mengikuti
+       * peran: admin semua, tutor kelasnya, siswa kelas yang diikuti, dan
+       * orang tua gabungan kelas anak-anaknya. */
+      const monthFrom = ymd(viewYear, viewMonth, 1);
+      const monthTo = ymd(viewYear, viewMonth, daysInMonth);
+      const plans = (global.Jadwal && Jadwal.plansForUser)
+        ? Jadwal.plansForUser(user, monthFrom, monthTo)
+        : [];
+      const planColor = (st) => st === 'fixed' ? 'var(--success-bg)'
+        : (st === 'cancelled' ? 'var(--danger-bg)'
+        : (st === 'changed' ? 'var(--warning-bg)' : 'var(--gray-100)'));
+      const planLabel = (pl) => {
+        const c = DB.getCourse(pl.courseId);
+        const short = c ? ((c.mainClasses || [])[0] || DB.courseTitle(c)) : 'Kelas';
+        return `${short}${pl.time ? ' ' + pl.time : ''}`;
+      };
+      const planTooltip = (pl) => {
+        const c = DB.getCourse(pl.courseId);
+        const t = DB.getUser(pl.teacherId);
+        const st = (DB.PLAN_STATUS && DB.PLAN_STATUS[pl.status]) || { label: pl.status };
+        return [c ? DB.courseTitle(c) : 'Kelas dihapus',
+          pl.topic || 'materi belum diisi',
+          t ? 'diajar ' + t.name : '',
+          pl.time ? pl.time + (pl.endTime ? '–' + pl.endTime : '') : '',
+          st.label,
+          pl.__childName ? 'anak: ' + pl.__childName : ''].filter(Boolean).join(' • ');
+      };
+
       // Build cells
       let cells = '';
       for (let i = 0; i < startDow; i++) cells += '<div class="cal-cell empty"></div>';
       for (let d = 1; d <= daysInMonth; d++) {
         const dateStr = ymd(viewYear, viewMonth, d);
         const dayEvents = events.filter(e => e.date === dateStr);
+        const dayPlans = plans.filter(pl => pl.date === dateStr);
         const isToday = dateStr === todayStr;
         cells += `<div class="cal-cell${isToday ? ' today' : ''}" data-date="${dateStr}">
           <div class="cal-day">${d}</div>
-          ${dayEvents.slice(0, 3).map(ev => `<div class="cal-event" style="background:${ev.color || 'var(--primary-light)'};" title="${UI.esc(ev.title)}">${UI.esc(ev.title.length > 12 ? ev.title.slice(0, 12) + '...' : ev.title)}</div>`).join('')}
-          ${dayEvents.length > 3 ? `<div class="cal-event muted">+${dayEvents.length - 3} lagi</div>` : ''}
+          ${dayPlans.slice(0, 2).map(pl => `<div class="cal-event cal-plan" data-plan-chip="${pl.id}"
+              style="background:${planColor(pl.status)};" title="${UI.esc(planTooltip(pl))}">🎓 ${UI.esc(planLabel(pl))}</div>`).join('')}
+          ${dayPlans.length > 2 ? `<div class="cal-event muted">+${dayPlans.length - 2} kelas</div>` : ''}
+          ${dayEvents.slice(0, 2).map(ev => `<div class="cal-event" style="background:${ev.color || 'var(--primary-light)'};" title="${UI.esc(ev.title)}">${UI.esc(ev.title.length > 12 ? ev.title.slice(0, 12) + '...' : ev.title)}</div>`).join('')}
+          ${dayEvents.length > 2 ? `<div class="cal-event muted">+${dayEvents.length - 2} acara</div>` : ''}
         </div>`;
       }
 
@@ -289,6 +322,30 @@
             ${dayLabels.map(l => `<div class="cal-header">${l}</div>`).join('')}
             ${cells}
           </div>
+        </div>
+
+        <div class="card">
+          <div class="card-header">
+            ${UI.secHead('🎓', `Jadwal Kelas Bulan Ini (${plans.length})`, 'diambil dari War Jadwal Kelas')}
+          </div>
+          ${plans.length === 0
+            ? '<div class="empty"><div class="empty-icon">🗓️</div>Belum ada rencana kelas pada bulan ini.</div>'
+            : `<div class="table-wrap"><table class="table">
+                <thead><tr><th>Tanggal</th><th>Kelas</th><th>Tutor</th><th>Materi</th><th>Jam</th><th>Status</th></tr></thead>
+                <tbody>${plans.slice().sort((a, b) => a.date.localeCompare(b.date)).map(pl => {
+                  const c = DB.getCourse(pl.courseId);
+                  const t = DB.getUser(pl.teacherId);
+                  const st = (DB.PLAN_STATUS && DB.PLAN_STATUS[pl.status]) || { label: pl.status, badge: 'badge-gray' };
+                  return `<tr>
+                    <td>${UI.fmtYMD(pl.date)}</td>
+                    <td>${UI.esc(c ? DB.courseTitle(c) : 'Kelas dihapus')}${pl.__childName ? `<div class="muted small">anak: ${UI.esc(pl.__childName)}</div>` : ''}</td>
+                    <td>${UI.esc(t ? t.name : '-')}</td>
+                    <td>${pl.topic ? UI.esc(pl.topic) : '<span class="muted">belum diisi</span>'}</td>
+                    <td>${UI.esc(pl.time || '-')}${pl.endTime ? '–' + UI.esc(pl.endTime) : ''}</td>
+                    <td><span class="badge ${st.badge}">${UI.esc(st.label)}</span></td>
+                  </tr>`;
+                }).join('')}</tbody>
+              </table></div>`}
         </div>
 
         <div class="card">
@@ -326,6 +383,9 @@
 
       // Click date to add event
       if (canEdit) {
+        // Klik ganda pada chip jadwal kelas tidak boleh membuka form acara baru
+        container.querySelectorAll('[data-plan-chip]').forEach(chip =>
+          chip.addEventListener('dblclick', (e) => e.stopPropagation()));
         container.querySelectorAll('.cal-cell[data-date]').forEach(cell => {
           cell.addEventListener('dblclick', () => openEventForm(cell.dataset.date));
         });
@@ -473,6 +533,21 @@
   }
 
   /* ===== Announcements / Pengumuman ===== */
+  /** Label ramah untuk sasaran pengumuman, mis. "Peran: Orang Tua". */
+  function audienceLabel(a) {
+    const roles = { guru: 'Tutor', siswa: 'Siswa', orangtua: 'Orang Tua', admin: 'Admin' };
+    if (a.targetType === 'semua') return 'Semua pengguna';
+    if (a.targetType === 'role') return 'Peran: ' + (roles[a.targetRole] || a.targetRole || '-');
+    if (a.targetType === 'kelas') {
+      const n = (a.targetIds || []).length;
+      return n === 1
+        ? 'Kelas: ' + (DB.getCourse(a.targetIds[0]) ? DB.courseTitle(DB.getCourse(a.targetIds[0])) : '-')
+        : `Kelas tertentu (${n})`;
+    }
+    if (a.targetType === 'individu') return `Individu (${(a.targetIds || []).length})`;
+    return a.targetType || '-';
+  }
+
   function renderAnnouncements(container, user) {
     const canEdit = user.role === 'admin' || user.role === 'guru';
     const all = DB.getAnnouncements().sort((a, b) => b.createdAt - a.createdAt);
@@ -481,8 +556,17 @@
       if (a.targetType === 'semua') return true;
       if (a.targetType === 'individu' && a.targetIds && a.targetIds.includes(user.id)) return true;
       if (a.targetType === 'kelas') {
-        const enrolled = DB.getEnrollmentsByStudent ? DB.getEnrollmentsByStudent(user.id) : [];
-        return enrolled.some(e => a.targetIds && a.targetIds.includes(e.courseId));
+        /* Orang tua tidak terdaftar di kelas mana pun, jadi kelas yang
+         * relevan diambil dari kelas anak-anaknya. Tanpa ini pengumuman
+         * bertarget kelas tidak pernah sampai ke orang tua. */
+        const ids = [];
+        if (user.role === 'orangtua') {
+          (DB.getChildren(user.id) || []).forEach(ch =>
+            DB.getEnrollmentsByStudent(ch.id).forEach(e => ids.push(e.courseId)));
+        } else {
+          DB.getEnrollmentsByStudent(user.id).forEach(e => ids.push(e.courseId));
+        }
+        return ids.some(cid => a.targetIds && a.targetIds.includes(cid));
       }
       if (a.targetType === 'role' && a.targetRole === user.role) return true;
       return false;
@@ -501,7 +585,7 @@
               <div class="flex-between">
                 <div class="title">${UI.esc(a.title)}</div>
                 <div class="flex-gap">
-                  <span class="badge ${a.targetType === 'semua' ? 'badge-success' : 'badge-info'}">${UI.esc(a.targetType)}</span>
+                  <span class="badge ${a.targetType === 'semua' ? 'badge-success' : 'badge-info'}">${UI.esc(audienceLabel(a))}</span>
                   ${canEdit && a.authorId === user.id ? `<button class="btn btn-sm btn-danger" data-del-ann="${a.id}">Hapus</button>` : ''}
                 </div>
               </div>
@@ -533,7 +617,7 @@
           <textarea name="content" required rows="4" placeholder="Tulis pengumuman..."></textarea></div>
         <div class="form-group"><label>Ditujukan Kepada</label>
           <select name="targetType" id="annTarget">
-            <option value="semua">Semua (Guru + Siswa)</option>
+            <option value="semua">Semua Pengguna (Tutor + Siswa + Orang Tua)</option>
             <option value="role">Peran Tertentu</option>
             <option value="kelas">Kelas Tertentu</option>
             <option value="individu">Individu</option>
@@ -555,7 +639,13 @@
       if (t === 'semua') { detailBox.classList.add('hidden'); detailBox.innerHTML = ''; return; }
       detailBox.classList.remove('hidden');
       if (t === 'role') {
-        detailBox.innerHTML = '<label>Peran</label><select name="targetRole"><option value="guru">Guru</option><option value="siswa">Siswa</option></select>';
+        detailBox.innerHTML = `<label>Peran</label>
+        <select name="targetRole">
+          <option value="siswa">Siswa</option>
+          <option value="guru">Tutor</option>
+          <option value="orangtua">Orang Tua</option>
+        </select>
+        <div class="muted small">Pengumuman hanya tampil pada dashboard peran yang dipilih.</div>`;
       } else if (t === 'kelas') {
         detailBox.innerHTML = '<label>Kelas</label><div style="max-height:150px;overflow-y:auto;border:1px solid var(--gray-200);border-radius:6px;padding:6px;">' +
           courses.map(c => `<label style="display:block;padding:4px;"><input type="checkbox" name="tid" value="${c.id}" /> ${UI.esc(c.title)}</label>`).join('') + '</div>';
@@ -1355,31 +1445,95 @@
     const canMarkTeacher = opts.canMarkTeacher !== false;
     const roundStyle = !!opts.round;
 
-    // Daftar peserta: guru pengajar (opsional) + siswa terdaftar
-    const teacher = DB.getUser(course.teacherId);
+    /* Daftar peserta: SEMUA tutor kelas (opsional) + siswa terdaftar.
+     * Dulu bagian ini membaca `course.teacherId` (satu tutor saja), sehingga
+     * kelas yang diampu dua tutor hanya menampilkan satu nama. Kelas subtest
+     * di LMS ini bisa diampu beberapa tutor, jadi seluruh tutor harus muncul.
+     * Tutor yang benar-benar bertugas pada tanggal itu diambil dari rencana
+     * kelas (War Jadwal) dan ditandai khusus, karena satu pertemuan hanya
+     * diajar oleh satu tutor. */
+    const tutors = DB.courseTeachers(course);
     const students = DB.getEnrollmentsByCourse(course.id)
       .map(e => DB.getUser(e.studentId))
       .filter(Boolean)
       .sort((a, b) => a.name.localeCompare(b.name));
 
-    const people = [];
-    if (canMarkTeacher && teacher) {
-      people.push({ u: teacher, role: 'guru', tag: teacher.id === user.id ? 'Saya (Guru)' : 'Guru Pengajar' });
-    }
-    students.forEach(s => people.push({ u: s, role: 'siswa', tag: s.kelas || 'Siswa' }));
-
-    // Draft awal diambil dari data tersimpan; default 'hadir' bila belum ada.
+    let people = [];
     const draft = {};
-    people.forEach(p => {
-      const rec = DB.getAttendanceRecord(course.id, p.u.id, date);
-      draft[p.u.id] = {
-        status: rec ? rec.status : 'hadir',
-        note: rec ? (rec.note || '') : '',
-        saved: !!rec
-      };
-    });
+
+    /* Dibangun ulang setiap tanggal berubah, karena tutor yang bertugas
+     * ditentukan oleh rencana kelas pada tanggal tersebut. */
+    function buildPeople() {
+      const ses = DB.sessionTeacher(course, date);
+      const sessionTutorId = ses && ses.user ? ses.user.id : null;
+      people = [];
+      if (canMarkTeacher) {
+        // Tutor yang bertugas hari itu ditaruh paling atas
+        tutors.slice().sort((a, b) => (b.id === sessionTutorId) - (a.id === sessionTutorId))
+          .forEach(t => {
+            const isSession = t.id === sessionTutorId;
+            const mine = t.id === user.id;
+            let tag = mine ? 'Saya (Tutor)' : 'Tutor Kelas';
+            if (isSession) tag = mine ? 'Saya — Mengajar Sesi Ini' : 'Mengajar Sesi Ini';
+            people.push({ u: t, role: 'guru', tag, isSession });
+          });
+      }
+      students.forEach(st => people.push({ u: st, role: 'siswa', tag: st.kelas || 'Siswa' }));
+    }
+
+    /** Muat status tersimpan; default 'hadir' bila belum ada catatan. */
+    function loadDraft() {
+      Object.keys(draft).forEach(k => { delete draft[k]; });
+      people.forEach(p => {
+        const rec = DB.getAttendanceRecord(course.id, p.u.id, date);
+        draft[p.u.id] = {
+          status: rec ? rec.status : 'hadir',
+          note: rec ? (rec.note || '') : '',
+          saved: !!rec
+        };
+      });
+    }
+
+    buildPeople();
+    loadDraft();
 
     paint();
+
+    /* Keterangan tutor yang mengajar pada tanggal yang dipilih. Diambil dari
+     * rencana kelas supaya presensi mengikuti siapa yang benar-benar mengajar. */
+    function sessionBannerHtml() {
+      if (!tutors.length) {
+        return '<div class="alert alert-error" style="margin-bottom:12px;">Kelas ini belum memiliki tutor.</div>';
+      }
+      const ses = DB.sessionTeacher(course, date);
+      if (!ses) return '';
+      const plan = ses.plan;
+      const allNames = tutors.map(t => t.name).join(' & ');
+      if (ses.scheduled && plan) {
+        const st = (DB.PLAN_STATUS && DB.PLAN_STATUS[plan.status]) || { label: plan.status, badge: 'badge-gray' };
+        return `<div class="att-session">
+          <span class="as-ic">👨‍🏫</span>
+          <div>
+            <strong>Sesi ini diajar oleh ${UI.esc(ses.user.name)}</strong>
+            <span class="badge ${st.badge}">${UI.esc(st.label)}</span>
+            <div class="muted small">
+              ${plan.topic ? 'Materi: ' + UI.esc(plan.topic) + ' • ' : ''}${UI.esc(plan.time || '')}${plan.endTime ? '–' + UI.esc(plan.endTime) : ''}
+              ${tutors.length > 1 ? ` • Kelas ini diampu ${tutors.length} tutor (${UI.esc(allNames)})` : ''}
+            </div>
+          </div>
+        </div>`;
+      }
+      return `<div class="att-session is-loose">
+        <span class="as-ic">❓</span>
+        <div>
+          <strong>Belum ada rencana kelas untuk tanggal ini</strong>
+          <div class="muted small">
+            Sementara ditandai atas nama ${UI.esc(ses.user.name)}.
+            ${tutors.length > 1 ? `Kelas ini diampu ${tutors.length} tutor (${UI.esc(allNames)}) — isi War Jadwal Kelas agar tutor sesi tercatat tepat.` : ''}
+          </div>
+        </div>
+      </div>`;
+    }
 
     function summary() {
       const c = { hadir: 0, izin: 0, sakit: 0, alfa: 0 };
@@ -1393,8 +1547,10 @@
       container.innerHTML = `
         <div class="card">
           <div class="card-header">
-            ${UI.secHead('📋', 'Ambil Presensi', `${UI.esc(course.title)} • ${UI.fmtYMD(date)}`)}
+            ${UI.secHead('📋', 'Ambil Presensi', `${UI.esc(DB.courseTitle(course))} • ${UI.fmtYMD(date)}`)}
           </div>
+
+          ${sessionBannerHtml()}
 
           <div class="att-toolbar">
             <span class="lbl">Tanggal</span>
@@ -1442,12 +1598,12 @@
     function rowHtml(p, i) {
       const d = draft[p.u.id];
       return `
-        <div class="att-row" data-uid="${p.u.id}" data-role="${p.role}">
+        <div class="att-row ${p.isSession ? 'is-session' : ''}" data-uid="${p.u.id}" data-role="${p.role}">
           <div class="att-person">
             <div class="avatar">${UI.initials(p.u.name)}</div>
             <div>
-              <div class="nm">${UI.esc(p.u.name)}</div>
-              <div class="sub">${UI.esc(p.tag)}${p.role === 'guru' ? ' • presensi guru' : ''}</div>
+              <div class="nm">${UI.esc(p.u.name)}${p.isSession ? ' <span class="badge badge-success">sesi ini</span>' : ''}</div>
+              <div class="sub">${UI.esc(p.tag)}${p.role === 'guru' ? ' • presensi tutor' : ''}</div>
             </div>
           </div>
           <div class="att-pills ${roundStyle ? 'round' : ''}">
@@ -1473,15 +1629,9 @@
       if (dateInput) dateInput.addEventListener('change', (e) => {
         date = e.target.value || UI.todayYMD();
         if (typeof opts.onDateChange === 'function') opts.onDateChange(date);
-        // Muat ulang draft untuk tanggal baru
-        people.forEach(p => {
-          const rec = DB.getAttendanceRecord(course.id, p.u.id, date);
-          draft[p.u.id] = {
-            status: rec ? rec.status : 'hadir',
-            note: rec ? (rec.note || '') : '',
-            saved: !!rec
-          };
-        });
+        // Tutor sesi & draft dihitung ulang untuk tanggal baru
+        buildPeople();
+        loadDraft();
         paint();
       });
 
@@ -1518,10 +1668,8 @@
 
       const reset = container.querySelector('#attReset');
       if (reset) reset.addEventListener('click', () => {
-        people.forEach(p => {
-          const rec = DB.getAttendanceRecord(course.id, p.u.id, date);
-          draft[p.u.id] = { status: rec ? rec.status : 'hadir', note: rec ? (rec.note || '') : '', saved: !!rec };
-        });
+        buildPeople();
+        loadDraft();
         paint();
       });
 

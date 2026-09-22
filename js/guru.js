@@ -4,6 +4,25 @@
 (function (global) {
   let currentCourseId = null;
 
+  /* Lencana "oleh <tutor>" + penjelasan bila konten dikunci tutor lain. */
+  function credit(rec, course) {
+    return global.ContentEditor ? ContentEditor.creditHtml(rec, course) : '';
+  }
+
+  /**
+   * Tombol Edit/Hapus hanya untuk pemilik konten (atau admin).
+   * Satu kelas bisa punya beberapa tutor, tetapi konten adalah tanggung
+   * jawab tutor yang membuatnya, jadi tutor lain tidak boleh mengubahnya.
+   */
+  function ownerActionsHtml(user, rec, course, editAttr, delAttr) {
+    if (DB.canManageContent(user, rec, course)) {
+      return `<button class="btn btn-sm btn-secondary" ${editAttr}="${rec.id}">Edit</button>
+              <button class="btn btn-sm btn-danger" ${delAttr}="${rec.id}">Hapus</button>`;
+    }
+    const owner = DB.contentOwnerName(rec, course);
+    return `<span class="lock-note">🔒 Hanya ${UI.esc(owner || 'tutor pembuat')} yang dapat mengubah ini</span>`;
+  }
+
   function render(container, section, user) {
     if (section === 'overview') return renderOverview(container, user);
     if (section === 'courses') {
@@ -240,7 +259,9 @@
 
   function renderCourseDetail(container, user) {
     const course = DB.getCourse(currentCourseId);
-    if (!course || course.teacherId !== user.id) {
+    // Kelas subtest bisa diampu beberapa tutor: periksa seluruh daftar tutor,
+    // bukan hanya teacherId lama, agar tutor kedua tidak tertolak.
+    if (!course || !DB.courseTeacherIds(course).includes(user.id)) {
       currentCourseId = null;
       return renderMyCourses(container, user);
     }
@@ -270,6 +291,8 @@
         <p>${UI.esc(course.description)}</p>
       </div>
 
+      ${Jadwal.courseScheduleCardHtml(course, user, { linkToJadwal: true })}
+
       <div class="tabs">
         <button class="tab-btn active" data-tab="materials">Materi (${materials.length})</button>
         <button class="tab-btn" data-tab="modules">Modul (${DB.getModulesByCourse(course.id).length})</button>
@@ -294,158 +317,114 @@
       btn.classList.add('active');
       renderTab(btn.dataset.tab, course, user);
     }));
+    const goJ = document.getElementById('csGoJadwal');
+    if (goJ) goJ.addEventListener('click', () => Dashboard.navigate('jadwal-kelas'));
     renderTab('materials', course, user);
   }
 
   function renderTab(tab, course, user) {
     const el = document.getElementById('tabContent');
-    if (tab === 'materials') return renderMaterialsTab(el, course);
-    if (tab === 'modules') return renderModulesTab(el, course);
-    if (tab === 'recordings') return renderRecordingsTab(el, course);
-    if (tab === 'assignments') return renderAssignmentsTab(el, course);
+    if (tab === 'materials') return renderMaterialsTab(el, course, user);
+    if (tab === 'modules') return renderModulesTab(el, course, user);
+    if (tab === 'recordings') return renderRecordingsTab(el, course, user);
+    if (tab === 'assignments') return renderAssignmentsTab(el, course, user);
     if (tab === 'cbts') return renderCbtsTab(el, course, user);
     if (tab === 'attendance') return renderAttendanceTab(el, course, user);
-    if (tab === 'students') return renderStudentsTab(el, course);
+    if (tab === 'students') return renderStudentsTab(el, course, user);
   }
 
-  function renderMaterialsTab(el, course) {
-    const materials = DB.getMaterialsByCourse(course.id);
+  function renderMaterialsTab(el, course, user) {
+    const materials = DB.getMaterialsByCourse(course.id)
+      .slice().sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+    const reload = () => renderMaterialsTab(el, course, user);
     el.innerHTML = `
       <div class="card">
-        <div class="card-header"><h3>Materi Pembelajaran</h3>
+        <div class="card-header">
+          ${UI.secHead('📄', `Materi Pembelajaran (${materials.length})`, 'setiap materi mencatat tutor penanggung jawabnya')}
           <button class="btn btn-primary btn-sm" id="addMatBtn">+ Tambah Materi</button></div>
         ${materials.length === 0 ? emptyState('Belum ada materi.') :
           materials.map(m => `
             <div class="list-item">
               <div class="title">${UI.esc(m.title)}</div>
-              <div class="meta">Dibuat ${UI.fmtDate(m.createdAt)}</div>
-              <div class="content">${UI.esc(m.content)}</div>
-              ${m.link ? `<div><a href="${UI.esc(m.link)}" target="_blank" rel="noopener">Buka tautan →</a></div>` : ''}
-              <div class="flex-gap mt-1">
-                <button class="btn btn-sm btn-secondary" data-edit-mat="${m.id}">Edit</button>
-                <button class="btn btn-sm btn-danger" data-del-mat="${m.id}">Hapus</button>
-              </div>
+              <div class="meta">${credit(m, course)} • Dibuat ${UI.fmtDate(m.createdAt)}${m.updatedAt ? ` • Diubah ${UI.fmtDate(m.updatedAt)}` : ''}</div>
+              <div class="content rt-content">${RichText.render(m.content || '')}</div>
+              ${m.link ? `<div class="mt-1"><a href="${UI.esc(m.link)}" target="_blank" rel="noopener">Buka tautan →</a></div>` : ''}
+              <div class="flex-gap mt-1">${ownerActionsHtml(user, m, course, 'data-edit-mat', 'data-del-mat')}</div>
             </div>`).join('')}
       </div>
     `;
-    document.getElementById('addMatBtn').addEventListener('click', () => openMaterialForm(course));
-    el.querySelectorAll('[data-edit-mat]').forEach(b => b.addEventListener('click', () => openMaterialForm(course, b.dataset.editMat)));
+    document.getElementById('addMatBtn').addEventListener('click', () =>
+      ContentEditor.openMaterial({ user, course, onSaved: (r) => { if (r) reload(); } }));
+    el.querySelectorAll('[data-edit-mat]').forEach(b => b.addEventListener('click', () =>
+      ContentEditor.openMaterial({ user, course, editId: b.dataset.editMat, onSaved: (r) => { if (r) reload(); } })));
     el.querySelectorAll('[data-del-mat]').forEach(b => b.addEventListener('click', () => {
+      const rec = DB.getMaterial(b.dataset.delMat);
+      if (!DB.canManageContent(user, rec, course)) { UI.toast('Hanya tutor pembuatnya yang dapat menghapus materi ini.', 'error'); return; }
       if (!UI.confirmDialog('Hapus materi ini?')) return;
       DB.deleteMaterial(b.dataset.delMat);
       UI.toast('Materi dihapus.');
-      renderMaterialsTab(el, course);
+      reload();
     }));
   }
 
-  function openMaterialForm(course, editId) {
-    const editing = editId ? DB.getMaterials().find(m => m.id === editId) : null;
-    const body = `
-      <form id="matForm" class="form">
-        <div class="form-group"><label>Judul</label>
-          <input name="title" required value="${UI.esc(editing?.title || '')}" /></div>
-        <div class="form-group"><label>Isi Materi</label>
-          <textarea name="content" required rows="6">${UI.esc(editing?.content || '')}</textarea></div>
-        <div class="form-group"><label>Tautan (opsional)</label>
-          <input name="link" type="url" value="${UI.esc(editing?.link || '')}" placeholder="https://..." /></div>
-        <div class="flex-gap" style="justify-content:flex-end;">
-          <button type="button" class="btn btn-secondary" id="cancelBtn">Batal</button>
-          <button type="submit" class="btn btn-primary">Simpan</button>
-        </div>
-      </form>`;
-    UI.modal.open(editing ? 'Edit Materi' : 'Tambah Materi', body);
-    document.getElementById('cancelBtn').addEventListener('click', () => UI.modal.close());
-    document.getElementById('matForm').addEventListener('submit', (e) => {
-      e.preventDefault();
-      const fd = new FormData(e.target);
-      const payload = {
-        courseId: course.id,
-        title: fd.get('title').trim(),
-        content: fd.get('content').trim(),
-        link: fd.get('link').trim()
-      };
-      if (editing) DB.updateMaterial(editing.id, payload);
-      else DB.addMaterial(payload);
-      UI.toast('Materi disimpan.');
-      UI.modal.close();
-      renderMaterialsTab(document.getElementById('tabContent'), course);
-    });
-  }
-
-  function renderAssignmentsTab(el, course) {
-    const assignments = DB.getAssignmentsByCourse(course.id);
+  function renderAssignmentsTab(el, course, user) {
+    const assignments = DB.getAssignmentsByCourse(course.id)
+      .slice().sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+    const reload = () => renderAssignmentsTab(el, course, user);
     el.innerHTML = `
       <div class="card">
-        <div class="card-header"><h3>Tugas</h3>
+        <div class="card-header">
+          ${UI.secHead('📝', `Tugas (${assignments.length})`, 'hanya tutor pembuat yang dapat menyunting & menilai tugasnya')}
           <button class="btn btn-primary btn-sm" id="addAsgBtn">+ Buat Tugas</button></div>
-        ${assignments.length === 0 ? emptyState('Belum ada tugas.') :
-          assignments.map(a => {
-            const subs = DB.getSubmissionsByAssignment(a.id);
-            const graded = subs.filter(s => s.grade != null).length;
-            return `
-              <div class="list-item">
-                <div class="flex-between">
-                  <div class="title">${UI.esc(a.title)}</div>
-                  <span class="badge ${subs.length > graded ? 'badge-warning' : 'badge-success'}">${graded}/${subs.length} dinilai</span>
+        ${assignments.length === 0 ? emptyState('Belum ada tugas.') : assignments.map(a => {
+          const subs = DB.getSubmissionsByAssignment(a.id);
+          const graded = subs.filter(s => s.grade != null).length;
+          const mine = DB.canManageContent(user, a, course);
+          const qCount = (a.questionIds || []).length;
+          return `
+            <div class="list-item">
+              <div class="flex-between">
+                <div class="title">${UI.esc(a.title)}</div>
+                <div class="flex-gap">
+                  <span class="badge badge-info">${a.mode === 'soal' ? `🧮 ${qCount} soal` : '✍️ Uraian'}</span>
+                  <span class="badge ${graded < subs.length ? 'badge-warning' : 'badge-success'}">${graded}/${subs.length} dinilai</span>
                 </div>
-                <div class="meta">Deadline ${UI.fmtDate(a.dueDate)}</div>
-                <div class="content">${UI.esc(a.description)}</div>
-                <div class="flex-gap mt-1">
-                  <button class="btn btn-sm btn-primary" data-grade="${a.id}">Nilai Submission</button>
-                  <button class="btn btn-sm btn-secondary" data-edit-asg="${a.id}">Edit</button>
-                  <button class="btn btn-sm btn-danger" data-del-asg="${a.id}">Hapus</button>
-                </div>
-              </div>`;
-          }).join('')}
+              </div>
+              <div class="meta">${credit(a, course)} • Deadline ${UI.fmtDate(a.dueDate)}</div>
+              <div class="content rt-content">${RichText.render(a.description || '')}</div>
+              <div class="flex-gap mt-1">
+                ${mine
+                  ? `<button class="btn btn-sm btn-primary" data-grade="${a.id}">Nilai (${subs.length})</button>
+                     <button class="btn btn-sm btn-secondary" data-edit-asg="${a.id}">Edit</button>
+                     <button class="btn btn-sm btn-danger" data-del-asg="${a.id}">Hapus</button>`
+                  : `<span class="lock-note">🔒 Hanya ${UI.esc(DB.contentOwnerName(a, course) || 'tutor pembuat')} yang dapat menyunting & menilai tugas ini</span>`}
+              </div>
+            </div>`;
+        }).join('')}
       </div>
     `;
-    document.getElementById('addAsgBtn').addEventListener('click', () => openAssignmentForm(course));
-    el.querySelectorAll('[data-edit-asg]').forEach(b => b.addEventListener('click', () => openAssignmentForm(course, b.dataset.editAsg)));
+    document.getElementById('addAsgBtn').addEventListener('click', () =>
+      ContentEditor.openAssignment({ user, course, onSaved: (r) => { if (r) reload(); } }));
+    el.querySelectorAll('[data-edit-asg]').forEach(b => b.addEventListener('click', () =>
+      ContentEditor.openAssignment({ user, course, editId: b.dataset.editAsg, onSaved: (r) => { if (r) reload(); } })));
     el.querySelectorAll('[data-del-asg]').forEach(b => b.addEventListener('click', () => {
-      if (!UI.confirmDialog('Hapus tugas dan semua submission terkait?')) return;
+      const a = DB.getAssignment(b.dataset.delAsg);
+      if (!DB.canManageContent(user, a, course)) { UI.toast('Hanya tutor pembuatnya yang dapat menghapus tugas ini.', 'error'); return; }
+      if (!UI.confirmDialog('Hapus tugas ini? Semua jawaban siswa juga terhapus.')) return;
       DB.deleteAssignment(b.dataset.delAsg);
       UI.toast('Tugas dihapus.');
-      renderAssignmentsTab(el, course);
+      reload();
     }));
-    el.querySelectorAll('[data-grade]').forEach(b => b.addEventListener('click', () => openGradeModal(b.dataset.grade)));
+    el.querySelectorAll('[data-grade]').forEach(b => b.addEventListener('click', () => openGradeModal(b.dataset.grade, user)));
   }
 
-  function openAssignmentForm(course, editId) {
-    const editing = editId ? DB.getAssignment(editId) : null;
-    const body = `
-      <form id="asgForm" class="form">
-        <div class="form-group"><label>Judul Tugas</label>
-          <input name="title" required value="${UI.esc(editing?.title || '')}" /></div>
-        <div class="form-group"><label>Instruksi</label>
-          <textarea name="description" required rows="4">${UI.esc(editing?.description || '')}</textarea></div>
-        <div class="form-group"><label>Deadline</label>
-          <input name="dueDate" type="date" required value="${UI.toDateInput(editing?.dueDate)}" /></div>
-        <div class="flex-gap" style="justify-content:flex-end;">
-          <button type="button" class="btn btn-secondary" id="cancelBtn">Batal</button>
-          <button type="submit" class="btn btn-primary">Simpan</button>
-        </div>
-      </form>`;
-    UI.modal.open(editing ? 'Edit Tugas' : 'Buat Tugas', body);
-    document.getElementById('cancelBtn').addEventListener('click', () => UI.modal.close());
-    document.getElementById('asgForm').addEventListener('submit', (e) => {
-      e.preventDefault();
-      const fd = new FormData(e.target);
-      const payload = {
-        courseId: course.id,
-        title: fd.get('title').trim(),
-        description: fd.get('description').trim(),
-        dueDate: new Date(fd.get('dueDate')).getTime()
-      };
-      if (editing) DB.updateAssignment(editing.id, payload);
-      else DB.addAssignment(payload);
-      UI.toast('Tugas disimpan.');
-      UI.modal.close();
-      renderAssignmentsTab(document.getElementById('tabContent'), course);
-    });
-  }
-
-  function openGradeModal(assignmentId) {
+  function openGradeModal(assignmentId, user) {
     const asg = DB.getAssignment(assignmentId);
+    const course = asg ? DB.getCourse(asg.courseId) : null;
+    if (user && !DB.canManageContent(user, asg, course)) {
+      UI.toast('Tugas ini dibuat tutor lain, jadi hanya dia (atau admin) yang boleh menilainya.', 'error');
+      return;
+    }
     const subs = DB.getSubmissionsByAssignment(assignmentId);
     const enrollments = DB.getEnrollmentsByCourse(asg.courseId);
     const rows = enrollments.map(e => {
@@ -470,23 +449,71 @@
       </table></div>
     `;
     UI.modal.open('Daftar Submission', body);
-    document.getElementById('modalBody').querySelectorAll('[data-sub]').forEach(b => b.addEventListener('click', () => openGradeForm(b.dataset.sub, assignmentId)));
+    document.getElementById('modalBody').querySelectorAll('[data-sub]').forEach(b =>
+      b.addEventListener('click', () => openGradeForm(b.dataset.sub, assignmentId, user)));
   }
 
-  function openGradeForm(submissionId, assignmentId) {
-    const sub = DB.getSubmissions().find(s => s.id === submissionId);
+  function openGradeForm(submissionId, assignmentId, user) {
+    const sub = DB.getSubmission(submissionId);
     const student = DB.getUser(sub.studentId);
+    const asg = DB.getAssignment(assignmentId);
+    const course = asg ? DB.getCourse(asg.courseId) : null;
+    if (user && !DB.canManageContent(user, asg, course)) {
+      UI.toast('Tugas ini dibuat tutor lain, jadi hanya dia (atau admin) yang boleh menilainya.', 'error');
+      return;
+    }
+
+    /* Tugas berbasis soal: tampilkan jawaban per soal dan skor otomatisnya
+     * sehingga tutor hanya perlu menilai bagian esai. */
+    const isSoal = asg && asg.mode === 'soal' && (asg.questionIds || []).length;
+    let autoInfo = null;
+    if (isSoal) {
+      const answers = sub.answers || {};
+      let auto = 0, autoTotal = 0, manual = 0;
+      const rows = (asg.questionIds || []).map((qid, i) => {
+        const q = DB.getQuestion(qid);
+        if (!q) return '';
+        const g = global.Exam ? Exam.gradeQuestion(q, answers[qid]) : { auto: false, correct: false };
+        if (g.auto) { autoTotal++; if (g.correct) auto++; } else manual++;
+        return `<tr>
+          <td>${i + 1}</td>
+          <td class="rt-content">${RichText.render(q.text || '')}</td>
+          <td>${UI.esc(q.questionType || '-')}</td>
+          <td>${answers[qid] == null || answers[qid] === ''
+                ? '<span class="muted">tidak dijawab</span>'
+                : UI.esc(RichText.plain(String(
+                    Array.isArray(answers[qid]) ? answers[qid].join(', ')
+                    : (typeof answers[qid] === 'object' ? JSON.stringify(answers[qid]) : answers[qid])), 160))}</td>
+          <td>${g.auto ? (g.correct ? '<span class="badge badge-success">Benar</span>' : '<span class="badge badge-danger">Salah</span>')
+                       : '<span class="badge badge-warning">Manual</span>'}</td>
+        </tr>`;
+      }).join('');
+      const suggested = autoTotal ? Math.round((auto / autoTotal) * (asg.maxScore || 100)) : null;
+      autoInfo = { auto, autoTotal, manual, suggested, rows };
+    }
+
     const body = `
       <div class="card" style="box-shadow:none;border-color:var(--gray-100);">
         <div class="muted small">Siswa</div>
         <strong>${UI.esc(student ? student.name : '-')}</strong>
-        <div class="muted small mt-1">Dikirim ${UI.fmtDateTime(sub.submittedAt)}</div>
-        <div class="content mt-1" style="white-space:pre-wrap;">${UI.esc(sub.content)}</div>
+        <div class="muted small mt-1">Dikirim ${UI.fmtDateTime(sub.submittedAt)}${asg ? ' • ' + UI.esc(asg.title) : ''}</div>
+        ${isSoal && autoInfo ? `
+          <div class="alert alert-info mt-1" style="margin-bottom:0;">
+            <strong>Skor otomatis: ${autoInfo.auto}/${autoInfo.autoTotal} benar</strong>
+            ${autoInfo.suggested != null ? ` → saran nilai <strong>${autoInfo.suggested}</strong>` : ''}
+            ${autoInfo.manual ? ` • ${autoInfo.manual} soal esai perlu Anda nilai sendiri` : ''}
+          </div>
+          <div class="table-wrap mt-1"><table class="table">
+            <thead><tr><th>#</th><th>Soal</th><th>Format</th><th>Jawaban Siswa</th><th>Hasil</th></tr></thead>
+            <tbody>${autoInfo.rows}</tbody>
+          </table></div>`
+        : `<div class="content mt-1 rt-content">${sub.content ? RichText.render(sub.content) : '<span class="muted">(tanpa jawaban tertulis)</span>'}</div>`}
       </div>
       <form id="gradeForm" class="form">
         <div class="form-row">
-          <div class="form-group"><label>Nilai (0-100)</label>
-            <input name="grade" type="number" min="0" max="100" required value="${sub.grade ?? ''}" /></div>
+          <div class="form-group"><label>Nilai (0-${asg ? (asg.maxScore || 100) : 100})</label>
+            <input name="grade" type="number" min="0" max="${asg ? (asg.maxScore || 100) : 100}" required
+                   value="${sub.grade != null ? sub.grade : (autoInfo && autoInfo.suggested != null ? autoInfo.suggested : '')}" /></div>
           <div class="form-group"><label>Feedback</label>
             <input name="feedback" value="${UI.esc(sub.feedback || '')}" /></div>
         </div>
@@ -497,13 +524,13 @@
       </form>
     `;
     UI.modal.open('Beri Nilai', body);
-    document.getElementById('cancelBtn').addEventListener('click', () => openGradeModal(assignmentId));
+    document.getElementById('cancelBtn').addEventListener('click', () => openGradeModal(assignmentId, user));
     document.getElementById('gradeForm').addEventListener('submit', (e) => {
       e.preventDefault();
       const fd = new FormData(e.target);
       const grade = Number(fd.get('grade'));
       const feedback = fd.get('feedback').trim();
-      DB.updateSubmission(sub.id, { grade, feedback });
+      DB.updateSubmission(sub.id, { grade, feedback, gradedBy: user ? user.id : null, gradedAt: Date.now() });
       // Sinkron: siswa dan orang tuanya langsung mendapat notifikasi nilai
       const asgRec = DB.getAssignment(assignmentId);
       DB.notifyStudentAndParents(sub.studentId, {
@@ -516,11 +543,11 @@
         link: 'anak-nilai'
       });
       UI.toast('Nilai disimpan & notifikasi dikirim ke siswa dan orang tua.');
-      openGradeModal(assignmentId);
+      openGradeModal(assignmentId, user);
     });
   }
 
-  function renderStudentsTab(el, course) {
+  function renderStudentsTab(el, course, user) {
     const enrollments = DB.getEnrollmentsByCourse(course.id);
     el.innerHTML = `
       <div class="card">
@@ -548,14 +575,19 @@
   function renderGrading(container, user) {
     const myCourses = DB.getCoursesByTeacher(user.id);
     const myCourseIds = myCourses.map(c => c.id);
-    const myAsg = DB.getAssignments().filter(a => myCourseIds.includes(a.courseId));
+    // Hanya tugas yang dibuat tutor ini: dalam satu kelas bisa ada dua tutor,
+    // dan penilaian adalah tanggung jawab pembuat tugasnya.
+    const myAsg = DB.getAssignments().filter(a =>
+      myCourseIds.includes(a.courseId) && DB.canManageContent(user, a, DB.getCourse(a.courseId)));
     const mySubs = DB.getSubmissions()
       .filter(s => myAsg.some(a => a.id === s.assignmentId))
       .sort((a, b) => b.submittedAt - a.submittedAt);
 
     container.innerHTML = `
       <div class="card">
-        <div class="card-header"><h3>Daftar Submission (${mySubs.length})</h3></div>
+        <div class="card-header">
+          ${UI.secHead('✅', `Daftar Submission (${mySubs.length})`, 'hanya tugas yang Anda buat sendiri yang tampil di sini')}
+        </div>
         ${mySubs.length === 0 ? emptyState('Belum ada submission dari siswa.') : `
         <div class="table-wrap"><table class="table">
           <thead><tr><th>Siswa</th><th>Tugas</th><th>Kelas</th><th>Status</th><th>Dikirim</th><th>Nilai</th><th>Aksi</th></tr></thead>
@@ -567,7 +599,7 @@
               return `<tr>
                 <td><strong>${UI.esc(stu ? stu.name : '-')}</strong></td>
                 <td>${UI.esc(asg.title)}</td>
-                <td>${UI.esc(course ? course.title : '-')}</td>
+                <td>${UI.esc(course ? DB.courseTitle(course) : '-')}</td>
                 <td>${s.grade != null ? '<span class="badge badge-success">Dinilai</span>' : '<span class="badge badge-warning">Perlu Dinilai</span>'}</td>
                 <td>${UI.fmtDateTime(s.submittedAt)}</td>
                 <td>${s.grade != null ? s.grade : '-'}</td>
@@ -579,7 +611,7 @@
       </div>
     `;
     container.querySelectorAll('[data-grade-sub]').forEach(b => b.addEventListener('click', () => {
-      openGradeForm(b.dataset.gradeSub, b.dataset.asg);
+      openGradeForm(b.dataset.gradeSub, b.dataset.asg, user);
     }));
   }
 
@@ -628,134 +660,68 @@
   }
 
   /* ========== MODULES (within course tab) ========== */
-  function renderModulesTab(el, course) {
-    const modules = DB.getModulesByCourse(course.id);
+  function renderModulesTab(el, course, user) {
+    const modules = DB.getModulesByCourse(course.id)
+      .slice().sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
     el.innerHTML = `
       <div class="card">
-        <div class="card-header"><h3>Modul Pembelajaran</h3>
+        <div class="card-header">
+          ${UI.secHead('📘', `Modul Pembelajaran (${modules.length})`, 'modul berbagian dengan tutor penanggung jawab')}
           <button class="btn btn-primary btn-sm" id="addModBtn">+ Tambah Modul</button></div>
-        ${modules.length === 0 ? emptyState('Belum ada modul.') : modules.map(m => moduleCardHtml(m, true)).join('')}
+        ${modules.length === 0 ? emptyState('Belum ada modul.')
+          : modules.map(m => moduleCardHtml(m, true, course, user)).join('')}
       </div>
     `;
-    document.getElementById('addModBtn').addEventListener('click', () => openModuleForm(course));
-    bindModuleActions(el, course);
+    document.getElementById('addModBtn').addEventListener('click', () =>
+      ContentEditor.openModule({ user, course, onSaved: (r) => { if (r) renderModulesTab(el, course, user); } }));
+    bindModuleActions(el, course, user);
   }
 
-  function moduleCardHtml(m, ownerActions) {
+  function moduleCardHtml(m, ownerActions, course, user) {
+    const c = course || DB.getCourse(m.courseId);
     return `
       <div class="module-card">
         <div class="module-head">
           <h4>${UI.esc(m.title)}</h4>
-          <div class="meta">${UI.esc(m.description || '')} • ${(m.sections || []).length} bagian • ${UI.fmtDate(m.createdAt)}</div>
+          <div class="meta">${credit(m, c)} • ${UI.esc(m.description || '')} • ${(m.sections || []).length} bagian • ${UI.fmtDate(m.createdAt)}</div>
         </div>
         <div class="module-body">
           ${(m.sections || []).map(s => `
             <div class="module-section">
               <div class="module-section-title">${UI.esc(s.title)}</div>
-              <div class="module-section-content">${UI.esc(s.content)}</div>
+              <div class="module-section-content rt-content">${RichText.render(s.content || '')}</div>
             </div>`).join('') || '<div class="module-section muted">Belum ada bagian.</div>'}
           ${m.link ? `<div class="module-section"><a href="${UI.esc(m.link)}" target="_blank" rel="noopener">Buka tautan modul →</a></div>` : ''}
         </div>
-        ${ownerActions ? `<div class="module-section flex-gap">
-          <button class="btn btn-sm btn-secondary" data-edit-mod="${m.id}">Edit</button>
-          <button class="btn btn-sm btn-danger" data-del-mod="${m.id}">Hapus</button>
+        ${ownerActions && user ? `<div class="module-section flex-gap">
+          ${ownerActionsHtml(user, m, c, 'data-edit-mod', 'data-del-mod')}
         </div>` : ''}
       </div>
     `;
   }
 
-  function bindModuleActions(el, course) {
-    el.querySelectorAll('[data-edit-mod]').forEach(b => b.addEventListener('click', () => openModuleForm(course, b.dataset.editMod)));
+  function bindModuleActions(el, course, user) {
+    el.querySelectorAll('[data-edit-mod]').forEach(b => b.addEventListener('click', () =>
+      ContentEditor.openModule({ user, course, editId: b.dataset.editMod,
+        onSaved: (r) => { if (r) renderModulesTab(el, course, user); } })));
     el.querySelectorAll('[data-del-mod]').forEach(b => b.addEventListener('click', () => {
+      const rec = DB.getModule(b.dataset.delMod);
+      if (!DB.canManageContent(user, rec, course)) { UI.toast('Hanya tutor pembuatnya yang dapat menghapus modul ini.', 'error'); return; }
       if (!UI.confirmDialog('Hapus modul ini?')) return;
       DB.deleteModule(b.dataset.delMod);
       UI.toast('Modul dihapus.');
-      renderModulesTab(el, course);
+      renderModulesTab(el, course, user);
     }));
   }
 
-  function openModuleForm(course, editId) {
-    const editing = editId ? DB.getModule(editId) : null;
-    const sections = editing?.sections ? JSON.parse(JSON.stringify(editing.sections)) : [{ title: '', content: '' }];
-    const render = () => {
-      const body = `
-        <form id="modForm" class="form">
-          <div class="form-group"><label>Judul Modul</label>
-            <input name="title" required value="${UI.esc(editing?.title || '')}" /></div>
-          <div class="form-group"><label>Deskripsi</label>
-            <input name="description" value="${UI.esc(editing?.description || '')}" /></div>
-          <div class="form-group"><label>Tautan Eksternal (opsional)</label>
-            <input name="link" type="url" value="${UI.esc(editing?.link || '')}" placeholder="https://..." /></div>
-          <div class="form-group">
-            <label>Bagian Modul</label>
-            <div id="sectionsBox">
-              ${sections.map((s, i) => `
-                <div class="list-item" style="margin-bottom:8px;">
-                  <div class="form-row">
-                    <div class="form-group" style="margin:0;"><label>Judul Bagian ${i + 1}</label>
-                      <input class="sec-title" data-i="${i}" value="${UI.esc(s.title)}" /></div>
-                    <div style="display:flex;align-items:flex-end;">
-                      <button type="button" class="btn btn-sm btn-danger" data-remove-sec="${i}">Hapus Bagian</button>
-                    </div>
-                  </div>
-                  <div class="form-group" style="margin-bottom:0;"><label>Isi</label>
-                    <textarea class="sec-content" data-i="${i}" rows="3">${UI.esc(s.content)}</textarea></div>
-                </div>`).join('')}
-            </div>
-            <button type="button" class="btn btn-sm btn-secondary" id="addSecBtn">+ Tambah Bagian</button>
-          </div>
-          <div class="flex-gap" style="justify-content:flex-end;">
-            <button type="button" class="btn btn-secondary" id="cancelBtn">Batal</button>
-            <button type="submit" class="btn btn-primary">Simpan</button>
-          </div>
-        </form>
-      `;
-      UI.modal.open(editing ? 'Edit Modul' : 'Tambah Modul', body);
-
-      document.getElementById('cancelBtn').addEventListener('click', () => UI.modal.close());
-      const readSectionsFromDom = () => {
-        document.querySelectorAll('.sec-title').forEach(inp => { sections[Number(inp.dataset.i)].title = inp.value; });
-        document.querySelectorAll('.sec-content').forEach(inp => { sections[Number(inp.dataset.i)].content = inp.value; });
-      };
-      document.getElementById('addSecBtn').addEventListener('click', () => {
-        readSectionsFromDom();
-        sections.push({ title: '', content: '' });
-        render();
-      });
-      document.querySelectorAll('[data-remove-sec]').forEach(b => b.addEventListener('click', () => {
-        readSectionsFromDom();
-        sections.splice(Number(b.dataset.removeSec), 1);
-        if (sections.length === 0) sections.push({ title: '', content: '' });
-        render();
-      }));
-
-      document.getElementById('modForm').addEventListener('submit', (e) => {
-        e.preventDefault();
-        readSectionsFromDom();
-        const fd = new FormData(e.target);
-        const payload = {
-          courseId: course.id,
-          title: fd.get('title').trim(),
-          description: fd.get('description').trim(),
-          link: fd.get('link').trim(),
-          sections: sections.filter(s => s.title.trim() || s.content.trim())
-        };
-        if (editing) DB.updateModule(editing.id, payload);
-        else DB.addModule(payload);
-        UI.toast('Modul disimpan.');
-        UI.modal.close();
-        renderModulesTab(document.getElementById('tabContent'), course);
-      });
-    };
-    render();
-  }
-
   /* ========== RECORDINGS (within course tab) ========== */
-  function renderRecordingsTab(el, course) {
+  function renderRecordingsTab(el, course, user) {
     const recs = DB.getRecordingsByCourse(course.id).slice().sort((a, b) => b.recordedAt - a.recordedAt);
+    const reload = () => renderRecordingsTab(el, course, user);
     el.innerHTML = `
       <div class="card">
-        <div class="card-header"><h3>Rekaman Kelas</h3>
+        <div class="card-header">
+          ${UI.secHead('🎥', `Rekaman Kelas (${recs.length})`, 'rekaman pertemuan beserta tutor yang mengajar')}
           <button class="btn btn-primary btn-sm" id="addRecBtn">+ Tambah Rekaman</button></div>
         ${recs.length === 0 ? emptyState('Belum ada rekaman.') : recs.map(r => `
           <div class="list-item">
@@ -763,170 +729,131 @@
               <div class="title">${UI.esc(r.title)}</div>
               <span class="muted small">${UI.fmtDate(r.recordedAt)} • ${UI.fmtDuration(r.duration)}</span>
             </div>
+            <div class="meta">${credit(r, course)}</div>
             ${Shared.videoEmbedHtml(r.url)}
-            ${r.notes ? `<div class="content">${UI.esc(r.notes)}</div>` : ''}
-            <div class="flex-gap mt-1">
-              <button class="btn btn-sm btn-secondary" data-edit-rec="${r.id}">Edit</button>
-              <button class="btn btn-sm btn-danger" data-del-rec="${r.id}">Hapus</button>
-            </div>
+            ${r.notes ? `<div class="content rt-content">${RichText.render(r.notes)}</div>` : ''}
+            <div class="flex-gap mt-1">${ownerActionsHtml(user, r, course, 'data-edit-rec', 'data-del-rec')}</div>
           </div>`).join('')}
       </div>
     `;
-    document.getElementById('addRecBtn').addEventListener('click', () => openRecordingForm(course));
-    el.querySelectorAll('[data-edit-rec]').forEach(b => b.addEventListener('click', () => openRecordingForm(course, b.dataset.editRec)));
+    document.getElementById('addRecBtn').addEventListener('click', () =>
+      ContentEditor.openRecording({ user, course, onSaved: (r) => { if (r) reload(); } }));
+    el.querySelectorAll('[data-edit-rec]').forEach(b => b.addEventListener('click', () =>
+      ContentEditor.openRecording({ user, course, editId: b.dataset.editRec, onSaved: (r) => { if (r) reload(); } })));
     el.querySelectorAll('[data-del-rec]').forEach(b => b.addEventListener('click', () => {
+      const rec = DB.getRecording(b.dataset.delRec);
+      if (!DB.canManageContent(user, rec, course)) { UI.toast('Hanya tutor pembuatnya yang dapat menghapus rekaman ini.', 'error'); return; }
       if (!UI.confirmDialog('Hapus rekaman ini?')) return;
       DB.deleteRecording(b.dataset.delRec);
       UI.toast('Rekaman dihapus.');
-      renderRecordingsTab(el, course);
+      reload();
     }));
-  }
-
-  function openRecordingForm(course, editId) {
-    const editing = editId ? DB.getRecordings().find(r => r.id === editId) : null;
-    const body = `
-      <form id="recForm" class="form">
-        <div class="form-group"><label>Judul</label>
-          <input name="title" required value="${UI.esc(editing?.title || '')}" /></div>
-        <div class="form-group"><label>URL Video (YouTube, Vimeo, atau mp4)</label>
-          <input name="url" type="url" required value="${UI.esc(editing?.url || '')}" placeholder="https://..." /></div>
-        <div class="form-row">
-          <div class="form-group"><label>Tanggal Rekam</label>
-            <input name="date" type="date" required value="${UI.toDateInput(editing?.recordedAt || Date.now())}" /></div>
-          <div class="form-group"><label>Durasi (menit)</label>
-            <input name="duration" type="number" min="0" value="${editing ? Math.round((editing.duration || 0) / 60) : 60}" /></div>
-        </div>
-        <div class="form-group"><label>Catatan (opsional)</label>
-          <textarea name="notes" rows="3">${UI.esc(editing?.notes || '')}</textarea></div>
-        <div class="flex-gap" style="justify-content:flex-end;">
-          <button type="button" class="btn btn-secondary" id="cancelBtn">Batal</button>
-          <button type="submit" class="btn btn-primary">Simpan</button>
-        </div>
-      </form>`;
-    UI.modal.open(editing ? 'Edit Rekaman' : 'Tambah Rekaman', body);
-    document.getElementById('cancelBtn').addEventListener('click', () => UI.modal.close());
-    document.getElementById('recForm').addEventListener('submit', (e) => {
-      e.preventDefault();
-      const fd = new FormData(e.target);
-      const payload = {
-        courseId: course.id,
-        title: fd.get('title').trim(),
-        url: fd.get('url').trim(),
-        notes: fd.get('notes').trim(),
-        duration: (Number(fd.get('duration')) || 0) * 60,
-        recordedAt: new Date(fd.get('date')).getTime()
-      };
-      if (editing) DB.updateRecording(editing.id, payload);
-      else DB.addRecording(payload);
-      UI.toast('Rekaman disimpan.');
-      UI.modal.close();
-      renderRecordingsTab(document.getElementById('tabContent'), course);
-    });
   }
 
   /* ========== CBT (within course tab) ========== */
   function renderCbtsTab(el, course, user) {
-    const cbts = DB.getCbtsByCourse(course.id);
+    const cbts = DB.getCbtsByCourse(course.id)
+      .slice().sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+    const reload = () => renderCbtsTab(el, course, user);
     el.innerHTML = `
       <div class="card">
-        <div class="card-header"><h3>Ujian Online (CBT)</h3>
+        <div class="card-header">
+          ${UI.secHead('🖥️', `Ujian CBT Kelas Ini (${cbts.length})`,
+            'soal diambil dari Bank Soal pusat; ujian di halaman utama CBT dan di kelas ini memakai bank yang sama')}
           <button class="btn btn-primary btn-sm" id="addCbtBtn">+ Buat Ujian</button></div>
-        ${cbts.length === 0 ? emptyState('Belum ada ujian.') : cbts.map(c => {
+        ${cbts.length === 0
+          ? emptyState('Belum ada ujian untuk kelas ini. Buat ujian, lalu pilih soalnya dari Bank Soal.')
+          : cbts.map(c => {
           const attempts = DB.getCbtAttemptsByCbt(c.id);
           const submitted = attempts.filter(a => a.submittedAt).length;
+          const qCount = DB.cbtQuestionIds(c).length;
+          const mine = DB.canManageContent(user, c, course);
+          const others = (c.courseIds || []).filter(x => x !== course.id).length;
           return `<div class="list-item">
             <div class="flex-between">
               <div class="title">${UI.esc(c.title)}</div>
-              <span class="badge badge-info">${(c.questionIds || []).length} soal</span>
+              <div class="flex-gap">
+                <span class="badge badge-info">${qCount} soal</span>
+                ${others ? `<span class="badge badge-gray" title="Ujian ini juga dipakai kelas lain">+${others} kelas lain</span>` : ''}
+              </div>
             </div>
-            <div class="meta">${UI.fmtDateTime(c.startAt)} — ${UI.fmtDateTime(c.endAt)} • Durasi ${c.durationMinutes} menit</div>
-            <div class="content">${UI.esc(c.description || '')}</div>
+            <div class="meta">${credit(c, course)} • ${UI.fmtDateTime(c.startAt)} — ${UI.fmtDateTime(c.endAt)} • Durasi ${c.durationMinutes} menit</div>
+            <div class="content rt-content">${RichText.render(c.description || '')}</div>
             <div class="muted small">Dikerjakan: ${submitted} siswa</div>
             <div class="flex-gap mt-1">
               <button class="btn btn-sm btn-primary" data-result-cbt="${c.id}">Hasil</button>
-              <button class="btn btn-sm btn-secondary" data-edit-cbt="${c.id}">Edit</button>
-              <button class="btn btn-sm btn-danger" data-del-cbt="${c.id}">Hapus</button>
+              ${mine
+                ? `<button class="btn btn-sm btn-secondary" data-edit-cbt="${c.id}">Edit</button>
+                   <button class="btn btn-sm btn-danger" data-del-cbt="${c.id}">Hapus</button>`
+                : `<span class="lock-note">🔒 Hanya ${UI.esc(DB.contentOwnerName(c, course) || 'tutor pembuat')} yang dapat mengubah ujian ini</span>`}
             </div>
           </div>`;
         }).join('')}
       </div>
     `;
-    document.getElementById('addCbtBtn').addEventListener('click', () => openCbtForm(course, user));
-    el.querySelectorAll('[data-edit-cbt]').forEach(b => b.addEventListener('click', () => openCbtForm(course, user, b.dataset.editCbt)));
+    document.getElementById('addCbtBtn').addEventListener('click', () => startCbtWizard(course, user, null, reload));
+    el.querySelectorAll('[data-edit-cbt]').forEach(b => b.addEventListener('click', () => {
+      const c = DB.getCbt(b.dataset.editCbt);
+      if (!DB.canManageContent(user, c, course)) { UI.toast('Hanya tutor pembuatnya yang dapat mengubah ujian ini.', 'error'); return; }
+      startCbtWizard(course, user, b.dataset.editCbt, reload);
+    }));
     el.querySelectorAll('[data-del-cbt]').forEach(b => b.addEventListener('click', () => {
+      const c = DB.getCbt(b.dataset.delCbt);
+      if (!DB.canManageContent(user, c, course)) { UI.toast('Hanya tutor pembuatnya yang dapat menghapus ujian ini.', 'error'); return; }
       if (!UI.confirmDialog('Hapus ujian dan semua hasil pengerjaannya?')) return;
       DB.deleteCbt(b.dataset.delCbt);
       UI.toast('Ujian dihapus.');
-      renderCbtsTab(el, course, user);
+      reload();
     }));
     el.querySelectorAll('[data-result-cbt]').forEach(b => b.addEventListener('click', () => openCbtResults(b.dataset.resultCbt)));
   }
 
-  function openCbtForm(course, user, editId) {
-    const editing = editId ? DB.getCbt(editId) : null;
-    const questions = DB.getQuestionsByAuthor(user.id);
-    if (questions.length === 0) {
-      UI.toast('Anda belum punya soal di Bank Soal. Tambahkan dulu!', 'error');
+  /**
+   * Buka wizard CBT dari halaman kelas.
+   * Dulu halaman ini memakai form sendiri yang memfilter soal dengan
+   * DB.getQuestionsByAuthor(user.id), sehingga admin (dan tutor yang memakai
+   * soal rekannya) selalu ditolak dengan pesan "Anda belum punya soal di Bank
+   * Soal". Sekarang seluruh pembuatan ujian memakai wizard bersama yang
+   * membaca Bank Soal PUSAT, dengan kelas tujuan sudah terisi.
+   */
+  function startCbtWizard(course, user, editId, onDone) {
+    if (DB.getQuestions().length === 0) {
+      UI.toast('Bank Soal masih kosong. Tambahkan soal lewat menu Bank Soal terlebih dahulu.', 'error');
       return;
     }
-    const selectedSet = new Set(editing?.questionIds || []);
-    const body = `
-      <form id="cbtForm" class="form">
-        <div class="form-group"><label>Judul Ujian</label>
-          <input name="title" required value="${UI.esc(editing?.title || '')}" /></div>
-        <div class="form-group"><label>Deskripsi</label>
-          <textarea name="description" rows="2">${UI.esc(editing?.description || '')}</textarea></div>
-        <div class="form-row">
-          <div class="form-group"><label>Mulai</label>
-            <input name="startAt" type="datetime-local" required value="${UI.toDateTimeLocalInput(editing?.startAt || Date.now())}" /></div>
-          <div class="form-group"><label>Selesai</label>
-            <input name="endAt" type="datetime-local" required value="${UI.toDateTimeLocalInput(editing?.endAt || Date.now() + 7 * 86400000)}" /></div>
-        </div>
-        <div class="muted small" style="margin:-8px 0 10px;">Waktu dalam zona <strong>${UI.getTimezone()}</strong>. Siswa di zona waktu lain akan otomatis melihat konversi sesuai zona mereka.</div>
-        <div class="form-group"><label>Durasi (menit)</label>
-          <input name="duration" type="number" min="5" max="300" required value="${editing?.durationMinutes || 30}" /></div>
+    const open = (ownerId) => CbtAdmin.openWizard(user, editId, onDone, {
+      courseIds: [course.id],
+      ownerId: ownerId
+    });
+
+    // Tutor: otomatis atas namanya. Admin: pilih tutor penanggung jawab.
+    if (user.role !== 'admin' || editId) { open(user.role === 'guru' ? user.id : null); return; }
+
+    const tutors = DB.courseTeachers(course);
+    if (tutors.length <= 1) { open(tutors[0] ? tutors[0].id : null); return; }
+    UI.modal.open('Tutor Penanggung Jawab Ujian', `
+      <form id="cbtOwnerForm" class="form">
+        <p class="muted small" style="margin-top:0;">
+          Kelas ini diampu ${tutors.length} tutor. Pilih tutor yang bertanggung jawab atas ujian ini
+          agar rekapan keaktifan tutor tetap akurat.
+        </p>
         <div class="form-group">
-          <label>Pilih Soal dari Bank Soal (${questions.length} tersedia)</label>
-          <div style="max-height:260px;overflow-y:auto;border:1px solid var(--gray-200);border-radius:6px;padding:8px;">
-            ${questions.map(q => `
-              <label style="display:flex;gap:8px;padding:6px;border-bottom:1px solid var(--gray-100);">
-                <input type="checkbox" name="qid" value="${q.id}" ${selectedSet.has(q.id) ? 'checked' : ''} />
-                <div style="flex:1;">
-                  <div style="font-size:13px;">${UI.esc(q.text)}</div>
-                  <div class="muted small">${UI.esc(q.subject)} • ${UI.esc(q.difficulty || 'umum')}</div>
-                </div>
-              </label>`).join('')}
-          </div>
+          <label for="cbtOwner">Tutor</label>
+          <select id="cbtOwner" name="ownerId">
+            ${tutors.map(t => `<option value="${UI.esc(t.id)}">${UI.esc(t.name)}</option>`).join('')}
+          </select>
         </div>
         <div class="flex-gap" style="justify-content:flex-end;">
-          <button type="button" class="btn btn-secondary" id="cancelBtn">Batal</button>
-          <button type="submit" class="btn btn-primary">Simpan</button>
+          <button type="button" class="btn btn-secondary" id="cbtOwnerCancel">Batal</button>
+          <button type="submit" class="btn btn-primary">Lanjut ke Wizard Ujian</button>
         </div>
-      </form>`;
-    UI.modal.open(editing ? 'Edit Ujian' : 'Buat Ujian CBT', body);
-    document.getElementById('cancelBtn').addEventListener('click', () => UI.modal.close());
-    document.getElementById('cbtForm').addEventListener('submit', (e) => {
+      </form>`);
+    document.getElementById('cbtOwnerCancel').addEventListener('click', () => UI.modal.close());
+    document.getElementById('cbtOwnerForm').addEventListener('submit', (e) => {
       e.preventDefault();
-      const fd = new FormData(e.target);
-      const qids = fd.getAll('qid');
-      if (qids.length === 0) {
-        UI.toast('Pilih minimal 1 soal.', 'error');
-        return;
-      }
-      const payload = {
-        courseId: course.id,
-        title: fd.get('title').trim(),
-        description: fd.get('description').trim(),
-        startAt: UI.tzInputToUtc(fd.get('startAt')),
-        endAt: UI.tzInputToUtc(fd.get('endAt')),
-        durationMinutes: Number(fd.get('duration')),
-        questionIds: qids
-      };
-      if (editing) DB.updateCbt(editing.id, payload);
-      else DB.addCbt(payload);
-      UI.toast('Ujian disimpan.');
+      const id = document.getElementById('cbtOwner').value;
       UI.modal.close();
-      renderCbtsTab(document.getElementById('tabContent'), course, user);
+      open(id);
     });
   }
 
@@ -1007,15 +934,20 @@
         const c = DB.getCourse(m.courseId);
         return `<div>
           <div class="muted small" style="margin-bottom:4px;">${UI.esc(c ? c.title : '-')}</div>
-          ${moduleCardHtml(m, true)}
+          ${moduleCardHtml(m, true, c, user)}
         </div>`;
       }).join('');
       list.querySelectorAll('[data-edit-mod]').forEach(b => b.addEventListener('click', () => {
         const m = DB.getModule(b.dataset.editMod);
         const c = DB.getCourse(m.courseId);
-        openModuleForm(c, m.id);
+        ContentEditor.openModule({ user, course: c, editId: m.id,
+          onSaved: (r) => { if (r) renderList(document.getElementById('modCourseFilter').value); } });
       }));
       list.querySelectorAll('[data-del-mod]').forEach(b => b.addEventListener('click', () => {
+        const m = DB.getModule(b.dataset.delMod);
+        if (!DB.canManageContent(user, m, DB.getCourse(m.courseId))) {
+          UI.toast('Hanya tutor pembuatnya yang dapat menghapus modul ini.', 'error'); return;
+        }
         if (!UI.confirmDialog('Hapus modul ini?')) return;
         DB.deleteModule(b.dataset.delMod);
         UI.toast('Modul dihapus.');
@@ -1051,10 +983,11 @@
         return `<div class="list-item">
           <div class="flex-between">
             <div class="title">${UI.esc(r.title)}</div>
-            <span class="muted small">${UI.esc(c ? c.title : '-')} • ${UI.fmtDate(r.recordedAt)}</span>
+            <span class="muted small">${UI.esc(c ? DB.courseTitle(c) : '-')} • ${UI.fmtDate(r.recordedAt)}</span>
           </div>
+          <div class="meta">${credit(r, c)}</div>
           ${Shared.videoEmbedHtml(r.url)}
-          ${r.notes ? `<div class="content">${UI.esc(r.notes)}</div>` : ''}
+          ${r.notes ? `<div class="content rt-content">${RichText.render(r.notes)}</div>` : ''}
         </div>`;
       }).join('');
     };
@@ -1062,161 +995,6 @@
     renderList('');
   }
 
-  function renderBankSoal(container, user) {
-    const questions = DB.getQuestionsByAuthor(user.id);
-    container.innerHTML = `
-      <div class="card">
-        <div class="card-header">
-          <h3>Bank Soal (${questions.length})</h3>
-          <div class="flex-gap">
-            <input type="search" id="qSearch" placeholder="Cari soal..." style="padding:8px 12px;border:1px solid var(--gray-300);border-radius:6px;" />
-            <button class="btn btn-primary btn-sm" id="addQBtn">+ Tambah Soal</button>
-          </div>
-        </div>
-        <div id="qList"></div>
-      </div>
-    `;
-    const renderList = (query = '') => {
-      const list = document.getElementById('qList');
-      const filter = query.trim().toLowerCase();
-      const filtered = questions.filter(q => !filter || q.text.toLowerCase().includes(filter) || (q.subject || '').toLowerCase().includes(filter));
-      if (filtered.length === 0) { list.innerHTML = emptyState('Belum ada soal.'); return; }
-      list.innerHTML = filtered.map((q, i) => `
-        <div class="list-item">
-          <div class="flex-between">
-            <div>
-              <span class="badge badge-info">${UI.esc(q.subject || '-')}</span>
-              <span class="badge badge-gray">${UI.esc(q.difficulty || 'umum')}</span>
-            </div>
-            <div class="flex-gap">
-              <button class="btn btn-sm btn-secondary" data-edit-q="${q.id}">Edit</button>
-              <button class="btn btn-sm btn-danger" data-del-q="${q.id}">Hapus</button>
-            </div>
-          </div>
-          <div class="title mt-1">${UI.esc(q.text)}</div>
-          <div class="option-list">
-            ${q.options.map((opt, oi) => `
-              <div class="option-item ${oi === q.correctIndex ? 'correct' : ''}">
-                <span class="letter">${String.fromCharCode(65 + oi)}.</span>
-                <span>${UI.esc(opt)}</span>
-              </div>`).join('')}
-          </div>
-          ${q.explanation ? `<div class="muted small mt-1"><strong>Pembahasan:</strong> ${UI.esc(q.explanation)}</div>` : ''}
-        </div>
-      `).join('');
-      list.querySelectorAll('[data-edit-q]').forEach(b => b.addEventListener('click', () => openQuestionForm(user, b.dataset.editQ)));
-      list.querySelectorAll('[data-del-q]').forEach(b => b.addEventListener('click', () => {
-        if (!UI.confirmDialog('Hapus soal? Soal juga dihapus dari ujian yang menggunakan.')) return;
-        DB.deleteQuestion(b.dataset.delQ);
-        UI.toast('Soal dihapus.');
-        renderBankSoal(container, user);
-      }));
-    };
-    document.getElementById('addQBtn').addEventListener('click', () => openQuestionForm(user));
-    document.getElementById('qSearch').addEventListener('input', (e) => renderList(e.target.value));
-    renderList();
-  }
-
-  function openQuestionForm(user, editId) {
-    const editing = editId ? DB.getQuestion(editId) : null;
-    const opts = editing?.options && editing.options.length >= 2 ? editing.options.slice() : ['', '', '', ''];
-    while (opts.length < 4) opts.push('');
-    const body = `
-      <form id="qForm" class="form">
-        <div class="form-row">
-          <div class="form-group"><label>Mata Pelajaran</label>
-            <input name="subject" required value="${UI.esc(editing?.subject || user.subject || '')}" /></div>
-          <div class="form-group"><label>Tingkat Kesulitan</label>
-            <select name="difficulty">
-              ${['mudah', 'sedang', 'sulit'].map(d => `<option value="${d}" ${(editing?.difficulty || 'sedang') === d ? 'selected' : ''}>${d}</option>`).join('')}
-            </select>
-          </div>
-        </div>
-        <div class="form-group"><label>Pertanyaan</label>
-          <textarea name="text" required rows="3">${UI.esc(editing?.text || '')}</textarea></div>
-        ${[0, 1, 2, 3].map(i => `
-          <div class="form-group">
-            <label>Pilihan ${String.fromCharCode(65 + i)} ${editing?.correctIndex === i ? '<span class="badge badge-success">Jawaban Benar</span>' : ''}</label>
-            <input name="opt${i}" required value="${UI.esc(opts[i])}" />
-          </div>`).join('')}
-        <div class="form-group"><label>Jawaban Benar</label>
-          <select name="correctIndex" required>
-            ${[0, 1, 2, 3].map(i => `<option value="${i}" ${editing?.correctIndex === i ? 'selected' : ''}>Pilihan ${String.fromCharCode(65 + i)}</option>`).join('')}
-          </select>
-        </div>
-        <div class="form-group"><label>Pembahasan (opsional)</label>
-          <textarea name="explanation" rows="2">${UI.esc(editing?.explanation || '')}</textarea></div>
-        <div class="flex-gap" style="justify-content:flex-end;">
-          <button type="button" class="btn btn-secondary" id="cancelBtn">Batal</button>
-          <button type="submit" class="btn btn-primary">Simpan</button>
-        </div>
-      </form>`;
-    UI.modal.open(editing ? 'Edit Soal' : 'Tambah Soal', body);
-    document.getElementById('cancelBtn').addEventListener('click', () => UI.modal.close());
-    document.getElementById('qForm').addEventListener('submit', (e) => {
-      e.preventDefault();
-      const fd = new FormData(e.target);
-      const payload = {
-        authorId: user.id,
-        subject: fd.get('subject').trim(),
-        difficulty: fd.get('difficulty'),
-        text: fd.get('text').trim(),
-        options: [0, 1, 2, 3].map(i => fd.get('opt' + i).trim()),
-        correctIndex: Number(fd.get('correctIndex')),
-        explanation: fd.get('explanation').trim()
-      };
-      if (editing) DB.updateQuestion(editing.id, payload);
-      else DB.addQuestion(payload);
-      UI.toast('Soal disimpan.');
-      UI.modal.close();
-      renderBankSoal(document.getElementById('content'), user);
-    });
-  }
-
-  function renderCbtSection(container, user) {
-    const courses = DB.getCoursesByTeacher(user.id);
-    const courseIds = courses.map(c => c.id);
-    const cbts = DB.getCbts().filter(c => courseIds.includes(c.courseId));
-    container.innerHTML = `
-      <div class="card">
-        <div class="card-header">
-          <h3>Semua Ujian CBT Saya (${cbts.length})</h3>
-          <select id="cbtCourseFilter" class="form" style="max-width:220px;">
-            <option value="">Semua Kelas</option>
-            ${courses.map(c => `<option value="${c.id}">${UI.esc(c.title)}</option>`).join('')}
-          </select>
-        </div>
-        <div id="cbtList"></div>
-      </div>
-    `;
-    const renderList = (cid) => {
-      const list = document.getElementById('cbtList');
-      const filtered = cid ? cbts.filter(c => c.courseId === cid) : cbts;
-      if (filtered.length === 0) { list.innerHTML = emptyState('Belum ada ujian.'); return; }
-      list.innerHTML = `<div class="table-wrap"><table class="table">
-        <thead><tr><th>Ujian</th><th>Kelas</th><th>Soal</th><th>Durasi</th><th>Peserta</th><th>Rata-rata</th><th>Aksi</th></tr></thead>
-        <tbody>${filtered.map(c => {
-          const course = DB.getCourse(c.courseId);
-          const attempts = DB.getCbtAttemptsByCbt(c.id).filter(a => a.submittedAt);
-          const avg = attempts.length ? Math.round(attempts.reduce((s, a) => s + (a.score || 0), 0) / attempts.length) : null;
-          return `<tr>
-            <td><strong>${UI.esc(c.title)}</strong></td>
-            <td>${UI.esc(course ? course.title : '-')}</td>
-            <td>${(c.questionIds || []).length}</td>
-            <td>${c.durationMinutes} mnt</td>
-            <td>${attempts.length}</td>
-            <td>${avg ?? '-'}</td>
-            <td><button class="btn btn-sm btn-primary" data-result="${c.id}">Lihat Hasil</button></td>
-          </tr>`;
-        }).join('')}</tbody></table></div>`;
-      list.querySelectorAll('[data-result]').forEach(b => b.addEventListener('click', () => openCbtResults(b.dataset.result)));
-    };
-    document.getElementById('cbtCourseFilter').addEventListener('change', (e) => renderList(e.target.value));
-    renderList('');
-  }
-
-  /* Absensi (menu utama guru): pilih kelas lewat kotak berbaris, lalu ambil
-   * presensi dengan tombol status yang langsung diklik — tanpa dropdown. */
   function renderAbsensiSection(container, user) {
     const courses = DB.getCoursesByTeacher(user.id);
     const myAtt = DB.getAttendanceByUser(user.id).filter(a => a.role === 'guru');
@@ -1373,13 +1151,13 @@
     renderCourseTab: (tab, course, user, el) => {
       const target = el || document.getElementById('tabContent');
       if (!target) return;
-      if (tab === 'materials') return renderMaterialsTab(target, course);
-      if (tab === 'modules') return renderModulesTab(target, course);
-      if (tab === 'recordings') return renderRecordingsTab(target, course);
-      if (tab === 'assignments') return renderAssignmentsTab(target, course);
+      if (tab === 'materials') return renderMaterialsTab(target, course, user);
+      if (tab === 'modules') return renderModulesTab(target, course, user);
+      if (tab === 'recordings') return renderRecordingsTab(target, course, user);
+      if (tab === 'assignments') return renderAssignmentsTab(target, course, user);
       if (tab === 'cbts') return renderCbtsTab(target, course, user);
       if (tab === 'attendance') return renderAttendanceTab(target, course, user);
-      if (tab === 'students') return renderStudentsTab(target, course);
+      if (tab === 'students') return renderStudentsTab(target, course, user);
     },
     openCourseForm
   };

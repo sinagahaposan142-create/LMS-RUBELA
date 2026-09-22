@@ -104,6 +104,38 @@ Akun khusus pemantauan (hanya-baca) yang dibuat Admin dan dihubungkan ke satu at
 - **Pembayaran**: riwayat dan status tagihan anak.
 - **Chat Guru**, **Kalender**, **Pengumuman**, **Kritik & Saran**, **Profil**.
 
+### Atribusi Tutor per Konten & per Pertemuan
+Satu kelas subtest bisa diampu **dua tutor atau lebih**, tetapi satu pertemuan hanya diajar satu tutor.
+- Setiap **materi, modul, rekaman, tugas, CBT, dan presensi** menyimpan `createdBy` (tutor penanggung jawab) dan `enteredBy` (akun yang mengetiknya). Kartu konten menampilkan keterangan "Dibuat oleh …" — bila admin yang mengetik, tertulis "… (dicatat admin)".
+- Saat **admin** membuat konten, tersedia pemilih **Tutor Penanggung Jawab** (termasuk di wizard CBT) agar rekap keaktifan tutor tetap akurat.
+- **Halaman Kelas**, **Jadwal Kelas**, dan **War Jadwal** menampilkan tutor yang mengajar pada pertemuan tersebut, diambil dari rencana pertemuan (`classPlans`) — bukan dari daftar tutor kelas.
+- **Presensi** kelas multi-tutor menampilkan **semua** tutor pada lembar presensi, dan tutor pertemuan berganti otomatis mengikuti tanggal yang dipilih.
+- **Kepemilikan tugas**: hanya tutor pembuat (atau admin) yang boleh mengedit, mengoreksi, dan menilai tugas tersebut. Validasi/konfirmasi rencana kelas juga hanya bisa dilakukan admin dan tutor yang bersangkutan — dijaga di sisi handler, bukan hanya disembunyikan di tampilan.
+
+### Editor Kaya (rasa Word & Excel)
+Satu mesin editor bersama (`js/editor.js`) dipakai di **Bank Soal, Materi, Modul, dan Tugas** sehingga fiturnya identik di panel admin maupun tutor.
+- Format teks lengkap: heading, tebal/miring/garis bawah/coret, superscript & subscript, warna teks & sorotan, perataan, daftar berpoin/bernomor, **checklist**, indentasi, garis pemisah, kode, dan **kutipan yang benar-benar bisa dimatikan lagi** (toggle).
+- **Tabel** ala spreadsheet: sisipkan tabel N×M, tambah/hapus baris & kolom, baris header.
+- **Rumus & simbol**: dialog LaTeX dengan pratinjau, plus palet simbol **matematika, fisika, kimia, dan Yunani**.
+- **Media**: unggah gambar (otomatis dikompres), tautan **video YouTube/Vimeo** dan audio dengan **pratinjau langsung di editor**, serta tempel-dari-Word yang membersihkan format sampah.
+
+### Halaman Khusus Materi / Modul / Rekaman / Tugas
+Tombol **Tambah** kini membuka *workspace* satu halaman penuh (bukan modal sempit), sama untuk admin dan tutor: editor kaya penuh lebar, lampiran, pratinjau video, pemilih tutor penanggung jawab, dan tombol kembali yang aman.
+- **Tugas** punya dua mode: **uraian** (jawaban teks/berkas) atau **berbasis soal** — mengambil soal langsung dari **Bank Soal pusat** sehingga mendukung **8 format soal** dan LaTeX tanpa duplikasi data. Jawaban siswa dinilai otomatis untuk semua format objektif; esai tetap dinilai manual.
+
+### Bank Soal: Massal, Impor & Ekspor
+- **Buat Soal Massal**: satu halaman untuk mengetik/menempel banyak soal sekaligus (tanpa membuka form berulang), lengkap dengan pratinjau baris dan deteksi format otomatis dari kunci jawaban (mis. kunci `A,C` dikenali sebagai *Pilihan Lebih dari Satu*).
+- **Impor / Ekspor** `.xlsx` dan `.csv` dengan kolom seragam: `Subtest | Format | Tingkat | Pertanyaan | A | B | C | D | E | Kunci | Pembahasan`, plus unduhan **template**.
+- Memilih kategori subtest lalu menekan **Tambah Soal** membuat pilihan subtest **otomatis tersinkronisasi**.
+
+### Jadwal, Kalender & Pengumuman
+- Jadwal kelas tersinkronisasi ke **halaman kelas** (agenda pertemuan hari itu beserta materi/modul yang sudah tersedia) dan ke **Kalender utama** semua peran: admin, tutor, siswa, dan orang tua.
+- **Pengumuman** kini punya sasaran peran **Orang Tua** (selain semua/guru/siswa), dengan label sasaran yang jelas.
+
+### Keuangan & Branding
+- **Pemasukan** dibedakan per jenis: pembayaran SPP **dan denda siswa** (mis. pelanggaran atau keluar kelas) dengan daftar alasan denda siap pakai.
+- **Pengaturan → Branding**: unggah **logo Rubela** dan atur nama lembaga; logo langsung dipakai di halaman login, topbar dashboard, judul halaman, dan favicon.
+
 ## Arsitektur Data (semua tersinkronisasi)
 
 Semua entitas direlasikan via ID, jadi update/hapus satu entitas otomatis konsisten di seluruh panel:
@@ -151,7 +183,8 @@ Tekan *Export Excel* untuk mengunduh template berisi kolom lengkap (termasuk dat
 | Guru | Nama, Username, **Password**, Email, WhatsApp, Subtest, Tarif Gaji, Status |
 | Siswa | Nama, Username, **Password**, Email, Telepon, Kelas, Universitas Tujuan, Jurusan Tujuan, Status |
 | Orang Tua | Nama, Username, **Password**, Email, Telepon, Hubungan, **Username Anak** (pisahkan koma), Status |
-| Kelas | Judul Kelas, Kategori, Deskripsi, Biaya, Password, Username Guru |
+| Kelas | Judul Kelas, Subtest, Kelas Utama, Username Guru (boleh beberapa), Hari, Jam Mulai, Jam Selesai, Tanggal Mulai, Jumlah Pertemuan, Tautan Kelas, Kategori, Deskripsi, Biaya, Password |
+| Bank Soal | Subtest, Format, Tingkat, Pertanyaan, A, B, C, D, E, Kunci, Pembahasan |
 
 - Kolom **Password** dipakai langsung sebagai password akun. Bila dikosongkan, akun memakai `password123`.
 - Baris dengan username/judul yang sudah ada otomatis dilewati agar tidak duplikat.
@@ -173,13 +206,16 @@ python3 -m http.server 8080
 | Peran | Username | Password |
 |-------|----------|----------|
 | Admin | `admin`  | `admin123` |
-| Guru  | `guru1`  | `guru123` (Matematika) |
-| Guru  | `guru2`  | `guru123` (Bahasa Indonesia) |
-| Siswa | `siswa1` | `siswa123` |
-| Siswa | `siswa2` | `siswa123` |
-| Siswa | `siswa3` | `siswa123` |
+| Guru  | `guru1`  | `guru123` (Bu Maria Simbolon — PK 11-A & PU 12-A) |
+| Guru  | `guru2`  | `guru123` (Bu Irana Dewi — PK 11-B) |
+| Guru  | `guru3`  | `guru123` (Pak Budi Santoso — PU 12-A) |
+| Guru  | `guru4`  | `guru123` (Bu Sari Wulandari — Literasi B. Indonesia 10-A) |
+| Siswa | `siswa1` … `siswa6` | `siswa123` |
 | Orang Tua | `ortu1` | `ortu123` (memantau Andi Pratama) |
 | Orang Tua | `ortu2` | `ortu123` (memantau Dewi & Rendy) |
+
+Kelas **12-A • Penalaran Umum** diampu **dua tutor** (`guru3` + `guru1`) — pakai kelas ini untuk mencoba
+atribusi tutor per pertemuan, presensi multi-tutor, dan pembatasan hak edit/nilai antar tutor.
 
 Login sebagai `siswa1` sudah otomatis terdaftar di 2 kelas + sudah punya data tugas, submission, CBT attempt, pembayaran, dan absensi — cocok untuk eksplorasi cepat.
 Login sebagai `ortu2` untuk mencoba pemantauan **dua anak** sekaligus lewat pemilih anak.
@@ -188,8 +224,8 @@ Login sebagai `ortu2` untuk mencoba pemantauan **dua anak** sekaligus lewat pemi
 
 | Kelas | Password |
 |-------|----------|
-| Matematika Dasar | `mat2026` |
-| Bahasa Indonesia | *(kosong — kelas terbuka)* |
+| Kelas 11-A • Pengetahuan Kuantitatif (PK) | `pk2026` |
+| Kelas lainnya | *(kosong — kelas terbuka)* |
 
 Ubah kapan saja lewat Admin → Semua Kelas → **Atur**, atau Guru → Kelas Saya → tombol 🔒.
 
@@ -200,24 +236,35 @@ LMS-RUBELA/
 ├── index.html           # Halaman login + registrasi
 ├── dashboard.html       # Shell dashboard
 ├── css/
-│   └── style.css        # Styling lengkap (auth, dashboard, CBT, finance, modul, video, absensi)
+│   ├── style.css        # Styling lengkap (auth, dashboard, CBT, editor, keuangan, modul, presensi)
+│   └── responsive.css   # Penyesuaian layout tablet/ponsel + area scroll (chat, sidebar, tabel)
 └── js/
-    ├── data.js          # Data store (localStorage) + seed 16 entitas + helper orang tua/notifikasi/password kelas
+    ├── data.js          # Data store (localStorage) + seed + helper atribusi tutor, pertemuan, denda/branding
     ├── auth.js          # Session + login (4 peran) + register
     ├── login.js         # Controller halaman login
+    ├── loginquiz.js     # Kuis penyemangat sebelum masuk dashboard
     ├── ui.js            # Helper format (Rp, tanggal, durasi), modal, toast, progress, meter, greeting
     ├── effects.js       # Layer animasi: ripple, reveal, count-up, transisi halaman, tema gelap/terang
-    ├── shared.js        # Modul bersama: video embed, kalender, chat, AI, password kelas,
+    ├── responsive.js    # Pembungkus tabel & penyesuaian elemen agar aman di layar kecil
+    ├── branding.js      # Logo & nama lembaga (login, topbar, judul halaman, favicon)
+    ├── richtext.js      # Sanitasi & ringkasan teks kaya (plain text, potong aman)
+    ├── editor.js        # Mesin editor bersama: toolbar, tabel, LaTeX, palet simbol, media
+    ├── qeditor.js       # Editor khusus form soal (mendelegasikan ke editor.js)
+    ├── content.js       # Workspace halaman penuh: Materi, Modul, Rekaman, Tugas
+    ├── bank.js          # Bank Soal massal + impor/ekspor Excel & CSV + template
+    ├── jadwal.js        # Jadwal kelas, War Jadwal, rencana pertemuan & tutor per pertemuan
+    ├── rekap.js         # Rekapan aktivitas per kelas, tutor, dan siswa
+    ├── shared.js        # Modul bersama: video embed, kalender, chat, pengumuman, password kelas,
     │                    #   lembar presensi (pill), papan peringkat, lencana
     ├── cbt.js           # Workspace CBT: daftar ujian, wizard 6 langkah, bank soal per subtest,
     │                    #   pemantauan langsung, hasil & analisis per subtest
     ├── exam.js          # Runner ujian peserta: halaman pembuka, cek kamera/mikrofon,
     │                    #   pengerjaan berurutan per subtest, pencatatan pelanggaran, hasil
     ├── dashboard.js     # Router role-based + sidebar + pusat notifikasi + tema + drawer mobile
-    ├── admin.js         # Panel Admin (20 menu, termasuk Kelola Orang Tua & Papan Peringkat)
-    ├── guru.js          # Panel Guru (16 menu)
-    ├── siswa.js         # Panel Siswa (17 menu)
-    └── orangtua.js      # Panel Orang Tua (12 menu pemantauan)
+    ├── admin.js         # Panel Admin (22 menu, termasuk Kelola Orang Tua, Keuangan & Branding)
+    ├── guru.js          # Panel Guru (18 menu)
+    ├── siswa.js         # Panel Siswa (18 menu)
+    └── orangtua.js      # Panel Orang Tua (13 menu pemantauan)
 ```
 
 ## Tips

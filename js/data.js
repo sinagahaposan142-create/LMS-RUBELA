@@ -42,7 +42,7 @@
     securityQuestions: 'lms_security_questions',
     settings: 'lms_settings',
     session: 'lms_session',
-    seeded: 'lms_seeded_v5'
+    seeded: 'lms_seeded_v6'
   };
 
   /* Extra localStorage keys that are not part of the main entity map but must
@@ -83,6 +83,37 @@
   const DIFFICULTIES = ['mudah', 'sedang', 'sulit'];
   /** Penanda "berlaku untuk semua kelas" pada targetClasses sebuah CBT. */
   const ALL_CLASSES = '__ALL__';
+
+  /* ===== Jenis pemasukan =====
+   * Pemasukan bimbel tidak hanya SPP: ada denda keterlambatan, denda
+   * pelanggaran, dan biaya lain. Dipakai halaman Keuangan agar setiap rupiah
+   * yang masuk punya asal yang jelas.
+   */
+  const PAYMENT_KINDS = [
+    { key: 'spp',          label: 'SPP / Biaya Kelas', icon: '📚', fine: false },
+    { key: 'pendaftaran',  label: 'Biaya Pendaftaran', icon: '📝', fine: false },
+    { key: 'denda',        label: 'Denda Siswa',       icon: '⚠️', fine: true  },
+    { key: 'lainnya',      label: 'Pemasukan Lain',    icon: '💼', fine: false }
+  ];
+  const FINE_REASONS = [
+    'Terlambat membayar SPP',
+    'Terlambat masuk kelas',
+    'Tidak mengerjakan tugas',
+    'Melanggar aturan kelas',
+    'Melanggar aturan ujian / CBT',
+    'Keluar dari bimbel sebelum masa selesai',
+    'Merusak fasilitas',
+    'Lainnya'
+  ];
+
+  /** Jenis konten kelas yang punya pencatatan pembuat. */
+  const CONTENT_KINDS = {
+    material:   { label: 'Materi',   icon: '📄' },
+    module:     { label: 'Modul',    icon: '📘' },
+    recording:  { label: 'Rekaman',  icon: '🎥' },
+    assignment: { label: 'Tugas',    icon: '📝' },
+    cbt:        { label: 'CBT',      icon: '🖥️' }
+  };
 
   function subtestByName(name) {
     return SUBTESTS.find(s => s.name === name) || null;
@@ -331,7 +362,7 @@
   function seedIfNeeded() {
     // Migrate: wipe any older seed version so new demo entities (orang tua,
     // password kelas, notifikasi) are created consistently.
-    const OLD_SEEDS = ['lms_seeded_v1', 'lms_seeded_v2', 'lms_seeded_v3', 'lms_seeded_v4'];
+    const OLD_SEEDS = ['lms_seeded_v1', 'lms_seeded_v2', 'lms_seeded_v3', 'lms_seeded_v4', 'lms_seeded_v5'];
     const staleSeed = OLD_SEEDS.find(k => localStorage.getItem(k) === '1');
     if (staleSeed && localStorage.getItem(KEYS.seeded) !== '1') {
       Object.keys(KEYS).forEach(k => localStorage.removeItem(KEYS[k]));
@@ -430,9 +461,9 @@
     ];
 
     const materials = [
-      { id: 'm_1', courseId: 'c_pk_11a', title: 'Bilangan Bulat', content: 'Bilangan bulat meliputi bilangan positif, nol, dan negatif. Operasi dasar: + - x :.', link: '', createdAt: now - DAY * 8 },
-      { id: 'm_2', courseId: 'c_pk_11a', title: 'Persamaan Linear', content: 'Bentuk umum ax + b = 0. Pelajari cara mencari nilai x.', link: '', createdAt: now - DAY * 5 },
-      { id: 'm_3', courseId: 'c_lbind_10', title: 'Kalimat Efektif', content: 'Ciri kalimat efektif: kesatuan, kehematan, kepaduan, kelogisan.', link: '', createdAt: now - DAY * 3 }
+      { id: 'm_1', courseId: 'c_pk_11a', title: 'Bilangan Bulat', content: 'Bilangan bulat meliputi bilangan positif, nol, dan negatif. Operasi dasar: + - x :.', link: '', createdBy: 'u_guru1', createdAt: now - DAY * 8 },
+      { id: 'm_2', courseId: 'c_pk_11a', title: 'Persamaan Linear', content: 'Bentuk umum ax + b = 0. Pelajari cara mencari nilai x.', link: '', createdBy: 'u_guru1', createdAt: now - DAY * 5 },
+      { id: 'm_3', courseId: 'c_lbind_10', title: 'Kalimat Efektif', content: 'Ciri kalimat efektif: kesatuan, kehematan, kepaduan, kelogisan.', link: '', createdBy: 'u_guru4', createdAt: now - DAY * 3 }
     ];
 
     const modules = [
@@ -444,7 +475,7 @@
           { title: 'Operasi pada Variabel', content: 'Operasi +, -, *, / dapat dilakukan pada variabel sesuai aturan.' },
           { title: 'Latihan', content: 'Kerjakan soal 1-5 pada buku halaman 25.' }
         ],
-        link: '', createdAt: now - DAY * 9
+        link: '', createdBy: 'u_guru1', createdAt: now - DAY * 9
       },
       {
         id: 'mod_2', courseId: 'c_lbind_10', title: 'Modul 1 - Kaidah Bahasa',
@@ -453,19 +484,19 @@
           { title: 'EYD', content: 'Ejaan yang Disempurnakan - panduan penulisan resmi.' },
           { title: 'Tanda Baca', content: 'Penggunaan tanda baca yang benar.' }
         ],
-        link: '', createdAt: now - DAY * 4
+        link: '', createdBy: 'u_guru4', createdAt: now - DAY * 4
       }
     ];
 
     const recordings = [
-      { id: 'rec_1', courseId: 'c_pk_11a', title: 'Pertemuan 1 - Pengantar', url: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ', duration: 3600, recordedAt: now - DAY * 8, notes: 'Membahas bab 1 dan 2.' },
-      { id: 'rec_2', courseId: 'c_pk_11a', title: 'Pertemuan 2 - Aljabar', url: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ', duration: 3300, recordedAt: now - DAY * 4, notes: 'Latihan soal aljabar.' },
-      { id: 'rec_3', courseId: 'c_lbind_10', title: 'Pertemuan 1 - EYD', url: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ', duration: 2700, recordedAt: now - DAY * 3, notes: 'Pengantar EYD.' }
+      { id: 'rec_1', courseId: 'c_pk_11a', title: 'Pertemuan 1 - Pengantar', url: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ', duration: 3600, recordedAt: now - DAY * 8, notes: 'Membahas bab 1 dan 2.', createdBy: 'u_guru1', createdAt: now - DAY * 8 },
+      { id: 'rec_2', courseId: 'c_pk_11a', title: 'Pertemuan 2 - Aljabar', url: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ', duration: 3300, recordedAt: now - DAY * 4, notes: 'Latihan soal aljabar.', createdBy: 'u_guru1', createdAt: now - DAY * 4 },
+      { id: 'rec_3', courseId: 'c_lbind_10', title: 'Pertemuan 1 - EYD', url: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ', duration: 2700, recordedAt: now - DAY * 3, notes: 'Pengantar EYD.', createdBy: 'u_guru4', createdAt: now - DAY * 3 }
     ];
 
     const assignments = [
-      { id: 'a_1', courseId: 'c_pk_11a', title: 'Latihan Persamaan Linear', description: 'Kerjakan 5 soal tentang persamaan linear satu variabel.', dueDate: now + DAY * 5, createdAt: now - DAY * 4 },
-      { id: 'a_2', courseId: 'c_lbind_10', title: 'Esai Singkat', description: 'Tulis esai 300 kata tentang pahlawan favoritmu.', dueDate: now + DAY * 7, createdAt: now - DAY * 2 }
+      { id: 'a_1', courseId: 'c_pk_11a', title: 'Latihan Persamaan Linear', description: 'Kerjakan 5 soal tentang persamaan linear satu variabel.', dueDate: now + DAY * 5, createdBy: 'u_guru1', createdAt: now - DAY * 4 },
+      { id: 'a_2', courseId: 'c_lbind_10', title: 'Esai Singkat', description: 'Tulis esai 300 kata tentang pahlawan favoritmu.', dueDate: now + DAY * 7, createdBy: 'u_guru4', createdAt: now - DAY * 2 }
     ];
 
     const submissions = [
@@ -575,6 +606,7 @@
         durationMinutes: 15,
         security: { requireCamera: false, requireMic: false, fullscreen: false, blockTabSwitch: true, maxViolations: 5 },
         startAt: now - DAY * 2, endAt: now + DAY * 5,
+        createdBy: 'u_guru1',
         createdAt: now - DAY * 3
       },
       {
@@ -600,6 +632,7 @@
         durationMinutes: 50,
         security: { requireCamera: true, requireMic: true, fullscreen: true, blockTabSwitch: true, maxViolations: 3 },
         startAt: now - DAY, endAt: now + DAY * 14,
+        createdBy: 'u_guru1',
         createdAt: now - DAY * 2
       }
     ];
@@ -632,9 +665,10 @@
     ];
 
     const payments = [
-      { id: 'pay_1', studentId: 'u_siswa1', courseId: 'c_pk_11a', amount: 500000, method: 'transfer', status: 'lunas', note: 'SPP kelas PK Kelas 11-A', paidAt: now - DAY * 6, createdAt: now - DAY * 6 },
-      { id: 'pay_2', studentId: 'u_siswa2', courseId: 'c_pk_11a', amount: 500000, method: 'transfer', status: 'lunas', note: 'SPP kelas PK Kelas 11-A', paidAt: now - DAY * 5, createdAt: now - DAY * 5 },
-      { id: 'pay_3', studentId: 'u_siswa6', courseId: 'c_lbind_10', amount: 450000, method: 'cash', status: 'lunas', note: 'SPP kelas Literasi Indonesia Kelas 10-A', paidAt: now - DAY * 3, createdAt: now - DAY * 3 }
+      { id: 'pay_1', studentId: 'u_siswa1', courseId: 'c_pk_11a', amount: 500000, method: 'transfer', status: 'lunas', kind: 'spp', note: 'SPP kelas PK Kelas 11-A', paidAt: now - DAY * 6, createdAt: now - DAY * 6 },
+      { id: 'pay_2', studentId: 'u_siswa2', courseId: 'c_pk_11a', amount: 500000, method: 'transfer', status: 'lunas', kind: 'spp', note: 'SPP kelas PK Kelas 11-A', paidAt: now - DAY * 5, createdAt: now - DAY * 5 },
+      { id: 'pay_3', studentId: 'u_siswa6', courseId: 'c_lbind_10', amount: 450000, method: 'cash', status: 'lunas', kind: 'spp', note: 'SPP kelas Literasi Indonesia Kelas 10-A', paidAt: now - DAY * 3, createdAt: now - DAY * 3 },
+      { id: 'pay_4', studentId: 'u_siswa3', courseId: 'c_pk_11b', amount: 50000, method: 'cash', status: 'lunas', kind: 'denda', fineReason: 'Terlambat membayar SPP', note: 'Denda keterlambatan pembayaran SPP', paidAt: now - DAY * 2, createdAt: now - DAY * 2 }
     ];
 
     const expenses = [
@@ -782,11 +816,13 @@
     /* ===== Konstanta bersama ===== */
     SUBTESTS, SUBTEST_NAMES, QUESTION_TYPES, DIFFICULTIES, ALL_CLASSES,
     subtestByName, subtestOrder, DAY_NAMES, PLAN_STATUS, ymdOf,
+    PAYMENT_KINDS, FINE_REASONS, CONTENT_KINDS,
 
     /* ===== Pengaturan aplikasi ===== */
     getSettings: () => Object.assign({
       loginQuizEnabled: true, loginQuizRoles: ['siswa'], loginQuizAttempts: 3,
       motivationEnabled: true, planFillLead: PLAN_FILL_LEAD, planConfirmLead: PLAN_CONFIRM_LEAD,
+      appName: 'LMS Rubela', appTagline: 'Learning Management System', appLogo: '',
       examSecurityDefaults: {
         requireCamera: false, requireMic: false, fullscreen: true,
         blockTabSwitch: true, blockCopy: true, blockScreenshot: true,
@@ -907,6 +943,35 @@
     confirmClassPlan: (id) => update(KEYS.classPlans, id, {
       status: 'fixed', confirmedAt: Date.now(), updatedAt: Date.now()
     }),
+
+    /** Rencana kelas pada satu tanggal untuk satu kelas (null bila tak ada). */
+    getPlanForCourseDate: (cid, ymd) =>
+      getAll(KEYS.classPlans).find(p => p.courseId === cid && p.date === ymd) || null,
+
+    /**
+     * Tutor yang bertugas mengajar kelas ini pada tanggal tertentu.
+     * Satu pertemuan hanya diajar satu tutor, jadi rencana kelas (War Jadwal)
+     * adalah sumber kebenarannya. Bila belum ada rencana, jatuh ke tutor
+     * pertama kelas agar presensi tetap bisa diambil.
+     */
+    sessionTeacher: (course, ymd) => {
+      if (!course) return null;
+      const plan = DB.getPlanForCourseDate(course.id, ymd);
+      if (plan && plan.teacherId) {
+        const u = findById(KEYS.users, plan.teacherId);
+        if (u) return { user: u, plan, scheduled: true };
+      }
+      const first = DB.courseTeachers(course)[0] || null;
+      return first ? { user: first, plan: plan || null, scheduled: false } : null;
+    },
+
+    /** Bolehkah pengguna memvalidasi / mengubah rencana kelas ini? */
+    canManagePlan: (user, plan) => {
+      if (!user || !plan) return false;
+      if (user.role === 'admin') return true;
+      if (user.role !== 'guru') return false;
+      return plan.teacherId === user.id;
+    },
     /** Selisih hari dari hari ini ke tanggal rencana (negatif = sudah lewat). */
     planDaysAhead: (ymd) => {
       if (!ymd) return 0;
@@ -1061,8 +1126,80 @@
       remove(KEYS.courses, id);
     },
 
+    /* =====================================================================
+     * KEPEMILIKAN KONTEN KELAS
+     * Satu kelas subtest bisa diampu beberapa tutor, tetapi satu pertemuan
+     * hanya diajar satu tutor. Karena itu setiap materi/modul/rekaman/tugas/
+     * CBT mencatat `createdBy` (tutor penanggung jawab) supaya rekap keaktifan
+     * tiap tutor akurat. Admin yang membuat konten atas nama tutor mengisi
+     * `createdBy` secara manual dan `enteredBy` menyimpan siapa yang mengetik.
+     * ===================================================================*/
+
+    /** Id tutor penanggung jawab sebuah konten (null bila belum tercatat). */
+    contentOwnerId: (rec) => (rec && (rec.createdBy || null)) || null,
+
+    /** Nama tutor penanggung jawab; jatuh ke tutor pertama kelas bila kosong. */
+    contentOwnerName: (rec, course) => {
+      const id = rec && rec.createdBy;
+      if (id) {
+        const u = findById(KEYS.users, id);
+        if (u) return u.name;
+        return 'Tutor tidak ditemukan';
+      }
+      if (course) {
+        const first = DB.courseTeachers(course)[0];
+        if (first) return first.name;
+      }
+      return '';
+    },
+
+    /** Keterangan lengkap: "Bu Maria" atau "Bu Maria (dicatat admin)". */
+    contentCreditLabel: (rec, course) => {
+      const name = DB.contentOwnerName(rec, course);
+      if (!name) return '';
+      if (rec && rec.enteredBy && rec.enteredBy !== rec.createdBy) {
+        const by = findById(KEYS.users, rec.enteredBy);
+        if (by && by.role === 'admin') return name + ' (dicatat admin)';
+        if (by) return name + ' (dicatat ' + by.name + ')';
+      }
+      return name;
+    },
+
+    /**
+     * Bolehkah pengguna ini menyunting / menilai sebuah konten?
+     * Admin selalu boleh. Tutor hanya boleh bila dia pencatatnya — bila
+     * `createdBy` belum tercatat (data lama), semua tutor kelas itu boleh
+     * supaya konten warisan tidak terkunci permanen.
+     */
+    canManageContent: (user, rec, course) => {
+      if (!user) return false;
+      if (user.role === 'admin') return true;
+      if (user.role !== 'guru') return false;
+      const owner = rec && rec.createdBy;
+      if (!owner) return course ? DB.courseTeacherIds(course).includes(user.id) : true;
+      return owner === user.id;
+    },
+
+    /** Stempel pembuat untuk payload baru. */
+    stampCreator: (payload, user, ownerId) => {
+      const out = Object.assign({}, payload);
+      out.createdBy = ownerId || (user && user.role === 'guru' ? user.id : null) || null;
+      out.enteredBy = (user && user.id) || null;
+      out.createdAt = out.createdAt || Date.now();
+      return out;
+    },
+
+    /** Stempel penyunting untuk payload edit (pembuat asli dipertahankan). */
+    stampEditor: (payload, user) => {
+      const out = Object.assign({}, payload);
+      out.updatedBy = (user && user.id) || null;
+      out.updatedAt = Date.now();
+      return out;
+    },
+
     /* ===== Materials ===== */
     getMaterials: () => getAll(KEYS.materials),
+    getMaterial: (id) => findById(KEYS.materials, id),
     getMaterialsByCourse: (cid) => getAll(KEYS.materials).filter(m => m.courseId === cid),
     addMaterial: (m) => add(KEYS.materials, Object.assign({ createdAt: Date.now() }, m)),
     updateMaterial: (id, p) => update(KEYS.materials, id, p),
@@ -1078,6 +1215,7 @@
 
     /* ===== Recordings ===== */
     getRecordings: () => getAll(KEYS.recordings),
+    getRecording: (id) => findById(KEYS.recordings, id),
     getRecordingsByCourse: (cid) => getAll(KEYS.recordings).filter(r => r.courseId === cid),
     addRecording: (r) => add(KEYS.recordings, Object.assign({ recordedAt: Date.now() }, r)),
     updateRecording: (id, p) => update(KEYS.recordings, id, p),
@@ -1096,6 +1234,7 @@
 
     /* ===== Submissions ===== */
     getSubmissions: () => getAll(KEYS.submissions),
+    getSubmission: (id) => findById(KEYS.submissions, id),
     getSubmissionsByAssignment: (aid) => getAll(KEYS.submissions).filter(s => s.assignmentId === aid),
     getSubmissionByStudent: (aid, sid) => getAll(KEYS.submissions).find(s => s.assignmentId === aid && s.studentId === sid) || null,
     getSubmissionsByStudent: (sid) => getAll(KEYS.submissions).filter(s => s.studentId === sid),
@@ -1131,7 +1270,10 @@
     /* ===== CBT (Computer Based Test) ===== */
     getCbts: () => getAll(KEYS.cbts),
     getCbt: (id) => findById(KEYS.cbts, id),
-    getCbtsByCourse: (cid) => getAll(KEYS.cbts).filter(c => c.courseId === cid),
+    /* Sebuah CBT bisa menargetkan beberapa kelas lewat courseIds; kelas
+     * tunggal lama memakai courseId. Keduanya harus terbaca. */
+    getCbtsByCourse: (cid) => getAll(KEYS.cbts).filter(c =>
+      c.courseId === cid || (Array.isArray(c.courseIds) && c.courseIds.includes(cid))),
     addCbt: (c) => add(KEYS.cbts, Object.assign({ createdAt: Date.now(), questionIds: [] }, c)),
     updateCbt: (id, p) => update(KEYS.cbts, id, p),
     deleteCbt: (id) => {
@@ -1240,6 +1382,25 @@
     /* ===== Finance: Payments (pemasukan/SPP siswa) ===== */
     getPayments: () => getAll(KEYS.payments),
     getPayment: (id) => findById(KEYS.payments, id),
+    /** Jenis pemasukan sebuah transaksi (data lama dianggap SPP). */
+    paymentKind: (p) => (p && p.kind) || 'spp',
+    paymentKindMeta: (kind) => PAYMENT_KINDS.find(k => k.key === ((kind) || 'spp')) || PAYMENT_KINDS[0],
+    /** Semua denda; opsional difilter per siswa. */
+    getFines: (studentId) => getAll(KEYS.payments).filter(p =>
+      DB.paymentKind(p) === 'denda' && (!studentId || p.studentId === studentId)),
+    /** Ringkasan pemasukan per jenis: { spp: {lunas, pending}, denda: {...} }. */
+    incomeByKind: () => {
+      const out = {};
+      PAYMENT_KINDS.forEach(k => { out[k.key] = { lunas: 0, pending: 0, count: 0 }; });
+      getAll(KEYS.payments).forEach(p => {
+        const k = DB.paymentKind(p);
+        if (!out[k]) out[k] = { lunas: 0, pending: 0, count: 0 };
+        out[k].count++;
+        if (p.status === 'lunas') out[k].lunas += Number(p.amount) || 0;
+        else out[k].pending += Number(p.amount) || 0;
+      });
+      return out;
+    },
     getPaymentsByStudent: (sid) => getAll(KEYS.payments).filter(p => p.studentId === sid),
     addPayment: (p) => add(KEYS.payments, Object.assign({ createdAt: Date.now() }, p)),
     updatePayment: (id, p) => update(KEYS.payments, id, p),

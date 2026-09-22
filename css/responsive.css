@@ -475,8 +475,13 @@ html[data-theme="dark"] .table-wrap.has-overflow::after {
    ========================================================================= */
 @media (max-width: 860px) {
   .chat-layout { grid-template-columns: 1fr; height: auto; min-height: 0; }
-  .chat-sidebar { max-height: 210px; border-right: none; border-bottom: 1px solid var(--gray-200); }
-  .chat-messages { min-height: 300px; max-height: 52vh; }
+  /* min-height:0 + overflow sendiri agar daftar kontak tetap bisa digeser
+   * dengan sentuhan di ponsel, bukan terpotong. */
+  .chat-sidebar {
+    max-height: 210px; min-height: 0; overflow: hidden;
+    border-right: none; border-bottom: 1px solid var(--gray-200);
+  }
+  .chat-messages { min-height: 220px; max-height: 52dvh; }
   .chat-bubble { max-width: 86%; }
   .chat-input-box { padding: 10px 12px calc(10px + var(--sa-b)); }
   .chat-input-box input { font-size: 16px; }
@@ -523,7 +528,7 @@ html[data-theme="dark"] .table-wrap.has-overflow::after {
   .child-card { flex: 1 1 100%; }
   .timeline { padding-left: 22px; }
   .meter { width: 92px; height: 92px; }
-  .notif-panel { width: calc(100vw - 24px); right: -6px; max-height: 70vh; }
+  .notif-panel { width: calc(100vw - 24px); right: -6px; max-height: 70dvh; }
   .pick-item { grid-template-columns: 22px 1fr; }
   .pick-item .pick-av, .pick-item .pick-tag { display: none; }
   .pick-toolbar { gap: 7px; }
@@ -548,7 +553,7 @@ html[data-theme="dark"] .table-wrap.has-overflow::after {
   .cbt-timer { position: static; }
   .sidebar { padding-top: 10px; }
   .sidebar .brand { padding-bottom: 10px; }
-  .chat-messages { max-height: 40vh; }
+  .chat-messages { max-height: 40dvh; min-height: 160px; }
 }
 
 /* =========================================================================

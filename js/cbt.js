@@ -155,7 +155,7 @@
         ${cbts.length === 0 ? emptyState('Belum ada ujian CBT. Klik "Buat Ujian Baru" untuk memulai.', '🖥️') : `
         <div class="table-wrap"><table class="table">
           <thead><tr>
-            <th>Ujian</th><th>Kelas Tujuan</th><th>Mode</th><th>Subtest</th>
+            <th>Ujian</th><th>Tutor</th><th>Kelas Tujuan</th><th>Mode</th><th>Subtest</th>
             <th>Soal</th><th>Jadwal</th><th>Peserta</th><th>Status</th><th>Aksi</th>
           </tr></thead>
           <tbody>${cbts.slice().sort((a, b) => b.createdAt - a.createdAt).map(c => {
@@ -181,6 +181,9 @@
                 ${c.description ? `<div class="muted small" style="max-width:260px;">${UI.esc(c.description.slice(0, 70))}${c.description.length > 70 ? '…' : ''}</div>` : ''}
                 ${secIcons ? `<div class="small" title="Pengaturan keamanan">${secIcons}</div>` : ''}
               </td>
+              <td>${global.ContentEditor
+                    ? ContentEditor.creditHtml(c, DB.getCourse(c.courseId))
+                    : UI.esc(DB.contentOwnerName(c, DB.getCourse(c.courseId)))}</td>
               <td><span class="badge ${(c.targetClasses || []).includes(DB.ALL_CLASSES) ? 'badge-success' : 'badge-info'}">${UI.esc(DB.cbtTargetLabel(c))}</span></td>
               <td>${c.subtestMode === 'full' ? '<span class="badge badge-warning">7 Subtest</span>'
                     : (c.subtestMode === 'single' ? '<span class="badge badge-info">1 Subtest</span>' : '<span class="badge badge-gray">Custom</span>')}</td>
@@ -192,8 +195,10 @@
               <td class="actions">
                 <button class="btn btn-sm btn-primary" data-monitor="${c.id}">📡 Pantau</button>
                 <button class="btn btn-sm btn-secondary" data-results="${c.id}">📊 Hasil</button>
-                <button class="btn btn-sm btn-secondary" data-edit-cbt="${c.id}">Edit</button>
-                <button class="btn btn-sm btn-danger" data-del-cbt="${c.id}">Hapus</button>
+                ${DB.canManageContent(user, c, DB.getCourse(c.courseId))
+                  ? `<button class="btn btn-sm btn-secondary" data-edit-cbt="${c.id}">Edit</button>
+                     <button class="btn btn-sm btn-danger" data-del-cbt="${c.id}">Hapus</button>`
+                  : `<span class="lock-note">🔒 milik ${UI.esc(DB.contentOwnerName(c, DB.getCourse(c.courseId)) || 'tutor lain')}</span>`}
               </td>
             </tr>`;
           }).join('')}</tbody>
@@ -235,9 +240,22 @@
     { key: 'review',   label: 'Tinjau & Simpan',       icon: '✅' }
   ];
 
-  function openWizard(user, editId, onDone) {
+  /**
+   * @param {object} user   pengguna aktif
+   * @param {string|null} editId  id ujian yang disunting
+   * @param {function} onDone     callback setelah simpan/tutup
+   * @param {object} opts   { courseIds: [], ownerId: '' } — dipakai saat ujian
+   *                        dibuat dari dalam halaman kelas agar kelas tujuan
+   *                        dan tutor penanggung jawab langsung terisi.
+   */
+  function openWizard(user, editId, onDone, opts) {
+    const o = opts || {};
     const editing = editId ? DB.getCbt(editId) : null;
     const courses = user.role === 'admin' ? DB.getCourses() : DB.getCoursesByTeacher(user.id);
+    // Tutor penanggung jawab: dipertahankan saat edit, atau dari opts/pembuat.
+    // Admin boleh mengubahnya pada langkah 1 agar rekap keaktifan tutor akurat.
+    let ownerId = (editing && editing.createdBy) || o.ownerId ||
+      (user.role === 'guru' ? user.id : null);
 
     // ---- State draft ujian ----
     const draft = {
@@ -246,7 +264,8 @@
       targetClasses: (editing?.targetClasses || []).slice(),
       courseIds: (editing?.courseIds && editing.courseIds.length
         ? editing.courseIds
-        : (editing?.courseId ? [editing.courseId] : [])).slice(),
+        : (editing?.courseId ? [editing.courseId]
+           : (Array.isArray(o.courseIds) ? o.courseIds : []))).slice(),
       subtestMode: editing?.subtestMode || 'single',
       selectedSubtest: editing?.selectedSubtest || DB.SUBTESTS[0].name,
       // map: nama subtest -> array questionId
@@ -372,6 +391,38 @@
     }
 
     /* ---------- Langkah 1: Info & deskripsi ---------- */
+    /**
+     * Blok atribusi tutor. Tutor selalu tercatat atas namanya sendiri; admin
+     * memilih tutor penanggung jawab (sistem tetap menyimpan bahwa admin yang
+     * mengetiknya lewat field enteredBy).
+     */
+    function ownerBlockHtml() {
+      if (user.role !== 'admin') {
+        const me = DB.getUser(ownerId) || user;
+        return `
+          <div class="ce-owner-note">
+            <span class="ce-owner-ic">👤</span>
+            <div>
+              <strong>Tercatat atas nama Anda: ${UI.esc(me.name)}</strong>
+              <div class="muted small">Ujian ini dihitung sebagai keaktifan Anda pada rekapan tutor.</div>
+            </div>
+          </div>`;
+      }
+      const tutors = DB.getUsers().filter(u => u.role === 'guru' && u.active !== false);
+      return `
+        <div class="form-group">
+          <label for="wzOwner">Tutor Penanggung Jawab</label>
+          <select name="wzOwner" id="wzOwner">
+            <option value="">— Tidak dikaitkan ke tutor (dibuat admin) —</option>
+            ${tutors.map(t => `<option value="${UI.esc(t.id)}" ${ownerId === t.id ? 'selected' : ''}>${UI.esc(t.name)}</option>`).join('')}
+          </select>
+          <div class="muted small">
+            Anda mencatat sebagai admin. Pilih tutor yang benar-benar menyiapkan ujian ini agar
+            rekapan keaktifan tutor tetap akurat. Sistem menyimpan bahwa admin yang mengetiknya.
+          </div>
+        </div>`;
+    }
+
     function stepInfo(panel) {
       panel.innerHTML = `
         <div class="card">
@@ -381,6 +432,7 @@
               <label>Judul Ujian</label>
               <input name="wzTitle" value="${UI.esc(draft.title)}" placeholder="mis. Try Out UTBK Batch 1" />
             </div>
+            ${ownerBlockHtml()}
             <div class="form-group">
               <label>Deskripsi / Petunjuk Ujian</label>
               <textarea name="wzDesc" rows="5" placeholder="Tulis petunjuk pengerjaan, aturan, dan hal yang perlu disiapkan peserta...">${UI.esc(draft.description)}</textarea>
@@ -404,6 +456,8 @@
         if (e2) draft.endAt = UI.tzInputToUtc(e2);
       };
       panel.querySelectorAll('input, textarea').forEach(el => el.addEventListener('input', sync));
+      const own = panel.querySelector('#wzOwner');
+      if (own) own.addEventListener('change', () => { ownerId = own.value || null; });
     }
 
     /* ---------- Langkah 2: Kelas tujuan (multi + semua) ---------- */
@@ -745,6 +799,10 @@
               <tr><th>Kelas Mata Pelajaran</th><td>${draft.courseIds.length
                 ? draft.courseIds.map(id => UI.esc(DB.getCourse(id)?.title || '-')).join(', ')
                 : '<span class="muted">Tidak dikaitkan</span>'}</td></tr>
+              <tr><th>Tutor Penanggung Jawab</th><td>${ownerId
+                ? UI.esc(DB.getUser(ownerId)?.name || '-') +
+                  (user.role === 'admin' ? ' <span class="badge badge-gray">diinput admin</span>' : '')
+                : '<span class="muted">Tidak dikaitkan ke tutor</span>'}</td></tr>
               <tr><th>Metode</th><td>${draft.subtestMode === 'full' ? 'Gabungan 7 Subtest (Full UTBK)'
                 : (draft.subtestMode === 'single' ? 'Per 1 Subtest — ' + UI.esc(draft.selectedSubtest) : 'Custom')}</td></tr>
               <tr><th>Jadwal</th><td>${UI.fmtDateTime(draft.startAt)} &nbsp;s.d.&nbsp; ${UI.fmtDateTime(draft.endAt)}</td></tr>
@@ -801,10 +859,16 @@
       };
 
       if (editing) {
-        DB.updateCbt(editing.id, payload);
+        const patch = DB.stampEditor(payload, user);
+        // Admin boleh mengosongkan atribusi secara sengaja; tutor tidak bisa
+        // memindahkan kepemilikan ujian orang lain.
+        patch.createdBy = user.role === 'admin'
+          ? (ownerId || null)
+          : (ownerId || editing.createdBy || null);
+        DB.updateCbt(editing.id, patch);
         UI.toast('Perubahan ujian disimpan.');
       } else {
-        const created = DB.addCbt(payload);
+        const created = DB.addCbt(DB.stampCreator(payload, user, ownerId));
         // Beritahu peserta yang ditargetkan
         const students = targetedStudents(created);
         DB.notifyUsers(students.map(s => s.id), {
@@ -823,14 +887,55 @@
   /* =====================================================================
    * 3) BANK SOAL BROWSER ("Soal Tersedia") — halaman khusus
    * ===================================================================*/
-  function openBankBrowser(user, onDone) {
-    let activeSub = DB.SUBTESTS[0].name;
+  function openBankBrowser(user, onDone, initialSub) {
+    let activeSub = (initialSub && DB.SUBTEST_NAMES.includes(initialSub)) ? initialSub : DB.SUBTESTS[0].name;
     let fType = '', fDiff = '', fQuery = '';
 
-    const body = openWorkspace('Soal Tersedia — Bank Soal', 'Telusuri soal per kategori subtest, format, dan tingkat kesulitan',
-      '<button class="btn btn-primary btn-sm" id="wsAddQ">+ Tambah Soal</button>');
+    const body = openWorkspace('Soal Tersedia — Bank Soal',
+      'Telusuri soal per kategori subtest, format, dan tingkat kesulitan',
+      `<button class="btn btn-secondary btn-sm" id="wsBulkQ">⚡ Buat Massal</button>
+       <button class="btn btn-secondary btn-sm" id="wsImportQ">⬆ Impor</button>
+       <button class="btn btn-secondary btn-sm" id="wsExportQ">⬇ Ekspor</button>
+       <button class="btn btn-primary btn-sm" id="wsAddQ">+ Tambah Soal</button>`);
     wsEl.__onBack = () => { closeWorkspace(); if (typeof onDone === 'function') onDone(); };
-    document.getElementById('wsAddQ').addEventListener('click', () => openQuestionForm(user, null, paintAll));
+
+    // Subtest yang sedang dibuka ikut terbawa ke editor soal
+    document.getElementById('wsAddQ').addEventListener('click', () =>
+      openQuestionForm(user, null, paintAll, { subtest: activeSub }));
+    document.getElementById('wsBulkQ').addEventListener('click', () =>
+      BankTools.openBulk(user, paintAll, { subtest: activeSub }));
+    document.getElementById('wsImportQ').addEventListener('click', () =>
+      BankTools.openImport(user, paintAll, { subtest: activeSub }));
+    document.getElementById('wsExportQ').addEventListener('click', () => openExportMenu());
+
+    /** Pilihan ekspor: seluruh bank atau hanya subtest yang sedang dibuka. */
+    function openExportMenu() {
+      const inSub = DB.getQuestions().filter(q => q.subject === activeSub);
+      Editor.openSubDialog('Ekspor Bank Soal', `
+        <p class="muted small" style="margin-top:0;">Berkas berisi kolom lengkap beserta kunci jawaban dan pembahasan,
+          dan bisa diimpor kembali tanpa penyesuaian.</p>
+        <div class="form-group">
+          <label>Cakupan</label>
+          <label class="qe-check"><input type="radio" name="bkScope" value="all" checked />
+            Seluruh bank soal (${DB.getQuestions().length} soal)</label>
+          <label class="qe-check"><input type="radio" name="bkScope" value="sub" ${inSub.length ? '' : 'disabled'} />
+            Hanya ${UI.esc(activeSub)} (${inSub.length} soal)</label>
+        </div>
+        <div class="flex-gap mt-2" style="justify-content:flex-end;">
+          <button type="button" class="btn btn-secondary" data-cancel>Batal</button>
+          <button type="button" class="btn btn-secondary" data-csv>⬇ CSV</button>
+          <button type="button" class="btn btn-primary" data-xlsx>⬇ Excel</button>
+        </div>
+      `, (back, close) => {
+        const pick = () => {
+          const scope = (back.querySelector('[name="bkScope"]:checked') || {}).value;
+          return scope === 'sub' ? DB.getQuestions().filter(q => q.subject === activeSub) : DB.getQuestions();
+        };
+        back.querySelector('[data-cancel]').addEventListener('click', close);
+        back.querySelector('[data-csv]').addEventListener('click', () => { const l = pick(); close(); BankTools.exportQuestions(l, 'csv'); });
+        back.querySelector('[data-xlsx]').addEventListener('click', () => { const l = pick(); close(); BankTools.exportQuestions(l, 'xlsx'); });
+      });
+    }
 
     paintAll();
 
@@ -917,7 +1022,7 @@
               </div>`).join('')}</div>`}
       `;
       area.querySelectorAll('[data-edit-q]').forEach(b => b.addEventListener('click', () =>
-        openQuestionForm(user, b.dataset.editQ, paintAll)));
+        openQuestionForm(user, b.dataset.editQ, paintAll, { subtest: activeSub })));
       area.querySelectorAll('[data-del-q]').forEach(b => b.addEventListener('click', () => {
         if (!UI.confirmDialog('Hapus soal ini? Soal juga akan dilepas dari ujian yang memakainya.')) return;
         DB.deleteQuestion(b.dataset.delQ);
@@ -936,15 +1041,19 @@
    * (.modal z-index 100 < .cbt-workspace 120) sehingga tombol terasa "tidak
    * berfungsi". Sekarang memakai QEditor: halaman penuh dengan z-index 140.
    */
-  function openQuestionForm(user, editId, onDone) {
+  /**
+   * @param {object} opts { subtest } — subtest yang sedang dibuka agar
+   *        pilihan subtest di editor terisi otomatis dan penulis soal tidak
+   *        perlu memilihnya ulang setiap kali menambah soal.
+   */
+  function openQuestionForm(user, editId, onDone, opts) {
     if (!global.QEditor) {
       UI.toast('Editor soal belum termuat. Muat ulang halaman.', 'error');
       return;
     }
     QEditor.open(user, editId, (saved) => {
-      if (saved && typeof onDone === 'function') onDone(saved);
-      else if (!saved && typeof onDone === 'function') onDone(null);
-    });
+      if (typeof onDone === 'function') onDone(saved || null);
+    }, opts || {});
   }
 
   /* =====================================================================
@@ -1120,6 +1229,9 @@
         <div class="card-header">
           ${UI.secHead('📚', 'Bank Soal per Kategori Subtest', 'Buka halaman khusus untuk menelusuri, memfilter, dan menyunting soal')}
           <div class="flex-gap">
+            <button class="btn btn-secondary btn-sm" id="bsBulkBtn">⚡ Buat Massal</button>
+            <button class="btn btn-secondary btn-sm" id="bsImportBtn">⬆ Impor</button>
+            <button class="btn btn-secondary btn-sm" id="bsExportBtn">⬇ Ekspor</button>
             <button class="btn btn-secondary btn-sm" id="bsAddBtn">+ Tambah Soal</button>
             <button class="btn btn-primary btn-sm" id="bsOpenBtn">📖 Buka Soal Tersedia</button>
           </div>
@@ -1154,7 +1266,13 @@
     const reload = () => renderBankHome(container, user);
     document.getElementById('bsOpenBtn').addEventListener('click', () => openBankBrowser(user, reload));
     document.getElementById('bsAddBtn').addEventListener('click', () => openQuestionForm(user, null, reload));
-    container.querySelectorAll('[data-open-sub]').forEach(b => b.addEventListener('click', () => openBankBrowser(user, reload)));
+    document.getElementById('bsBulkBtn').addEventListener('click', () => BankTools.openBulk(user, reload));
+    document.getElementById('bsImportBtn').addEventListener('click', () => BankTools.openImport(user, reload));
+    document.getElementById('bsExportBtn').addEventListener('click', () => BankTools.exportQuestions(null, 'xlsx'));
+    /* Klik kartu subtest membuka browser LANGSUNG pada subtest itu; dulu
+     * nama subtest di data-open-sub dibuang sehingga selalu mendarat di PU. */
+    container.querySelectorAll('[data-open-sub]').forEach(b => b.addEventListener('click', () =>
+      openBankBrowser(user, reload, b.dataset.openSub)));
     if (global.Effects) Effects.enhance(container);
   }
 
