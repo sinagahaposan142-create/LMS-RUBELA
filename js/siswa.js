@@ -903,13 +903,18 @@
     el.innerHTML = `
       <div class="card">
         <div class="card-header"><h3>Ujian Online</h3></div>
-        ${cbts.length === 0 ? emptyState('Belum ada ujian.') : cbts.map(c => cbtRowHtml(c, user)).join('')}
+        ${cbts.length === 0 ? emptyState('Belum ada ujian.') : cbts.map(c => cbtRowHtml(c, user, { inClass: true })).join('')}
       </div>
     `;
     bindCbtRowActions(el, user);
   }
 
-  function cbtRowHtml(c, user) {
+  /**
+   * @param {object} opts { inClass } — keterangan tutor pembuat hanya tampil
+   *   untuk ujian di dalam halaman kelas, tidak pada CBT umum/utama.
+   */
+  function cbtRowHtml(c, user, opts) {
+    const inClass = !!(opts && opts.inClass);
     const attempt = DB.getCbtAttemptByStudent(c.id, user.id);
     const now = Date.now();
     const before = now < c.startAt;
@@ -937,6 +942,7 @@
         ${badge}
       </div>
       <div class="meta">
+        ${inClass ? `${credit(c, DB.getCourse(c.courseId))} • ` : ''}
         ${c.subtestMode === 'full' ? '<span class="badge badge-warning">Gabungan 7 Subtest</span> ' : ''}
         ${qCount} soal • ${sections.length} bagian • ${c.durationMinutes} menit •
         ${UI.fmtDateTime(c.startAt)} s.d. ${UI.fmtDateTime(c.endAt)}

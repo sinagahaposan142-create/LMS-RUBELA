@@ -30,6 +30,7 @@
     if (section === 'feedback') return Shared.renderFeedback(container, user);
     if (section === 'chat') return Shared.renderChat(container, user);
     if (section === 'ai-analytics') return Shared.renderAiAnalytics(container, user);
+    if (section === 'agent-web') return renderAgentWeb(container, user);
     if (section === 'keuangan') return renderKeuangan(container);
     if (section === 'settings') return renderSettings(container);
   }
@@ -1892,6 +1893,84 @@
       </div>
 
       <div class="card">
+        <div class="card-header">
+          ${UI.secHead('🤖', 'Integrasi AI', 'Gemini untuk asisten belajar & analisis, Agent API untuk menarik data dari halaman web')}
+        </div>
+        ${(() => {
+          const st = DB.getSettings();
+          const geminiOn = !!(st.aiEnabled !== false && (st.geminiApiKey || '').trim());
+          const agentOn = !!(st.aiEnabled !== false && (st.tinyfishApiKey || '').trim() && (st.tinyfishEndpoint || '').trim());
+          return `
+          <div class="flex-gap" style="margin-bottom:10px;">
+            <span class="ai-status ${geminiOn ? 'is-on' : 'is-off'}">${geminiOn ? '● Gemini aktif' : '○ Gemini belum aktif'}</span>
+            <span class="ai-status ${agentOn ? 'is-on' : 'is-off'}">${agentOn ? '● Agent API aktif' : '○ Agent API belum aktif'}</span>
+          </div>
+          <div class="alert alert-warning">
+            <strong>Keamanan kunci API.</strong> Situs ini berjalan tanpa server, sehingga kunci yang
+            dimasukkan di sini <strong>hanya</strong> disimpan pada browser ini (localStorage) dan tidak
+            pernah ikut tersimpan ke dalam kode atau repositori. Jangan membagikan kunci Anda, dan segera
+            ganti kunci di Google AI Studio bila pernah terkirim ke orang lain.
+          </div>
+          <div class="form">
+            <div class="form-group">
+              <label class="sec-opt ${st.aiEnabled !== false ? 'is-on' : ''}">
+                <input type="checkbox" id="aiEnabled" ${st.aiEnabled !== false ? 'checked' : ''} />
+                <div>
+                  <div class="so-nm">🤖 Aktifkan seluruh fitur AI</div>
+                  <div class="so-ds">Bila dimatikan, halaman AI tetap menampilkan analisis dari data asli LMS — hanya ulasan naratif AI yang dinonaktifkan.</div>
+                </div>
+              </label>
+            </div>
+
+            <h4 style="margin:6px 0 0;">Google Gemini</h4>
+            <div class="form-group">
+              <label for="geminiApiKey">Kunci API Gemini</label>
+              <div class="flex-gap">
+                <input type="password" id="geminiApiKey" autocomplete="off" spellcheck="false"
+                       placeholder="Tempel kunci API di sini" value="${UI.esc(st.geminiApiKey || '')}" style="flex:1;" />
+                <button type="button" class="btn btn-secondary btn-sm" id="toggleKeyBtn">Lihat</button>
+              </div>
+              <div class="muted small">Dapatkan kunci gratis di Google AI Studio (aistudio.google.com/apikey).</div>
+            </div>
+            <div class="form-row">
+              <div class="form-group">
+                <label for="geminiModel">Model</label>
+                <input id="geminiModel" value="${UI.esc(st.geminiModel || 'gemini-flash-latest')}" placeholder="gemini-flash-latest" />
+              </div>
+              <div class="form-group">
+                <label for="aiTimeoutMs">Batas waktu (ms)</label>
+                <input id="aiTimeoutMs" type="number" min="5000" step="1000" value="${Number(st.aiTimeoutMs) || 30000}" />
+              </div>
+            </div>
+
+            <h4 style="margin:6px 0 0;">Agent API (TinyFish)</h4>
+            <p class="muted small" style="margin:0;">
+              Dipakai pada menu <strong>Agent Web</strong> untuk mengambil data terstruktur dari sebuah URL
+              berdasarkan tujuan yang Anda tulis.
+            </p>
+            <div class="form-row">
+              <div class="form-group">
+                <label for="tinyfishEndpoint">Endpoint Agent API</label>
+                <input id="tinyfishEndpoint" autocomplete="off" spellcheck="false"
+                       placeholder="https://…" value="${UI.esc(st.tinyfishEndpoint || '')}" />
+              </div>
+              <div class="form-group">
+                <label for="tinyfishApiKey">Kunci Agent API</label>
+                <input type="password" id="tinyfishApiKey" autocomplete="off" spellcheck="false"
+                       placeholder="Tempel kunci di sini" value="${UI.esc(st.tinyfishApiKey || '')}" />
+              </div>
+            </div>
+
+            <div class="flex-gap">
+              <button class="btn btn-primary btn-sm" id="saveAiBtn">Simpan Integrasi</button>
+              <button class="btn btn-secondary btn-sm" id="testAiBtn">Uji Koneksi Gemini</button>
+            </div>
+            <div id="aiTestBox" style="margin-top:10px;"></div>
+          </div>`;
+        })()}
+      </div>
+
+      <div class="card">
         <div class="card-header"><h3>Pengaturan Sistem</h3></div>
         <p class="muted">Data LMS disimpan di browser Anda (localStorage). Gunakan tombol di bawah untuk mereset ke data contoh.</p>
         <div class="flex-gap">
@@ -1969,6 +2048,48 @@
       renderSettings(container);
     });
 
+    /* ---- Integrasi AI ---- */
+    document.getElementById('toggleKeyBtn').addEventListener('click', () => {
+      const inp = document.getElementById('geminiApiKey');
+      const btn = document.getElementById('toggleKeyBtn');
+      const show = inp.type === 'password';
+      inp.type = show ? 'text' : 'password';
+      btn.textContent = show ? 'Sembunyikan' : 'Lihat';
+    });
+    document.getElementById('saveAiBtn').addEventListener('click', () => {
+      const timeout = Number(document.getElementById('aiTimeoutMs').value);
+      DB.setSetting('aiEnabled', document.getElementById('aiEnabled').checked);
+      DB.setSetting('geminiApiKey', document.getElementById('geminiApiKey').value.trim());
+      DB.setSetting('geminiModel', document.getElementById('geminiModel').value.trim() || 'gemini-flash-latest');
+      DB.setSetting('aiTimeoutMs', timeout >= 5000 ? timeout : 30000);
+      DB.setSetting('tinyfishEndpoint', document.getElementById('tinyfishEndpoint').value.trim());
+      DB.setSetting('tinyfishApiKey', document.getElementById('tinyfishApiKey').value.trim());
+      UI.toast('Pengaturan integrasi AI disimpan.', 'success');
+      renderSettings(container);
+    });
+    document.getElementById('testAiBtn').addEventListener('click', async () => {
+      const box = document.getElementById('aiTestBox');
+      const key = document.getElementById('geminiApiKey').value.trim();
+      if (!key) {
+        box.innerHTML = '<div class="alert alert-warning">Isi kunci API terlebih dahulu, lalu tekan Simpan Integrasi.</div>';
+        return;
+      }
+      // Pakai nilai yang sedang tampil supaya admin bisa menguji sebelum menyimpan.
+      DB.setSetting('geminiApiKey', key);
+      DB.setSetting('geminiModel', document.getElementById('geminiModel').value.trim() || 'gemini-flash-latest');
+      DB.setSetting('aiEnabled', document.getElementById('aiEnabled').checked);
+      box.innerHTML = AI.loadingHtml('Menghubungi Gemini…');
+      try {
+        const out = await AI.ask('Jawab dengan satu kalimat pendek dalam Bahasa Indonesia: sebutkan dirimu siap membantu LMS Rubela.',
+          { temperature: 0.2, maxTokens: 120 });
+        box.innerHTML = `<div class="alert alert-success"><strong>Koneksi berhasil.</strong>
+          <div class="ai-answer" style="margin-top:6px;">${AI.renderMarkdown(out)}</div></div>`;
+      } catch (e) {
+        box.innerHTML = AI.errorHtml(e) +
+          '<div class="muted small">Bila pesan di atas menyebut masalah jaringan, pastikan perangkat ini terhubung ke internet dan tidak diblokir firewall.</div>';
+      }
+    });
+
     document.getElementById('resetBtn').addEventListener('click', () => {
       if (!UI.confirmDialog('Reset SEMUA data? Akun dan kelas akan kembali ke default.')) return;
       DB.resetAll();
@@ -1979,6 +2100,129 @@
 
   function emptyState(msg) {
     return `<div class="empty"><div class="empty-icon">📭</div>${UI.esc(msg)}</div>`;
+  }
+
+  /* ========== AGENT WEB (Agent API / TinyFish) ==========
+   * Kirim sebuah URL + tujuan, lalu terima data terstruktur. Berguna untuk
+   * menarik informasi dari halaman pengumuman kampus, jadwal SNBT, daftar
+   * beasiswa, dan sejenisnya tanpa menyalin manual.
+   */
+  function renderAgentWeb(container, user) {
+    const PRESETS = [
+      { label: 'Jadwal & tahapan SNBT', goal: 'Ambil seluruh tahapan beserta tanggalnya. Balas array JSON dengan kunci: tahap, tanggal_mulai, tanggal_selesai.' },
+      { label: 'Daftar program studi', goal: 'Ambil daftar program studi beserta daya tampung dan peminat tahun lalu. Balas array JSON dengan kunci: prodi, daya_tampung, peminat.' },
+      { label: 'Daftar beasiswa', goal: 'Ambil daftar beasiswa beserta penyelenggara dan batas pendaftaran. Balas array JSON dengan kunci: beasiswa, penyelenggara, batas_pendaftaran.' },
+      { label: 'Pengumuman terbaru', goal: 'Ambil 15 pengumuman terbaru. Balas array JSON dengan kunci: judul, tanggal, url.' }
+    ];
+
+    container.innerHTML = `
+      <div class="card">
+        <div class="card-header">
+          ${UI.secHead('🌐', 'Agent Web', 'Ambil data terstruktur dari sebuah halaman web lewat Agent API')}
+        </div>
+        ${!AI.agentReady() ? `
+          <div class="alert alert-warning">
+            <strong>Agent API belum dikonfigurasi.</strong>
+            Isi <strong>Endpoint</strong> dan <strong>Kunci Agent API</strong> pada
+            <strong>Pengaturan → Integrasi AI</strong> terlebih dahulu.
+            <div class="muted small" style="margin-top:6px;">
+              Formulir di bawah tetap bisa Anda siapkan, tetapi tombol "Jalankan Agent" baru aktif
+              setelah endpoint dan kunci tersimpan.
+            </div>
+          </div>` : ''}
+        <div class="form">
+          <div class="form-group">
+            <label for="agUrl">URL halaman sumber</label>
+            <input id="agUrl" placeholder="https://contoh.ac.id/pengumuman" spellcheck="false" />
+          </div>
+          <div class="form-group">
+            <label for="agPreset">Contoh tujuan siap pakai</label>
+            <select id="agPreset" class="input">
+              <option value="">— pilih untuk mengisi otomatis —</option>
+              ${PRESETS.map((p, i) => `<option value="${i}">${UI.esc(p.label)}</option>`).join('')}
+            </select>
+          </div>
+          <div class="form-group">
+            <label for="agGoal">Tujuan pengambilan data</label>
+            <textarea id="agGoal" rows="4" placeholder="Jelaskan data apa yang ingin diambil dan dalam bentuk apa. Contoh: Ambil 15 pengumuman terbaru. Balas array JSON dengan kunci: judul, tanggal, url."></textarea>
+            <div class="muted small">Sebutkan nama kunci JSON yang Anda inginkan agar hasilnya rapi dan konsisten.</div>
+          </div>
+          <div class="flex-gap">
+            <button class="btn btn-primary btn-sm" id="agRun" ${AI.agentReady() ? '' : 'disabled'}>🌐 Jalankan Agent</button>
+            <button class="btn btn-secondary btn-sm" id="agCsv" disabled>⬇️ Unduh CSV</button>
+          </div>
+        </div>
+        <div id="agOut" class="ai-agent-result"></div>
+      </div>`;
+
+    let lastRows = [];
+
+    document.getElementById('agPreset').addEventListener('change', (e) => {
+      const p = PRESETS[Number(e.target.value)];
+      if (p) document.getElementById('agGoal').value = p.goal;
+    });
+
+    document.getElementById('agRun').addEventListener('click', async () => {
+      const url = document.getElementById('agUrl').value.trim();
+      const goal = document.getElementById('agGoal').value.trim();
+      const out = document.getElementById('agOut');
+      const runBtn = document.getElementById('agRun');
+      const csvBtn = document.getElementById('agCsv');
+
+      if (!url) { UI.toast('Isi URL sumber terlebih dahulu.', 'error'); return; }
+      if (!goal) { UI.toast('Jelaskan tujuan pengambilan datanya.', 'error'); return; }
+
+      runBtn.disabled = true;
+      csvBtn.disabled = true;
+      lastRows = [];
+      out.innerHTML = AI.loadingHtml('Agent sedang membuka halaman dan mengambil data…');
+      try {
+        const res = await AI.agentExtract(url, goal);
+        lastRows = res.rows || [];
+        if (!lastRows.length) {
+          out.innerHTML = `<div class="alert alert-warning">Agent berhasil dijalankan tetapi tidak menemukan data yang bisa ditabelkan.
+            Coba perjelas tujuan dan sebutkan kunci JSON yang diinginkan.</div>`;
+          return;
+        }
+        const cols = Object.keys(lastRows.reduce((acc, r) => { Object.keys(r).forEach(k => { acc[k] = 1; }); return acc; }, {}));
+        out.innerHTML = `
+          <div class="alert alert-success">${lastRows.length} baris data diterima.</div>
+          <div class="table-wrap" style="max-height:420px;overflow:auto;">
+            <table class="table">
+              <thead><tr>${cols.map(c => `<th>${UI.esc(c)}</th>`).join('')}</tr></thead>
+              <tbody>${lastRows.slice(0, 200).map(r => `<tr>${cols.map(c => {
+                const v = r[c];
+                const s = (v == null) ? '' : (typeof v === 'object' ? JSON.stringify(v) : String(v));
+                return `<td class="small">${UI.esc(s.slice(0, 200))}</td>`;
+              }).join('')}</tr>`).join('')}</tbody>
+            </table>
+          </div>`;
+        csvBtn.disabled = false;
+      } catch (e) {
+        out.innerHTML = AI.errorHtml(e);
+      } finally {
+        runBtn.disabled = false;
+      }
+    });
+
+    document.getElementById('agCsv').addEventListener('click', () => {
+      if (!lastRows.length) return;
+      const cols = Object.keys(lastRows.reduce((acc, r) => { Object.keys(r).forEach(k => { acc[k] = 1; }); return acc; }, {}));
+      const cell = (v) => {
+        const s = (v == null) ? '' : (typeof v === 'object' ? JSON.stringify(v) : String(v));
+        return /[",\n;]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+      };
+      const csv = [cols.join(';')].concat(lastRows.map(r => cols.map(c => cell(r[c])).join(';'))).join('\n');
+      const blob = new Blob(['\ufeff' + csv], { type: 'text/csv;charset=utf-8;' });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = 'agent-web-' + new Date().toISOString().slice(0, 10) + '.csv';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(a.href);
+      UI.toast('CSV diunduh.', 'success');
+    });
   }
 
   /* ========== ATTENDANCE (admin) ==========

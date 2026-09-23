@@ -392,6 +392,7 @@
       <div class="subtabs" style="margin-bottom:12px;">
         <button type="button" class="subtab-btn active" data-bmode="baris">📝 Satu Baris Satu Soal</button>
         <button type="button" class="subtab-btn" data-bmode="tabel">📋 Tempel dari Excel</button>
+        <button type="button" class="subtab-btn" data-bmode="ai">🤖 Buat dengan AI</button>
       </div>
 
       <div id="bkPanel"></div>
@@ -407,12 +408,89 @@
     `, (back, close) => {
       let mode = 'baris';
       let parsed = [];
+      let aiRows = [];     // hasil generate AI, menunggu diperiksa
       const panel = back.querySelector('#bkPanel');
       const preview = back.querySelector('#bkPreview');
       const okBtn = back.querySelector('[data-ok]');
 
       function paintPanel() {
-        if (mode === 'baris') {
+        if (mode === 'ai') {
+          panel.innerHTML = `
+            ${global.AI ? AI.noticeHtml(user) : ''}
+            <div class="form-row">
+              <div class="form-group">
+                <label for="bkAiTopic">Topik / materi soal</label>
+                <input id="bkAiTopic" placeholder="mis. barisan aritmetika, teks eksposisi, hukum Newton" />
+              </div>
+              <div class="form-group">
+                <label for="bkAiCount">Jumlah soal</label>
+                <input id="bkAiCount" type="number" min="1" max="20" value="5" />
+              </div>
+            </div>
+            <div class="form-group">
+              <label for="bkAiFormat">Format soal</label>
+              <select id="bkAiFormat" class="input">
+                <option value="Pilihan Ganda">Pilihan Ganda (satu jawaban benar)</option>
+                <option value="Pilihan Lebih dari Satu">Pilihan Lebih dari Satu</option>
+                <option value="Benar/Salah">Benar/Salah</option>
+                <option value="Isian Singkat">Isian Singkat</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label for="bkAiNote">Catatan tambahan (opsional)</label>
+              <input id="bkAiNote" placeholder="mis. gunakan konteks sehari-hari, hindari angka desimal" />
+            </div>
+            <div class="flex-gap">
+              <button type="button" class="btn btn-primary btn-sm" id="bkAiGen" ${(global.AI && AI.ready()) ? '' : 'disabled'}>🤖 Buat Soal dengan AI</button>
+            </div>
+            <div id="bkAiOut" style="margin-top:10px;"></div>
+            <div class="muted small" style="margin-top:8px;">
+              Soal hasil AI <strong>wajib Anda periksa</strong> sebelum disimpan — tekan
+              <strong>Periksa</strong> untuk melihat pratinjau, lalu perbaiki bila ada yang kurang tepat.
+            </div>`;
+
+          const genBtn = panel.querySelector('#bkAiGen');
+          if (genBtn) genBtn.addEventListener('click', async () => {
+            const topic = panel.querySelector('#bkAiTopic').value.trim();
+            const n = Math.max(1, Math.min(20, Number(panel.querySelector('#bkAiCount').value) || 5));
+            const fmt = panel.querySelector('#bkAiFormat').value;
+            const note = panel.querySelector('#bkAiNote').value.trim();
+            const subtest = back.querySelector('#bkSub').value;
+            const diff = back.querySelector('#bkDiff').value;
+            const out = panel.querySelector('#bkAiOut');
+            if (!topic) { UI.toast('Isi topik soal terlebih dahulu.', 'error'); return; }
+
+            genBtn.disabled = true;
+            out.innerHTML = AI.loadingHtml(`AI menyusun ${n} soal…`);
+            const shape = fmt === 'Benar/Salah'
+              ? '{"Pertanyaan":"...","Kunci":"Benar atau Salah","Pembahasan":"..."}'
+              : (fmt === 'Isian Singkat'
+                ? '{"Pertanyaan":"...","Kunci":"jawaban singkat","Pembahasan":"..."}'
+                : '{"Pertanyaan":"...","A":"...","B":"...","C":"...","D":"...","Kunci":"' +
+                  (fmt === 'Pilihan Lebih dari Satu' ? 'A,C' : 'B') + '","Pembahasan":"..."}');
+            try {
+              const data = await AI.askJson(
+                `Buat ${n} soal latihan UTBK untuk subtest "${subtest}" dengan tingkat kesulitan ${diff}. ` +
+                `Topik: ${topic}. Format soal: ${fmt}. ` +
+                (note ? `Catatan: ${note}. ` : '') +
+                'Tulis dalam Bahasa Indonesia yang baku dan pastikan kunci jawabannya benar secara ilmiah. ' +
+                'Sertakan pembahasan singkat yang menjelaskan mengapa kunci itu benar. ' +
+                `Balas HANYA berupa array JSON, setiap elemen berbentuk ${shape}`,
+                { maxTokens: 4096 });
+              const list = Array.isArray(data) ? data : AI.normalizeRows(data);
+              aiRows = list.filter(r => r && r.Pertanyaan).map(r => Object.assign({}, r, {
+                Subtest: subtest, Tingkat: diff, Format: fmt
+              }));
+              if (!aiRows.length) throw new Error('AI tidak menghasilkan soal yang bisa dibaca. Coba ulangi.');
+              out.innerHTML = `<div class="alert alert-success">${aiRows.length} soal dibuat AI. Tekan <strong>Periksa</strong> di bawah untuk melihat pratinjau.</div>`;
+            } catch (e) {
+              aiRows = [];
+              out.innerHTML = AI.errorHtml(e);
+            } finally {
+              genBtn.disabled = false;
+            }
+          });
+        } else if (mode === 'baris') {
           panel.innerHTML = `
             <div class="form-group">
               <label for="bkLines">Daftar soal — satu soal per baris</label>
@@ -440,6 +518,7 @@ Urutan kolom: Pertanyaan, A, B, C, D, Kunci, Pembahasan (opsional)"></textarea>
         preview.innerHTML = '';
         okBtn.disabled = true;
         parsed = [];
+        if (mode !== 'ai') aiRows = [];
       }
 
       back.querySelectorAll('[data-bmode]').forEach(b => b.addEventListener('click', () => {
@@ -452,9 +531,11 @@ Urutan kolom: Pertanyaan, A, B, C, D, Kunci, Pembahasan (opsional)"></textarea>
       back.querySelector('#bkCheck').addEventListener('click', () => {
         const subject = back.querySelector('#bkSub').value;
         const difficulty = back.querySelector('#bkDiff').value;
-        const rows = mode === 'baris'
-          ? linesToRows(back.querySelector('#bkLines').value)
-          : pastedToRows(back.querySelector('#bkPaste').value);
+        const rows = mode === 'ai'
+          ? aiRows.slice()
+          : (mode === 'baris'
+            ? linesToRows(back.querySelector('#bkLines').value)
+            : pastedToRows(back.querySelector('#bkPaste').value));
 
         parsed = rows.map((r, i) => {
           r.Subtest = r.Subtest || subject;
@@ -487,7 +568,10 @@ Urutan kolom: Pertanyaan, A, B, C, D, Kunci, Pembahasan (opsional)"></textarea>
       okBtn.addEventListener('click', () => {
         const good = parsed.filter(p => p.question);
         if (!good.length) return;
-        good.forEach(g => DB.addQuestion(Object.assign({ authorId: user.id, source: 'massal' }, g.question)));
+        good.forEach(g => DB.addQuestion(Object.assign({
+          authorId: user.id,
+          source: mode === 'ai' ? 'ai' : 'massal'
+        }, g.question)));
         close();
         UI.toast(`${good.length} soal ditambahkan ke Bank Soal.`, 'success');
         if (typeof onDone === 'function') onDone(good.length);

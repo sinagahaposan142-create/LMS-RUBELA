@@ -823,7 +823,8 @@
     }
     const open = (ownerId) => CbtAdmin.openWizard(user, editId, onDone, {
       courseIds: [course.id],
-      ownerId: ownerId
+      ownerId: ownerId,
+      inClass: true
     });
 
     // Tutor: otomatis atas namanya. Admin: pilih tutor penanggung jawab.

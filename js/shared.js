@@ -849,140 +849,390 @@
     document.getElementById('aiRekomendasi').addEventListener('click', () => showAiRekomendasi(user, attempts));
     document.getElementById('aiPtn').addEventListener('click', () => showPtnPredictor(user, avgScore));
 
+    /**
+     * Study Planner — disusun dari JADWAL KELAS yang sebenarnya (hari & jam
+     * asli tiap kelas) ditambah prioritas subtest terlemah dari hasil CBT.
+     * Hari tanpa kelas diisi belajar mandiri pada subtest yang paling lemah.
+     */
     function showStudyPlanner(user, courses) {
       const box = document.getElementById('aiContent');
       const days = ['Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu', 'Minggu'];
-      const subjects = courses.map(c => c.category || c.title);
-      const plan = days.map((d, i) => ({
-        day: d,
-        subject: subjects[i % subjects.length] || 'Review Umum',
-        time: `${7 + (i % 3)}:00 - ${9 + (i % 3)}:00 ${UI.getTimezone()}`,
-        focus: ['Latihan Soal', 'Teori & Konsep', 'Review & Diskusi', 'Simulasi CBT'][i % 4]
-      }));
+      const stats = DB.studentSubtestStats(user.id);
+      const weak = stats.filter(s => s.avg != null);
+      const tz = UI.getTimezone();
+
+      // Jadwal nyata: hari -> daftar kelas yang benar-benar terjadwal.
+      const byDay = {};
+      days.forEach(d => { byDay[d] = []; });
+      courses.forEach(c => {
+        const sc = c.schedule || {};
+        (sc.days || []).forEach(d => {
+          if (!byDay[d]) byDay[d] = [];
+          byDay[d].push({
+            title: DB.courseTitle(c),
+            subtest: c.subtest || c.category || '-',
+            time: sc.time ? `${sc.time}${sc.endTime ? '–' + sc.endTime : ''}` : 'jam belum diatur',
+            tutor: DB.courseTeachers(c).map(t => t.name).join(' & ') || '-'
+          });
+        });
+      });
+
+      const rows = days.map((d, i) => {
+        const cls = byDay[d] || [];
+        if (cls.length) {
+          return {
+            day: d, kind: 'Kelas',
+            detail: cls.map(x => `${UI.esc(x.time)} ${tz} — ${UI.esc(x.title)}`).join('<br>'),
+            focus: 'Hadir kelas + kerjakan tugasnya'
+          };
+        }
+        const target = weak.length ? weak[i % weak.length] : null;
+        return {
+          day: d, kind: 'Belajar mandiri',
+          detail: target
+            ? `${target.icon} ${UI.esc(target.short)} <span class="muted">(rata-rata ${target.avg})</span>`
+            : '<span class="muted">Review umum — belum ada data CBT</span>',
+          focus: target ? (target.avg < 60 ? 'Perkuat konsep dasar' : 'Latihan soal bertimer') : 'Latihan soal campuran'
+        };
+      });
+
       box.innerHTML = `
         <div class="card">
-          <div class="card-header"><h3>AI Study Planner - Jadwal Belajar Minggu Ini</h3></div>
-          <p class="muted small">Dihasilkan berdasarkan kelas yang kamu ikuti dan performa saat ini.</p>
+          <div class="card-header">${UI.secHead('📅', 'Rencana Belajar Mingguan', 'Disusun dari jadwal kelasmu yang sebenarnya')}</div>
+          ${courses.length === 0 ? '<div class="alert alert-warning">Kamu belum tergabung di kelas mana pun, jadi rencana ini hanya berisi belajar mandiri.</div>' : ''}
           <div class="table-wrap"><table class="table">
-            <thead><tr><th>Hari</th><th>Waktu</th><th>Subtest/Mata Pelajaran</th><th>Fokus</th></tr></thead>
-            <tbody>${plan.map(p => `<tr>
+            <thead><tr><th>Hari</th><th>Agenda</th><th>Rincian</th><th>Fokus</th></tr></thead>
+            <tbody>${rows.map(p => `<tr>
               <td><strong>${p.day}</strong></td>
-              <td>${p.time}</td>
-              <td>${UI.esc(p.subject)}</td>
-              <td><span class="badge badge-info">${p.focus}</span></td>
+              <td><span class="badge ${p.kind === 'Kelas' ? 'badge-success' : 'badge-gray'}">${p.kind}</span></td>
+              <td class="small">${p.detail}</td>
+              <td class="muted small">${UI.esc(p.focus)}</td>
             </tr>`).join('')}</tbody>
           </table></div>
-          <div class="alert alert-info mt-2">Tips: Konsistenlah 2 jam/hari. AI menyesuaikan rekomendasi berdasarkan progress mingguan.</div>
+          ${AI.noticeHtml(user)}
+          ${AI.ready() ? `<div class="flex-gap mt-2">
+            <button class="btn btn-primary btn-sm" id="aiPlanNarrate">🤖 Minta AI Merapikan Rencana Ini</button>
+          </div><div id="aiPlanOut" style="margin-top:10px;"></div>` : ''}
         </div>`;
+
+      const btn = document.getElementById('aiPlanNarrate');
+      if (btn) btn.addEventListener('click', async () => {
+        const out = document.getElementById('aiPlanOut');
+        btn.disabled = true;
+        out.innerHTML = AI.loadingHtml('AI menyusun rencana belajar…');
+        const jadwal = days.map(d => {
+          const cls = (byDay[d] || []);
+          return `${d}: ` + (cls.length ? cls.map(x => `${x.title} (${x.time})`).join(', ') : 'kosong');
+        }).join('; ');
+        try {
+          const ans = await AI.ask(
+            `Susun rencana belajar mingguan untuk siswa UTBK bernama ${user.name} dalam Bahasa Indonesia. ` +
+            `Jadwal kelas yang sudah pasti: ${jadwal}. ` +
+            (weak.length
+              ? `Rata-rata skor per subtest: ${weak.map(w => `${w.short} ${w.avg}`).join(', ')}. `
+              : 'Belum ada data skor CBT. ') +
+            'Isi hari yang kosong dengan belajar mandiri pada subtest terlemah. ' +
+            'Jangan mengubah jadwal kelas yang sudah pasti dan jangan mengarang kelas baru. ' +
+            'Tampilkan sebagai daftar per hari, maksimal 250 kata.',
+            { temperature: 0.5, maxTokens: 900 });
+          out.innerHTML = `<div class="alert alert-info"><div class="ai-answer">${AI.renderMarkdown(ans)}</div></div>`;
+        } catch (e) {
+          out.innerHTML = AI.errorHtml(e);
+        } finally {
+          btn.disabled = false;
+        }
+      });
     }
 
+    /**
+     * AI Guru — percakapan sungguhan dengan Gemini.
+     * Konteks siswa (kelas yang diikuti + subtest terlemah) dikirim sebagai
+     * systemInstruction agar jawaban relevan dengan kondisi belajarnya.
+     */
     function showAiGuru(user) {
       const box = document.getElementById('aiContent');
+      const stats = DB.studentSubtestStats(user.id);
+      const weak = stats.filter(s => s.avg != null).slice(0, 3);
+      const courseNames = courses.map(c => DB.courseTitle(c)).join(', ') || 'belum ada kelas';
+
       box.innerHTML = `
         <div class="card">
-          <div class="card-header"><h3>AI Guru - Asisten Belajar</h3></div>
-          <div class="chat-messages" id="aiChatBox" style="height:300px;overflow-y:auto;background:var(--gray-50);border-radius:var(--radius-sm);padding:16px;margin-bottom:12px;">
+          <div class="card-header">${UI.secHead('🧠', 'AI Guru — Asisten Belajar', 'Ditenagai Google Gemini')}</div>
+          ${AI.noticeHtml(user)}
+          <div class="chat-messages" id="aiChatBox" style="height:320px;overflow-y:auto;background:var(--gray-50);border-radius:var(--radius-sm);padding:16px;margin-bottom:12px;">
             <div class="chat-bubble received">
-              <div class="chat-text">Halo ${UI.esc(user.name)}! Saya AI Guru. Tanyakan materi apa saja yang ingin kamu pelajari. Saya bisa membantu menjelaskan konsep, memberikan contoh soal, dan tips mengerjakan UTBK.</div>
+              <div class="chat-text">Halo ${UI.esc(user.name)}! Saya AI Guru. Tanyakan materi apa saja —
+              konsep, contoh soal, atau strategi UTBK. ${weak.length
+                ? `Dari hasil CBT-mu, subtest yang paling perlu dikuatkan saat ini adalah <strong>${UI.esc(weak[0].short)}</strong> (rata-rata ${weak[0].avg}).`
+                : 'Kerjakan beberapa CBT dulu agar saya bisa memberi saran yang lebih terarah.'}</div>
             </div>
           </div>
           <div class="chat-input-box" style="border:none;padding:0;">
-            <input id="aiGuruInput" placeholder="Ketik pertanyaan..." />
-            <button class="btn btn-primary btn-sm" id="aiGuruSend">Tanya</button>
+            <input id="aiGuruInput" placeholder="Ketik pertanyaan..." ${AI.ready() ? '' : 'disabled'} />
+            <button class="btn btn-primary btn-sm" id="aiGuruSend" ${AI.ready() ? '' : 'disabled'}>Tanya</button>
           </div>
         </div>`;
-      const send = () => {
+
+      const sys = [
+        'Kamu adalah "AI Guru", tutor UTBK berbahasa Indonesia pada aplikasi LMS Rubela.',
+        'Jawab ringkas, terstruktur, dan mudah dipahami siswa SMA. Gunakan poin-poin bila perlu.',
+        'Jika pertanyaan berupa soal, tuntun langkah penyelesaiannya, jangan hanya memberi jawaban akhir.',
+        'Jangan pernah mengarang data nilai siswa. Jawab hanya sebatas materi pelajaran.',
+        `Konteks siswa: nama ${user.name}; kelas yang diikuti: ${courseNames}.`,
+        weak.length
+          ? `Rata-rata skor per subtest (terlemah lebih dulu): ${weak.map(w => `${w.short} ${w.avg}`).join(', ')}.`
+          : 'Siswa belum punya riwayat skor CBT.',
+        user.targetUniv ? `Target kuliah: ${user.targetUniv}${user.targetMajor ? ' — ' + user.targetMajor : ''}.` : ''
+      ].filter(Boolean).join(' ');
+
+      // Riwayat percakapan supaya AI mengerti konteks lanjutan.
+      const turns = [];
+      let busy = false;
+
+      const send = async () => {
         const input = document.getElementById('aiGuruInput');
+        const btn = document.getElementById('aiGuruSend');
         const q = input.value.trim();
-        if (!q) return;
+        if (!q || busy) return;
+        if (!AI.ready()) { UI.toast('Fitur AI belum aktif. Hubungi admin.', 'error'); return; }
+
         const chatBox = document.getElementById('aiChatBox');
-        chatBox.innerHTML += `<div class="chat-bubble sent"><div class="chat-text">${UI.esc(q)}</div></div>`;
+        chatBox.insertAdjacentHTML('beforeend',
+          `<div class="chat-bubble sent"><div class="chat-text">${UI.esc(q)}</div></div>`);
         input.value = '';
-        // Simulate AI response
-        setTimeout(() => {
-          const responses = [
-            `Pertanyaan bagus! Untuk topik "${q}", kunci utamanya adalah memahami konsep dasar terlebih dahulu. Coba review materi terkait di modul kelasmu.`,
-            `Mengenai "${q}" - ini sering keluar di UTBK. Tips: pecah masalah menjadi bagian kecil, identifikasi pola, dan latihan soal serupa.`,
-            `"${q}" adalah topik penting. Saya sarankan kamu: 1) Baca teori singkat, 2) Kerjakan 5 soal latihan, 3) Review kesalahan. Butuh contoh soal?`,
-            `Untuk "${q}", perhatikan kata kunci di soal. Biasanya ada informasi yang tidak relevan. Fokus pada apa yang ditanyakan.`
-          ];
-          const resp = responses[Math.floor(Math.random() * responses.length)];
-          chatBox.innerHTML += `<div class="chat-bubble received"><div class="chat-text">${UI.esc(resp)}</div></div>`;
-          chatBox.scrollTop = chatBox.scrollHeight;
-        }, 800);
         chatBox.scrollTop = chatBox.scrollHeight;
+
+        busy = true;
+        input.disabled = true;
+        btn.disabled = true;
+        const holder = document.createElement('div');
+        holder.className = 'chat-bubble received';
+        holder.innerHTML = `<div class="chat-text">${AI.loadingHtml('AI Guru sedang menjawab…')}</div>`;
+        chatBox.appendChild(holder);
+        chatBox.scrollTop = chatBox.scrollHeight;
+
+        turns.push({ role: 'user', text: q });
+        try {
+          const ans = await AI.chat(turns.slice(-10), { system: sys, temperature: 0.6, maxTokens: 1200 });
+          turns.push({ role: 'model', text: ans });
+          holder.innerHTML = `<div class="chat-text ai-answer">${AI.renderMarkdown(ans)}</div>`;
+        } catch (e) {
+          turns.pop();
+          holder.innerHTML = `<div class="chat-text">${AI.errorHtml(e)}</div>`;
+        } finally {
+          busy = false;
+          input.disabled = false;
+          btn.disabled = false;
+          chatBox.scrollTop = chatBox.scrollHeight;
+          input.focus();
+        }
       };
       document.getElementById('aiGuruSend').addEventListener('click', send);
       document.getElementById('aiGuruInput').addEventListener('keydown', (e) => { if (e.key === 'Enter') send(); });
     }
 
+    /**
+     * Rekomendasi materi — SELURUH angka berasal dari hasil CBT nyata
+     * (DB.studentSubtestStats). Materi/modul yang disarankan diambil dari
+     * konten asli kelas yang diikuti siswa, bukan daftar karangan.
+     */
     function showAiRekomendasi(user, attempts) {
       const box = document.getElementById('aiContent');
-      const subtests = ['Penalaran Umum', 'PPU', 'PBM', 'Pengetahuan Kuantitatif', 'Literasi B.Indonesia', 'Literasi B.Inggris', 'Penalaran Matematika'];
-      const recs = subtests.map(s => ({
-        subtest: s,
-        score: 40 + Math.floor(Math.random() * 50),
-        recommendation: Math.random() > 0.5 ? 'Perlu penguatan konsep dasar' : 'Tingkatkan kecepatan & akurasi',
-        priority: Math.random() > 0.6 ? 'Tinggi' : 'Sedang'
-      })).sort((a, b) => a.score - b.score);
+      const stats = DB.studentSubtestStats(user.id);
+      const done = stats.filter(s => s.avg != null);
+
+      // Materi & modul nyata pada kelas siswa, dikelompokkan per subtest.
+      const contentBySubtest = {};
+      courses.forEach(c => {
+        const key = c.subtest || c.category || 'Lainnya';
+        if (!contentBySubtest[key]) contentBySubtest[key] = [];
+        DB.getMaterialsByCourse(c.id).forEach(m => contentBySubtest[key].push({ kind: 'Materi', title: m.title }));
+        DB.getModulesByCourse(c.id).forEach(m => contentBySubtest[key].push({ kind: 'Modul', title: m.title }));
+      });
+
+      const priorityOf = (avg) => (avg < 55 ? 'Tinggi' : (avg < 75 ? 'Sedang' : 'Rendah'));
+      const adviceOf = (s) => {
+        const acc = s.total ? Math.round((s.correct / s.total) * 100) : null;
+        if (s.avg < 55) return 'Perlu penguatan konsep dasar sebelum menambah kecepatan.';
+        if (s.avg < 75) return acc != null && acc < 70 ? 'Perbaiki ketelitian membaca soal.' : 'Tingkatkan kecepatan & akurasi lewat latihan bertimer.';
+        return 'Pertahankan dengan latihan soal tingkat sulit.';
+      };
 
       box.innerHTML = `
         <div class="card">
-          <div class="card-header"><h3>AI Rekomendasi Materi</h3></div>
-          <p class="muted small">Berdasarkan hasil CBT dan pola jawaban, berikut prioritas belajarmu:</p>
-          <div class="table-wrap"><table class="table">
-            <thead><tr><th>Subtest</th><th>Estimasi Skor</th><th>Prioritas</th><th>Rekomendasi</th></tr></thead>
-            <tbody>${recs.map(r => `<tr>
-              <td><strong>${UI.esc(r.subtest)}</strong></td>
-              <td><span style="color:${r.score < 60 ? 'var(--danger)' : 'var(--success)'};">${r.score}</span>/100</td>
-              <td><span class="badge ${r.priority === 'Tinggi' ? 'badge-warning' : 'badge-info'}">${r.priority}</span></td>
-              <td class="muted small">${UI.esc(r.recommendation)}</td>
-            </tr>`).join('')}</tbody>
-          </table></div>
+          <div class="card-header">${UI.secHead('📚', 'AI Rekomendasi Materi', 'Prioritas belajar dari hasil CBT-mu yang sebenarnya')}</div>
+          ${done.length === 0 ? `
+            <div class="empty"><div class="empty-icon">📊</div>
+              Belum ada hasil CBT yang bisa dianalisis. Kerjakan minimal satu ujian pada menu
+              <strong>CBT/Ujian</strong>, lalu buka halaman ini kembali.
+            </div>` : `
+            <p class="muted small">Dihitung dari ${done.reduce((n, s) => n + s.attempts, 0)} bagian ujian yang sudah kamu kumpulkan. Subtest terlemah ditampilkan lebih dulu.</p>
+            <div class="table-wrap"><table class="table">
+              <thead><tr><th>Subtest</th><th>Rata-rata</th><th>Benar</th><th>Prioritas</th><th>Rekomendasi</th><th>Materi di kelasmu</th></tr></thead>
+              <tbody>${done.map(s => {
+                const pr = priorityOf(s.avg);
+                const items = (contentBySubtest[s.subtest] || []).slice(0, 3);
+                return `<tr>
+                  <td><strong>${s.icon} ${UI.esc(s.short)}</strong></td>
+                  <td><span style="color:${s.avg < 60 ? 'var(--danger)' : (s.avg < 75 ? 'var(--warning)' : 'var(--success)')};font-weight:700;">${s.avg}</span>/100</td>
+                  <td class="small">${s.correct}/${s.total || '-'}</td>
+                  <td><span class="badge ${pr === 'Tinggi' ? 'badge-warning' : (pr === 'Sedang' ? 'badge-info' : 'badge-gray')}">${pr}</span></td>
+                  <td class="muted small">${UI.esc(adviceOf(s))}</td>
+                  <td class="small">${items.length
+                    ? items.map(i => `<div>${UI.esc(i.kind)}: ${UI.esc(i.title)}</div>`).join('')
+                    : '<span class="muted">Belum ada materi</span>'}</td>
+                </tr>`;
+              }).join('')}</tbody>
+            </table></div>
+            ${AI.noticeHtml(user)}
+            ${AI.ready() ? `<div class="flex-gap mt-2">
+              <button class="btn btn-primary btn-sm" id="aiRecNarrate">🤖 Minta Rencana Belajar dari AI</button>
+            </div><div id="aiRecOut" style="margin-top:10px;"></div>` : ''}
+          `}
         </div>`;
+
+      const btn = document.getElementById('aiRecNarrate');
+      if (btn) btn.addEventListener('click', async () => {
+        const out = document.getElementById('aiRecOut');
+        btn.disabled = true;
+        out.innerHTML = AI.loadingHtml('AI menyusun rencana belajar…');
+        const facts = done.map(s => `${s.short}: rata-rata ${s.avg}/100, benar ${s.correct} dari ${s.total}`).join('; ');
+        const materi = Object.keys(contentBySubtest)
+          .map(k => `${k}: ${(contentBySubtest[k] || []).map(i => i.title).slice(0, 5).join(', ') || '-'}`).join(' | ');
+        try {
+          const ans = await AI.ask(
+            `Siswa bernama ${user.name} mengikuti bimbel UTBK. Data nyata hasil CBT: ${facts}. ` +
+            `Materi yang tersedia di kelasnya: ${materi}. ` +
+            (user.targetUniv ? `Target: ${user.targetUniv} ${user.targetMajor || ''}. ` : '') +
+            'Susun rencana belajar 2 minggu yang konkret dalam Bahasa Indonesia. ' +
+            'Fokuskan pada subtest dengan rata-rata terendah, sebutkan materi yang tersedia di kelasnya bila relevan. ' +
+            'Jangan mengarang angka lain di luar data yang saya berikan. Maksimal 300 kata.',
+            { temperature: 0.5, maxTokens: 900 });
+          out.innerHTML = `<div class="alert alert-info"><div class="ai-answer">${AI.renderMarkdown(ans)}</div></div>`;
+        } catch (e) {
+          out.innerHTML = AI.errorHtml(e);
+        } finally {
+          btn.disabled = false;
+        }
+      });
     }
 
+    /**
+     * PTN Predictor — memakai skor CBT nyata dan target siswa sendiri.
+     * Tidak lagi mengarang daftar universitas maupun persentase acak: yang
+     * ditampilkan adalah kesiapan terukur per subtest plus ulasan AI.
+     */
     function showPtnPredictor(user, avgScore) {
       const box = document.getElementById('aiContent');
-      const baseScore = avgScore || 55;
-      const predictions = [
-        { univ: user.targetUniv || 'Universitas Indonesia', jurusan: user.targetMajor || 'Teknik Informatika', chance: Math.min(95, baseScore + Math.floor(Math.random() * 20)) },
-        { univ: 'ITB', jurusan: 'Teknik Elektro', chance: Math.max(15, baseScore - 10 + Math.floor(Math.random() * 15)) },
-        { univ: 'UGM', jurusan: 'Kedokteran', chance: Math.max(10, baseScore - 20 + Math.floor(Math.random() * 10)) },
-        { univ: 'Unpad', jurusan: 'Hukum', chance: Math.min(90, baseScore + Math.floor(Math.random() * 25)) },
-        { univ: 'ITS', jurusan: 'Sistem Informasi', chance: Math.min(92, baseScore + 5 + Math.floor(Math.random() * 20)) }
-      ].sort((a, b) => b.chance - a.chance);
+      const stats = DB.studentSubtestStats(user.id);
+      const done = stats.filter(s => s.avg != null);
+      const overall = done.length
+        ? Math.round(done.reduce((n, s) => n + s.avg, 0) / done.length)
+        : null;
+
+      const readiness = (v) => v >= 80 ? { label: 'Sangat Siap', cls: 'badge-success' }
+        : v >= 70 ? { label: 'Siap', cls: 'badge-success' }
+        : v >= 55 ? { label: 'Perlu Usaha', cls: 'badge-warning' }
+        : { label: 'Belum Siap', cls: 'badge-gray' };
+
+      const hasTarget = !!(user.targetUniv || user.targetMajor);
 
       box.innerHTML = `
         <div class="card">
-          <div class="card-header"><h3>PTN Predictor</h3></div>
-          <p class="muted small">Estimasi peluang berdasarkan rata-rata skor CBT (${baseScore}/100) dan data historis. <strong>Disclaimer:</strong> ini hanya simulasi.</p>
-          <div class="table-wrap"><table class="table">
-            <thead><tr><th>Universitas</th><th>Jurusan</th><th>Peluang</th><th>Status</th></tr></thead>
-            <tbody>${predictions.map(p => {
-              const color = p.chance >= 70 ? 'var(--success)' : (p.chance >= 40 ? 'var(--warning)' : 'var(--danger)');
-              const label = p.chance >= 70 ? 'Aman' : (p.chance >= 40 ? 'Berjuang' : 'Sulit');
-              return `<tr>
-                <td><strong>${UI.esc(p.univ)}</strong></td>
-                <td>${UI.esc(p.jurusan)}</td>
-                <td><strong style="color:${color};">${p.chance}%</strong></td>
-                <td><span class="badge ${p.chance >= 70 ? 'badge-success' : (p.chance >= 40 ? 'badge-warning' : 'badge-gray')}">${label}</span></td>
-              </tr>`;
-            }).join('')}</tbody>
-          </table></div>
-          <div class="alert alert-info mt-2">Tingkatkan skor di subtest lemah untuk meningkatkan peluang. Gunakan AI Study Planner untuk jadwal optimal.</div>
+          <div class="card-header">${UI.secHead('🎯', 'Kesiapan PTN', 'Dihitung dari skor CBT-mu yang sebenarnya')}</div>
+          ${!hasTarget ? `<div class="alert alert-warning">
+            Target kampus belum diisi. Lengkapi <strong>Universitas & Jurusan Impian</strong> di menu Profil
+            agar analisis ini menyebut targetmu sendiri.</div>` : ''}
+          ${overall == null ? `
+            <div class="empty"><div class="empty-icon">📊</div>
+              Belum ada hasil CBT. Kerjakan minimal satu ujian agar kesiapanmu bisa diukur.
+            </div>` : `
+            <div class="stats-grid" style="margin-bottom:12px;">
+              <div class="stat-card accent-primary">
+                <div class="label">Rata-rata Skor CBT</div>
+                <div class="value">${overall}</div><div class="sub">dari 100</div>
+              </div>
+              <div class="stat-card accent-success">
+                <div class="label">Status Kesiapan</div>
+                <div class="value" style="font-size:18px;">${readiness(overall).label}</div>
+                <div class="sub">${hasTarget ? UI.esc(user.targetUniv || '-') : 'target belum diisi'}</div>
+              </div>
+              <div class="stat-card accent-warning">
+                <div class="label">Subtest Terlemah</div>
+                <div class="value" style="font-size:18px;">${UI.esc(done[0].short)}</div>
+                <div class="sub">rata-rata ${done[0].avg}</div>
+              </div>
+              <div class="stat-card accent-danger">
+                <div class="label">Bagian Ujian Dinilai</div>
+                <div class="value">${done.reduce((n, s) => n + s.attempts, 0)}</div>
+                <div class="sub">sumber perhitungan</div>
+              </div>
+            </div>
+            <div class="table-wrap"><table class="table">
+              <thead><tr><th>Subtest</th><th>Rata-rata</th><th>Benar</th><th>Kesiapan</th></tr></thead>
+              <tbody>${done.map(s => {
+                const r = readiness(s.avg);
+                return `<tr>
+                  <td><strong>${s.icon} ${UI.esc(s.short)}</strong></td>
+                  <td><strong>${s.avg}</strong>/100</td>
+                  <td class="small">${s.correct}/${s.total || '-'}</td>
+                  <td><span class="badge ${r.cls}">${r.label}</span></td>
+                </tr>`;
+              }).join('')}</tbody>
+            </table></div>
+            <p class="muted small mt-2">
+              <strong>Catatan:</strong> angka di atas adalah kesiapan berdasarkan skor CBT di aplikasi ini,
+              bukan prediksi resmi kelulusan SNBT. Persaingan sebenarnya bergantung pada daya tampung
+              dan nilai peserta lain yang tidak tersedia di sistem ini.
+            </p>
+            ${AI.noticeHtml(user)}
+            ${AI.ready() ? `<div class="flex-gap mt-2">
+              <button class="btn btn-primary btn-sm" id="aiPtnNarrate">🤖 Minta Ulasan & Strategi dari AI</button>
+            </div><div id="aiPtnOut" style="margin-top:10px;"></div>` : ''}
+          `}
         </div>`;
+
+      const btn = document.getElementById('aiPtnNarrate');
+      if (btn) btn.addEventListener('click', async () => {
+        const out = document.getElementById('aiPtnOut');
+        btn.disabled = true;
+        out.innerHTML = AI.loadingHtml('AI menganalisis kesiapanmu…');
+        try {
+          const ans = await AI.ask(
+            `Siswa ${user.name} menyiapkan UTBK/SNBT. ` +
+            (hasTarget ? `Target: ${user.targetUniv || '-'} jurusan ${user.targetMajor || '-'}. ` : 'Target kampus belum ditentukan. ') +
+            `Rata-rata skor CBT keseluruhan ${overall}/100. Rincian per subtest: ` +
+            done.map(s => `${s.short} ${s.avg}`).join(', ') + '. ' +
+            'Berikan ulasan kesiapan yang jujur dan strategi perbaikan dalam Bahasa Indonesia. ' +
+            'Jangan menyebut persentase peluang lulus karena data daya tampung tidak tersedia. ' +
+            'Jangan mengarang angka di luar yang saya berikan. Maksimal 250 kata.',
+            { temperature: 0.5, maxTokens: 800 });
+          out.innerHTML = `<div class="alert alert-info"><div class="ai-answer">${AI.renderMarkdown(ans)}</div></div>`;
+        } catch (e) {
+          out.innerHTML = AI.errorHtml(e);
+        } finally {
+          btn.disabled = false;
+        }
+      });
     }
   }
 
   /* ===== AI Analytics (Admin/Guru Panel) ===== */
   function renderAiAnalytics(container, user) {
-    const students = DB.getUsers().filter(u => u.role === 'siswa' && (u.status || 'Aktif') === 'Aktif');
+    let students = DB.getUsers().filter(u => u.role === 'siswa' && (u.status || 'Aktif') === 'Aktif');
+    // Tutor hanya boleh melihat siswa pada kelas yang dia ampu, bukan seluruh
+    // siswa lembaga. Admin melihat semuanya.
+    const myCourses = user.role === 'guru' ? DB.getCoursesByTeacher(user.id) : [];
+    if (user.role === 'guru') {
+      const mine = new Set();
+      myCourses.forEach(c => DB.getEnrollmentsByCourse(c.id).forEach(e => mine.add(e.studentId)));
+      students = students.filter(s => mine.has(s.id));
+    }
     const allAtt = DB.getAttendance();
     const allSubs = DB.getSubmissions();
     const allAttempts = DB.getCbtAttempts();
 
-    // Simulate early warning analysis
+    // Analisis dini dari data nyata: kehadiran, keterlambatan tugas, tren skor.
     const warnings = students.map(s => {
       const att = allAtt.filter(a => a.userId === s.id && a.role === 'siswa');
       const absentCount = att.filter(a => a.status === 'alfa').length;
@@ -1045,12 +1295,44 @@
         </div>
       </div>
 
+      ${user.role === 'guru' ? `<p class="muted small">Menampilkan ${students.length} siswa dari ${myCourses.length} kelas yang Anda ampu.</p>` : ''}
+      ${AI.noticeHtml(user)}
+      ${AI.ready() ? `<div class="flex-gap" style="margin-bottom:10px;">
+        <button class="btn btn-primary btn-sm" id="aiAnalyticsNarrate">🤖 Minta Ringkasan & Saran Tindak Lanjut dari AI</button>
+      </div><div id="aiAnalyticsAiOut" style="margin-bottom:10px;"></div>` : ''}
+
       <div class="subtabs">
-        <button class="subtab-btn active" data-aitab="earlyWarning">Early Warning System</button>
-        <button class="subtab-btn" data-aitab="fraud">Fraud Detection</button>
+        <button class="subtab-btn active" data-aitab="earlyWarning">Deteksi Dini Siswa</button>
+        <button class="subtab-btn" data-aitab="fraud">Integritas Ujian</button>
       </div>
       <div id="aiAnalyticsBox"></div>
     `;
+
+    const narrateBtn = document.getElementById('aiAnalyticsNarrate');
+    if (narrateBtn) narrateBtn.addEventListener('click', async () => {
+      const out = document.getElementById('aiAnalyticsAiOut');
+      narrateBtn.disabled = true;
+      out.innerHTML = AI.loadingHtml('AI merangkum kondisi siswa…');
+      const facts = warnings
+        .filter(w => w.category !== 'Normal')
+        .slice(0, 20)
+        .map(w => `${w.student.name}: kategori ${w.category}, alfa ${Math.round(w.absenceRate * 100)}%, tugas terlambat ${w.lateSubs}, rata-rata nilai ${w.avgScore == null ? 'belum ada' : w.avgScore}${w.declining ? ', tren nilai menurun' : ''}`)
+        .join('; ');
+      try {
+        const ans = await AI.ask(
+          'Kamu asisten analitik untuk bimbel UTBK. Berikut data nyata siswa yang perlu perhatian: ' +
+          (facts || 'tidak ada siswa berkategori bermasalah') + '. ' +
+          'Buat ringkasan singkat dan saran tindak lanjut yang konkret untuk ' +
+          (user.role === 'guru' ? 'tutor kelas' : 'admin lembaga') + ' dalam Bahasa Indonesia. ' +
+          'Kelompokkan berdasarkan prioritas. Jangan menambah nama atau angka yang tidak saya berikan. Maksimal 300 kata.',
+          { temperature: 0.4, maxTokens: 900 });
+        out.innerHTML = `<div class="alert alert-info"><div class="ai-answer">${AI.renderMarkdown(ans)}</div></div>`;
+      } catch (e) {
+        out.innerHTML = AI.errorHtml(e);
+      } finally {
+        narrateBtn.disabled = false;
+      }
+    });
 
     let currentTab = 'earlyWarning';
     const renderTab = () => {
@@ -1084,30 +1366,33 @@
             </table></div>`}
           </div>`;
       } else {
-        // Fraud detection simulation
-        const fraudAlerts = students.slice(0, Math.min(5, students.length)).map(s => {
-          const attempts = allAttempts.filter(a => a.studentId === s.id && a.submittedAt);
-          if (attempts.length === 0) return null;
-          const latest = attempts[attempts.length - 1];
-          const suspicious = Math.random() > 0.7;
-          if (!suspicious) return null;
-          const reasons = ['Pola jawaban abnormal', 'Waktu pengerjaan sangat singkat', 'Kemiripan jawaban tinggi dengan siswa lain'];
-          return { student: s, exam: DB.getCbt(latest.cbtId), reason: reasons[Math.floor(Math.random() * reasons.length)], score: latest.score, severity: Math.random() > 0.5 ? 'High' : 'Medium' };
-        }).filter(Boolean);
+        /* Integritas ujian — HANYA dari kejadian yang benar-benar tercatat.
+         * Versi sebelumnya menuduh siswa secara acak (Math.random) sehingga
+         * bisa memfitnah siswa yang tidak melakukan pelanggaran. */
+        const scope = user.role === 'guru'
+          ? { courseIds: DB.getCoursesByTeacher(user.id).map(c => c.id) }
+          : {};
+        const fraudAlerts = DB.cbtIntegritySignals(scope);
 
         box.innerHTML = `
           <div class="card">
-            <div class="card-header"><h3>Fraud Detection System</h3></div>
-            <p class="muted small">AI mendeteksi: pola jawaban abnormal, waktu pengerjaan tidak wajar, multi-tab, copy-paste, kemiripan jawaban.</p>
-            ${fraudAlerts.length === 0 ? '<div class="empty"><div class="empty-icon">🛡️</div>Tidak ada aktivitas mencurigakan terdeteksi.</div>' : `
+            <div class="card-header">${UI.secHead('🛡️', 'Integritas Ujian', 'Hanya menampilkan pelanggaran yang tercatat sistem')}</div>
+            <p class="muted small">
+              Sumber data: pelanggaran yang terekam saat ujian (pindah tab, keluar layar penuh, dan sejenisnya),
+              durasi pengerjaan dibanding alokasi waktu, serta skor sempurna dengan waktu tidak wajar.
+              Daftar ini <strong>bukan tuduhan</strong> — mohon diperiksa manual sebelum ditindaklanjuti.
+            </p>
+            ${fraudAlerts.length === 0 ? '<div class="empty"><div class="empty-icon">🛡️</div>Tidak ada pelanggaran atau anomali yang tercatat.</div>' : `
             <div class="table-wrap"><table class="table">
-              <thead><tr><th>Siswa</th><th>Ujian</th><th>Skor</th><th>Severity</th><th>Alasan</th></tr></thead>
+              <thead><tr><th>Siswa</th><th>Ujian</th><th>Skor</th><th>Durasi</th><th>Pelanggaran</th><th>Tingkat</th><th>Temuan</th></tr></thead>
               <tbody>${fraudAlerts.map(f => `<tr>
                 <td><strong>${UI.esc(f.student.name)}</strong></td>
                 <td>${UI.esc(f.exam?.title || '-')}</td>
-                <td>${f.score}</td>
-                <td><span class="badge ${f.severity === 'High' ? 'badge-warning' : 'badge-info'}">${f.severity}</span></td>
-                <td class="muted small">${UI.esc(f.reason)}</td>
+                <td>${f.score == null ? '-' : f.score}</td>
+                <td class="small">${f.durationMinutes == null ? '-' : f.durationMinutes + ' mnt'}</td>
+                <td>${f.violations}</td>
+                <td><span class="badge ${f.severity === 'Tinggi' ? 'badge-warning' : (f.severity === 'Sedang' ? 'badge-info' : 'badge-gray')}">${f.severity}</span></td>
+                <td class="muted small">${f.reasons.map(r => UI.esc(r)).join('<br>')}</td>
               </tr>`).join('')}</tbody>
             </table></div>`}
             <div class="alert alert-info mt-2">Sistem fraud detection berjalan otomatis pada setiap sesi ujian CBT. Hasil hanya bersifat indikasi dan memerlukan verifikasi manual.</div>

@@ -132,6 +132,27 @@ Tombol **Tambah** kini membuka *workspace* satu halaman penuh (bukan modal sempi
 - Jadwal kelas tersinkronisasi ke **halaman kelas** (agenda pertemuan hari itu beserta materi/modul yang sudah tersedia) dan ke **Kalender utama** semua peran: admin, tutor, siswa, dan orang tua.
 - **Pengumuman** kini punya sasaran peran **Orang Tua** (selain semua/guru/siswa), dengan label sasaran yang jelas.
 
+### Integrasi AI (Google Gemini + Agent API)
+Seluruh fitur AI memakai **data asli LMS**, bukan angka contoh, dan dipakai bersama semua panel.
+- **AI Guru** (siswa): percakapan sungguhan dengan Gemini. Konteks kelas yang diikuti dan subtest terlemah siswa dikirim otomatis agar jawabannya terarah.
+- **Rencana Belajar Mingguan** (siswa): disusun dari **jadwal kelas yang sebenarnya**; hari tanpa kelas diisi belajar mandiri pada subtest terlemah. Tersedia tombol agar AI merapikannya.
+- **Rekomendasi Materi** (siswa): prioritas belajar dihitung dari rata-rata skor CBT per subtest, dilengkapi materi & modul nyata yang tersedia di kelasnya.
+- **Kesiapan PTN** (siswa): kesiapan terukur per subtest berdasarkan skor CBT dan target kampus siswa sendiri, dengan keterangan tegas bahwa ini bukan prediksi resmi SNBT.
+- **Deteksi Dini Siswa** (admin & tutor): kehadiran, keterlambatan tugas, dan tren nilai. Tutor hanya melihat siswa pada kelas yang dia ampu.
+- **Integritas Ujian** (admin & tutor): hanya menampilkan pelanggaran yang **benar-benar tercatat** sistem (pindah tab, keluar layar penuh), durasi pengerjaan tidak wajar, dan skor sempurna berwaktu singkat — disertai keterangan bahwa daftar ini bukan tuduhan.
+- **Buat Soal dengan AI** (Bank Soal): menghasilkan beberapa soal sekaligus beserta pembahasan, lalu **wajib diperiksa** lewat pratinjau sebelum disimpan.
+- **Tulis dengan AI** (editor): tombol 🤖 pada toolbar Materi/Modul/Tugas/Bank Soal untuk menulis, merapikan, meringkas, atau menambah contoh soal.
+- **Agent Web** (admin): kirim URL + tujuan, terima data terstruktur yang bisa diunduh sebagai CSV.
+
+> **Keamanan kunci API.** Aplikasi ini statis tanpa server, sehingga kunci yang ditulis di dalam
+> kode akan terbaca publik. Karena itu kunci **tidak disertakan di repositori**. Admin mengisinya
+> di **Pengaturan → Integrasi AI**, dan kunci hanya disimpan pada `localStorage` browser tersebut.
+> Bila kunci belum diisi, halaman AI tetap menampilkan analisis dari data asli LMS — hanya ulasan
+> naratif AI yang dinonaktifkan, lengkap dengan petunjuk cara mengaktifkannya.
+
+Hasil audit lengkap 23 poin permintaan beserta buktinya ada di
+[`docs/AUDIT-23-POIN.md`](docs/AUDIT-23-POIN.md).
+
 ### Keuangan & Branding
 - **Pemasukan** dibedakan per jenis: pembayaran SPP **dan denda siswa** (mis. pelanggaran atau keluar kelas) dengan daftar alasan denda siap pakai.
 - **Pengaturan → Branding**: unggah **logo Rubela** dan atur nama lembaga; logo langsung dipakai di halaman login, topbar dashboard, judul halaman, dan favicon.
@@ -247,6 +268,8 @@ LMS-RUBELA/
     ├── effects.js       # Layer animasi: ripple, reveal, count-up, transisi halaman, tema gelap/terang
     ├── responsive.js    # Pembungkus tabel & penyesuaian elemen agar aman di layar kecil
     ├── branding.js      # Logo & nama lembaga (login, topbar, judul halaman, favicon)
+    ├── ai.js            # Integrasi Gemini & Agent API: pemanggilan, penanganan galat,
+    │                    #   render markdown aman, status "belum dikonfigurasi"
     ├── richtext.js      # Sanitasi & ringkasan teks kaya (plain text, potong aman)
     ├── editor.js        # Mesin editor bersama: toolbar, tabel, LaTeX, palet simbol, media
     ├── qeditor.js       # Editor khusus form soal (mendelegasikan ke editor.js)
@@ -261,7 +284,8 @@ LMS-RUBELA/
     ├── exam.js          # Runner ujian peserta: halaman pembuka, cek kamera/mikrofon,
     │                    #   pengerjaan berurutan per subtest, pencatatan pelanggaran, hasil
     ├── dashboard.js     # Router role-based + sidebar + pusat notifikasi + tema + drawer mobile
-    ├── admin.js         # Panel Admin (22 menu, termasuk Kelola Orang Tua, Keuangan & Branding)
+    ├── admin.js         # Panel Admin (23 menu, termasuk Kelola Orang Tua, Keuangan,
+    │                    #   Agent Web, Branding & Integrasi AI)
     ├── guru.js          # Panel Guru (18 menu)
     ├── siswa.js         # Panel Siswa (18 menu)
     └── orangtua.js      # Panel Orang Tua (13 menu pemantauan)

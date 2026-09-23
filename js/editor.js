@@ -557,7 +557,109 @@
           ${btn('unlink', '⛓', 'Lepas tautan')}
           ${btn('removeFormat', '⌫', 'Hapus format')}
         </div>
+
+        <div class="rte-group">
+          ${ins('ai', '🤖 AI', 'Tulis atau rapikan isi dengan bantuan AI')}
+        </div>
       </div>`;
+  }
+
+  /* =====================================================================
+   * Bantuan menulis dengan AI (Gemini)
+   * Dipakai seluruh editor: Bank Soal, Materi, Modul, dan Tugas — sehingga
+   * panel admin dan tutor mendapat kemampuan yang sama.
+   * ===================================================================*/
+  function openAiDialog() {
+    if (!global.AI) { UI.toast('Modul AI belum termuat.', 'error'); return; }
+    // Isi editor saat ini dipakai sebagai konteks / bahan untuk dirapikan.
+    const existing = activeEditable ? AI.toPlain(activeEditable.innerHTML) : '';
+
+    saveRange();
+    openSubDialog('Tulis dengan AI', `
+      ${AI.noticeHtml((global.Dashboard && Dashboard.currentUser) || null)}
+      <div class="form-group">
+        <label for="aiMode">Yang ingin dilakukan</label>
+        <select id="aiMode" class="input">
+          <option value="tulis">Tulis materi baru dari sebuah topik</option>
+          <option value="rapikan" ${existing ? '' : 'disabled'}>Rapikan & perjelas isi yang sudah ada</option>
+          <option value="ringkas" ${existing ? '' : 'disabled'}>Ringkas isi yang sudah ada</option>
+          <option value="contoh">Tambah contoh soal beserta pembahasan</option>
+        </select>
+        ${existing ? `<div class="muted small">Isi editor saat ini terbaca ${existing.length} karakter dan akan dipakai sebagai bahan.</div>`
+          : '<div class="muted small">Editor masih kosong, jadi pilihan "rapikan/ringkas" belum tersedia.</div>'}
+      </div>
+      <div class="form-group">
+        <label for="aiTopic">Topik / instruksi</label>
+        <input id="aiTopic" placeholder="mis. Barisan dan deret aritmetika untuk kelas 11" />
+      </div>
+      <div class="form-group">
+        <label for="aiLen">Panjang</label>
+        <select id="aiLen" class="input">
+          <option value="singkat">Singkat (±150 kata)</option>
+          <option value="sedang" selected>Sedang (±300 kata)</option>
+          <option value="panjang">Lengkap (±600 kata)</option>
+        </select>
+      </div>
+      <div class="flex-gap">
+        <button type="button" class="btn btn-primary btn-sm" id="aiRun" ${AI.ready() ? '' : 'disabled'}>🤖 Buat</button>
+      </div>
+      <div id="aiPrev" style="margin-top:10px;"></div>
+      <div class="flex-gap mt-2" style="justify-content:flex-end;">
+        <button type="button" class="btn btn-secondary" data-cancel>Batal</button>
+        <button type="button" class="btn btn-primary" data-ok disabled>Sisipkan ke Editor</button>
+      </div>
+    `, (back, close) => {
+      let html = '';
+      const okBtn = back.querySelector('[data-ok]');
+      const prev = back.querySelector('#aiPrev');
+
+      back.querySelector('#aiRun').addEventListener('click', async () => {
+        const mode = back.querySelector('#aiMode').value;
+        const topic = back.querySelector('#aiTopic').value.trim();
+        const len = back.querySelector('#aiLen').value;
+        const words = len === 'singkat' ? 150 : (len === 'panjang' ? 600 : 300);
+        if (mode === 'tulis' && !topic) { UI.toast('Isi topik terlebih dahulu.', 'error'); return; }
+
+        const runBtn = back.querySelector('#aiRun');
+        runBtn.disabled = true;
+        okBtn.disabled = true;
+        prev.innerHTML = AI.loadingHtml('AI sedang menulis…');
+
+        const task = {
+          tulis: `Tulis materi pelajaran tentang "${topic}".`,
+          rapikan: 'Rapikan dan perjelas materi berikut tanpa mengubah maknanya.',
+          ringkas: 'Ringkas materi berikut menjadi poin-poin penting.',
+          contoh: `Tambahkan contoh soal beserta pembahasan langkah demi langkah${topic ? ' tentang "' + topic + '"' : ' sesuai materi berikut'}.`
+        }[mode];
+
+        try {
+          const ans = await AI.ask(
+            `${task} ${topic && mode !== 'tulis' ? 'Fokus tambahan: ' + topic + '. ' : ''}` +
+            `Tulis dalam Bahasa Indonesia untuk siswa SMA persiapan UTBK, sekitar ${words} kata. ` +
+            'Gunakan subjudul dan poin-poin bila membantu. Jangan memakai tabel. ' +
+            (existing && mode !== 'tulis' ? `\n\nMateri yang ada:\n${existing.slice(0, 6000)}` : ''),
+            { temperature: mode === 'rapikan' ? 0.3 : 0.6, maxTokens: 2048 });
+          html = AI.renderMarkdown(ans);
+          prev.innerHTML = `<div class="alert alert-info"><div class="ai-answer">${html}</div></div>
+            <div class="muted small">Periksa dulu isinya, lalu tekan "Sisipkan ke Editor".</div>`;
+          okBtn.disabled = false;
+        } catch (e) {
+          prev.innerHTML = AI.errorHtml(e);
+        } finally {
+          runBtn.disabled = false;
+        }
+      });
+
+      back.querySelector('[data-cancel]').addEventListener('click', close);
+      okBtn.addEventListener('click', () => {
+        if (!html) return;
+        // Tutup dialog SEBELUM menyisipkan: execCommand('insertHTML') gagal
+        // senyap bila fokus masih berada di dalam dialog.
+        close();
+        restoreRange();
+        insertHtml(html);
+      });
+    });
   }
 
   /* =====================================================================
@@ -933,6 +1035,7 @@
           case 'audio': openAudioDialog(); break;
           case 'link': openLinkDialog(); break;
           case 'paste': openPasteDialog(); break;
+          case 'ai': openAiDialog(); break;
           case 'checklist': insertChecklist(); break;
           case 'divider': insertDivider(); break;
           default: break;
@@ -1079,7 +1182,7 @@
     toggleBlock, currentBlockTag, tableOp, buildTableHtml, insertChecklist, insertDivider,
     // dialog
     openSubDialog, openFormulaDialog, openPaletteDialog, openTableDialog,
-    openImageDialog, openAudioDialog, openLinkDialog, openPasteDialog,
+    openImageDialog, openAudioDialog, openLinkDialog, openPasteDialog, openAiDialog,
     // media
     compressImage, readAsDataUrl,
     // konstanta

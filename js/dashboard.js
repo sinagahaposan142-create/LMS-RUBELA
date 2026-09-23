@@ -24,6 +24,7 @@
       { key: 'feedback', label: 'Kritik & Saran', icon: '💬' },
       { key: 'chat', label: 'Chat', icon: '💭' },
       { key: 'ai-analytics', label: 'AI Analytics', icon: '🤖' },
+      { key: 'agent-web', label: 'Agent Web', icon: '🌐' },
       { key: 'keuangan', label: 'Keuangan', icon: '💰' },
       { key: 'keamanan-login', label: 'Keamanan Login', icon: '🔐' },
       { key: 'settings', label: 'Pengaturan', icon: '⚙️' }

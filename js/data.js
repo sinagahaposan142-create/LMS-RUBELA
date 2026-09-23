@@ -823,6 +823,16 @@
       loginQuizEnabled: true, loginQuizRoles: ['siswa'], loginQuizAttempts: 3,
       motivationEnabled: true, planFillLead: PLAN_FILL_LEAD, planConfirmLead: PLAN_CONFIRM_LEAD,
       appName: 'LMS Rubela', appTagline: 'Learning Management System', appLogo: '',
+      /* ===== Integrasi AI =====
+       * Kunci API TIDAK pernah ikut tersimpan di repositori. Admin mengisinya
+       * lewat Pengaturan, lalu disimpan pada localStorage browser masing-masing.
+       */
+      aiEnabled: true,
+      geminiApiKey: '',
+      geminiModel: 'gemini-flash-latest',
+      aiTimeoutMs: 30000,
+      tinyfishApiKey: '',
+      tinyfishEndpoint: '',
       examSecurityDefaults: {
         requireCamera: false, requireMic: false, fullscreen: true,
         blockTabSwitch: true, blockCopy: true, blockScreenshot: true,
@@ -1363,6 +1373,117 @@
           violations: a.violations || [],
           submitted: !!a.submittedAt
         }));
+    },
+
+    /* ===== Analitik nyata untuk halaman AI =====
+     * Semua angka di halaman AI HARUS berasal dari data asli di bawah ini,
+     * bukan angka karangan. Dipakai bersama panel siswa, tutor, admin, dan
+     * orang tua agar nilainya konsisten di semua tempat.
+     */
+
+    /**
+     * Rata-rata skor per subtest milik seorang siswa, dihitung dari
+     * sectionScores tiap attempt (dengan cadangan ke subtest kelas bila
+     * attempt lama belum punya sectionScores).
+     * @returns {Array<{subtest,short,icon,avg,correct,total,attempts}>}
+     */
+    studentSubtestStats: (studentId) => {
+      const attempts = getAll(KEYS.cbtAttempts).filter(a => a.studentId === studentId && a.submittedAt);
+      const by = {};
+      const bump = (key, correct, total, score) => {
+        if (!key) return;
+        if (!by[key]) by[key] = { correct: 0, total: 0, scores: [] };
+        by[key].correct += Number(correct) || 0;
+        by[key].total += Number(total) || 0;
+        if (score != null) by[key].scores.push(Number(score));
+      };
+      attempts.forEach(a => {
+        const secs = a.sectionScores || [];
+        if (secs.length) {
+          secs.forEach(s => bump(s.subtest || 'Lainnya', s.correct, s.total, s.score));
+        } else {
+          const cbt = findById(KEYS.cbts, a.cbtId);
+          const c = cbt ? findById(KEYS.courses, cbt.courseId) : null;
+          bump((c && c.subtest) || 'Lainnya', a.correctCount, a.totalCount, a.score);
+        }
+      });
+      return Object.keys(by).map(name => {
+        const st = DB.subtestByName(name);
+        const d = by[name];
+        const avg = d.scores.length
+          ? Math.round(d.scores.reduce((x, y) => x + y, 0) / d.scores.length)
+          : (d.total ? Math.round((d.correct / d.total) * 100) : null);
+        return {
+          subtest: name,
+          short: st ? st.short : name,
+          icon: st ? st.icon : '📘',
+          avg, correct: d.correct, total: d.total, attempts: d.scores.length
+        };
+      }).sort((a, b) => (a.avg == null ? 999 : a.avg) - (b.avg == null ? 999 : b.avg));
+    },
+
+    /**
+     * Sinyal integritas ujian yang BENAR-BENAR tercatat (bukan dugaan acak):
+     * pelanggaran yang terekam, pengerjaan sangat cepat, dan skor sempurna
+     * dengan waktu tidak wajar. Hanya attempt yang sudah dikumpulkan.
+     */
+    cbtIntegritySignals: (opts) => {
+      const o = opts || {};
+      let attempts = getAll(KEYS.cbtAttempts).filter(a => a.submittedAt);
+      if (o.studentId) attempts = attempts.filter(a => a.studentId === o.studentId);
+      if (o.cbtId) attempts = attempts.filter(a => a.cbtId === o.cbtId);
+      if (o.courseIds && o.courseIds.length) {
+        const set = new Set(o.courseIds);
+        attempts = attempts.filter(a => {
+          const cbt = findById(KEYS.cbts, a.cbtId);
+          if (!cbt) return false;
+          const ids = (cbt.courseIds && cbt.courseIds.length) ? cbt.courseIds : (cbt.courseId ? [cbt.courseId] : []);
+          return ids.some(id => set.has(id));
+        });
+      }
+
+      const out = [];
+      attempts.forEach(a => {
+        const cbt = findById(KEYS.cbts, a.cbtId);
+        const student = findById(KEYS.users, a.studentId);
+        if (!cbt || !student) return;
+        const reasons = [];
+        let weight = 0;
+
+        const vio = a.violations || [];
+        if (vio.length) {
+          const kinds = {};
+          vio.forEach(v => { const k = v.type || v.reason || 'lain'; kinds[k] = (kinds[k] || 0) + 1; });
+          reasons.push('Pelanggaran tercatat: ' +
+            Object.keys(kinds).map(k => `${k} (${kinds[k]}x)`).join(', '));
+          weight += vio.length * 2;
+        }
+
+        // Durasi pengerjaan jauh lebih cepat dari alokasi waktu
+        const durMin = (a.startedAt && a.submittedAt)
+          ? Math.round((a.submittedAt - a.startedAt) / 60000) : null;
+        const alloc = Number(cbt.durationMinutes) || 0;
+        if (durMin != null && alloc > 0 && durMin < Math.max(2, alloc * 0.25)) {
+          reasons.push(`Selesai sangat cepat (${durMin} dari ${alloc} menit)`);
+          weight += 3;
+        }
+        // Skor sempurna dengan waktu sangat singkat
+        if (a.score === 100 && durMin != null && alloc > 0 && durMin < alloc * 0.4) {
+          reasons.push('Skor sempurna dengan waktu tidak wajar');
+          weight += 2;
+        }
+
+        if (!reasons.length) return;
+        out.push({
+          attemptId: a.id,
+          student, exam: cbt,
+          score: a.score, durationMinutes: durMin,
+          violations: vio.length,
+          reasons, weight,
+          severity: weight >= 6 ? 'Tinggi' : (weight >= 3 ? 'Sedang' : 'Rendah')
+        });
+      });
+      return out.sort((x, y) => y.weight - x.weight);
     },
 
     /* ===== Attendance ===== */

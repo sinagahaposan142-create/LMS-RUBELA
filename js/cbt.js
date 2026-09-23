@@ -155,7 +155,7 @@
         ${cbts.length === 0 ? emptyState('Belum ada ujian CBT. Klik "Buat Ujian Baru" untuk memulai.', '🖥️') : `
         <div class="table-wrap"><table class="table">
           <thead><tr>
-            <th>Ujian</th><th>Tutor</th><th>Kelas Tujuan</th><th>Mode</th><th>Subtest</th>
+            <th>Ujian</th><th>Kelas Tujuan</th><th>Mode</th><th>Subtest</th>
             <th>Soal</th><th>Jadwal</th><th>Peserta</th><th>Status</th><th>Aksi</th>
           </tr></thead>
           <tbody>${cbts.slice().sort((a, b) => b.createdAt - a.createdAt).map(c => {
@@ -181,9 +181,6 @@
                 ${c.description ? `<div class="muted small" style="max-width:260px;">${UI.esc(c.description.slice(0, 70))}${c.description.length > 70 ? '…' : ''}</div>` : ''}
                 ${secIcons ? `<div class="small" title="Pengaturan keamanan">${secIcons}</div>` : ''}
               </td>
-              <td>${global.ContentEditor
-                    ? ContentEditor.creditHtml(c, DB.getCourse(c.courseId))
-                    : UI.esc(DB.contentOwnerName(c, DB.getCourse(c.courseId)))}</td>
               <td><span class="badge ${(c.targetClasses || []).includes(DB.ALL_CLASSES) ? 'badge-success' : 'badge-info'}">${UI.esc(DB.cbtTargetLabel(c))}</span></td>
               <td>${c.subtestMode === 'full' ? '<span class="badge badge-warning">7 Subtest</span>'
                     : (c.subtestMode === 'single' ? '<span class="badge badge-info">1 Subtest</span>' : '<span class="badge badge-gray">Custom</span>')}</td>
@@ -256,6 +253,13 @@
     // Admin boleh mengubahnya pada langkah 1 agar rekap keaktifan tutor akurat.
     let ownerId = (editing && editing.createdBy) || o.ownerId ||
       (user.role === 'guru' ? user.id : null);
+
+    // Keterangan tutor pembuat HANYA relevan untuk ujian di dalam kelas.
+    // Pada CBT umum/utama, atribusi tetap dicatat di data (dipakai untuk hak
+    // edit/hapus) tetapi tidak ditampilkan sebagai keterangan pembuat.
+    const inClass = !!(o.inClass
+      || (Array.isArray(o.courseIds) && o.courseIds.length)
+      || (editing && ((editing.courseIds || []).length || editing.courseId)));
 
     // ---- State draft ujian ----
     const draft = {
@@ -397,6 +401,7 @@
      * mengetiknya lewat field enteredBy).
      */
     function ownerBlockHtml() {
+      if (!inClass) return '';
       if (user.role !== 'admin') {
         const me = DB.getUser(ownerId) || user;
         return `
@@ -799,10 +804,10 @@
               <tr><th>Kelas Mata Pelajaran</th><td>${draft.courseIds.length
                 ? draft.courseIds.map(id => UI.esc(DB.getCourse(id)?.title || '-')).join(', ')
                 : '<span class="muted">Tidak dikaitkan</span>'}</td></tr>
-              <tr><th>Tutor Penanggung Jawab</th><td>${ownerId
+              ${inClass ? `<tr><th>Tutor Penanggung Jawab</th><td>${ownerId
                 ? UI.esc(DB.getUser(ownerId)?.name || '-') +
                   (user.role === 'admin' ? ' <span class="badge badge-gray">diinput admin</span>' : '')
-                : '<span class="muted">Tidak dikaitkan ke tutor</span>'}</td></tr>
+                : '<span class="muted">Tidak dikaitkan ke tutor</span>'}</td></tr>` : ''}
               <tr><th>Metode</th><td>${draft.subtestMode === 'full' ? 'Gabungan 7 Subtest (Full UTBK)'
                 : (draft.subtestMode === 'single' ? 'Per 1 Subtest — ' + UI.esc(draft.selectedSubtest) : 'Custom')}</td></tr>
               <tr><th>Jadwal</th><td>${UI.fmtDateTime(draft.startAt)} &nbsp;s.d.&nbsp; ${UI.fmtDateTime(draft.endAt)}</td></tr>
