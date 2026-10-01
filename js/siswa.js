@@ -337,6 +337,7 @@
         <button class="tab-btn" data-tab="recordings">Rekaman (${DB.getRecordingsByCourse(course.id).length})</button>
         <button class="tab-btn" data-tab="assignments">Tugas (${assignments.length})</button>
         <button class="tab-btn" data-tab="cbts">CBT (${DB.getCbtsByCourse(course.id).length})</button>
+        <button class="tab-btn" data-tab="whiteboard">Whiteboard</button>
         <button class="tab-btn" data-tab="attendance">Presensi</button>
       </div>
       <div id="tabContent"></div>
@@ -359,11 +360,13 @@
       btn.classList.add('active');
       const tab = btn.dataset.tab;
       const el = document.getElementById('tabContent');
+      if (global.Whiteboard) Whiteboard.destroy();
       if (tab === 'materials') renderCourseMaterials(el, course);
       else if (tab === 'modules') renderCourseModules(el, course);
       else if (tab === 'recordings') renderCourseRecordings(el, course);
       else if (tab === 'assignments') renderCourseAssignments(el, course, user);
       else if (tab === 'cbts') renderCourseCbts(el, course, user);
+      else if (tab === 'whiteboard') Whiteboard.mount({ container: el, course, user });
       else if (tab === 'attendance') renderCourseAttendance(el, course, user);
     }));
     renderCourseMaterials(document.getElementById('tabContent'), course);
@@ -437,8 +440,15 @@
     const isSoal = asg.mode === 'soal' && (asg.questionIds || []).length;
     const overdue = Date.now() > asg.dueDate;
 
-    const answers = Object.assign({}, (sub && sub.answers) || {});
+    const draftKey = `lms_assignment_draft:${user.id}:${assignmentId}`;
+    let savedDraft = null;
+    try { savedDraft = JSON.parse(localStorage.getItem(draftKey) || 'null'); } catch (e) { savedDraft = null; }
+    // Draft hanya dipulihkan bila lebih baru daripada submission terakhir.
+    if (savedDraft && sub && savedDraft.savedAt <= (sub.submittedAt || 0)) savedDraft = null;
+    const answers = Object.assign({}, (sub && sub.answers) || {}, (savedDraft && savedDraft.answers) || {});
     const questions = isSoal ? (asg.questionIds || []).map(id => DB.getQuestion(id)).filter(Boolean) : [];
+    const initialContent = savedDraft && Object.prototype.hasOwnProperty.call(savedDraft, 'content')
+      ? savedDraft.content : ((sub && sub.content) || '');
 
     const header = `
       <div class="alert ${overdue ? 'alert-error' : 'alert-info'}" style="margin-bottom:12px;">
@@ -454,9 +464,12 @@
         <div id="asgQuestions"></div>
         ${sub && sub.grade != null ? `
           <div class="alert alert-info"><strong>Nilai: ${sub.grade}</strong>${sub.feedback ? ' — ' + UI.esc(sub.feedback) : ''}</div>` : ''}
-        <div class="flex-gap" style="justify-content:flex-end;">
+        <div class="flex-gap" style="justify-content:space-between;">
+          <span class="muted small" id="asgDraftStatus">${savedDraft ? 'Draft dipulihkan • ' + UI.fmtRelative(savedDraft.savedAt) : 'Autosave aktif'}</span>
+          <div class="flex-gap">
           <button type="button" class="btn btn-secondary" id="cancelBtn">Batal</button>
           <button type="submit" class="btn btn-primary">${sub ? 'Perbarui' : 'Kirim'} Jawaban</button>
+          </div>
         </div>
       </form>` : `
       ${header}
@@ -465,17 +478,46 @@
           <label>Jawaban Anda</label>
           ${Editor.toolbarHtml('asgAnswer')}
           <div id="asgAnswer" class="qe-editor" contenteditable="true"
-               data-ph="Tulis jawaban Anda di sini. Rumus, tabel, dan gambar tersedia di bilah alat.">${(sub && sub.content) || ''}</div>
+               data-ph="Tulis jawaban Anda di sini. Rumus, tabel, dan gambar tersedia di bilah alat.">${initialContent}</div>
         </div>
         ${sub && sub.grade != null ? `
           <div class="alert alert-info"><strong>Nilai: ${sub.grade}</strong>${sub.feedback ? ' — ' + UI.esc(sub.feedback) : ''}</div>` : ''}
-        <div class="flex-gap" style="justify-content:flex-end;">
+        <div class="flex-gap" style="justify-content:space-between;">
+          <span class="muted small" id="asgDraftStatus">${savedDraft ? 'Draft dipulihkan • ' + UI.fmtRelative(savedDraft.savedAt) : 'Autosave aktif'}</span>
+          <div class="flex-gap">
           <button type="button" class="btn btn-secondary" id="cancelBtn">Batal</button>
           <button type="submit" class="btn btn-primary">${sub ? 'Perbarui' : 'Kirim'} Jawaban</button>
+          </div>
         </div>
       </form>`;
 
     UI.modal.open(sub ? 'Ubah Jawaban' : 'Kerjakan Tugas', body);
+
+    let draftTimer = null;
+    function saveDraft() {
+      if (draftTimer) clearTimeout(draftTimer);
+      draftTimer = null;
+      const ed = document.getElementById('asgAnswer');
+      const draft = {
+        assignmentId, studentId: user.id, savedAt: Date.now(),
+        answers: isSoal ? answers : {},
+        content: !isSoal && ed ? RichText.sanitize(ed.innerHTML) : ''
+      };
+      try {
+        localStorage.setItem(draftKey, JSON.stringify(draft));
+        const status = document.getElementById('asgDraftStatus');
+        if (status) status.textContent = 'Draft tersimpan sekarang';
+      } catch (e) {
+        const status = document.getElementById('asgDraftStatus');
+        if (status) status.textContent = 'Draft gagal disimpan';
+      }
+    }
+    function scheduleDraft() {
+      const status = document.getElementById('asgDraftStatus');
+      if (status) status.textContent = 'Menyimpan draft…';
+      if (draftTimer) clearTimeout(draftTimer);
+      draftTimer = setTimeout(saveDraft, 1000);
+    }
 
     if (isSoal) {
       const box = document.getElementById('asgQuestions');
@@ -488,13 +530,15 @@
           <div class="asg-q-text rt-content">${RichText.render(q.text || '')}</div>
           <div class="asg-q-answer">${answerInputHtml(q, answers[q.id])}</div>
         </div>`).join('');
-      bindAnswerInputs(box, answers);
+      bindAnswerInputs(box, answers, scheduleDraft);
     } else {
       Editor.setHost(document.getElementById('genericModal'));
-      Editor.attach(document.getElementById('modalBody'), {});
+      Editor.attach(document.getElementById('modalBody'), { onInput: scheduleDraft });
     }
 
-    document.getElementById('cancelBtn').addEventListener('click', () => { Editor.setHost(null); UI.modal.close(); });
+    document.getElementById('cancelBtn').addEventListener('click', () => {
+      saveDraft(); Editor.setHost(null); UI.modal.close();
+    });
     document.getElementById('submitForm').addEventListener('submit', (e) => {
       e.preventDefault();
       let payload;
@@ -532,8 +576,10 @@
         payload = { content, submittedAt: Date.now() };
       }
 
-      if (sub) DB.updateSubmission(sub.id, payload);
+      if (sub) DB.updateSubmission(sub.id, AutoGrader.invalidateOnAnswerChange(sub, payload));
       else DB.addSubmission(Object.assign({ assignmentId, studentId: user.id }, payload));
+      try { localStorage.removeItem(draftKey); } catch (e) {}
+      if (draftTimer) clearTimeout(draftTimer);
 
       // Notifikasi ke tutor PEMBUAT tugas (bukan sembarang tutor kelas)
       const ownerId = (asg.createdBy) || (course && DB.courseTeacherIds(course)[0]);
@@ -657,7 +703,7 @@
   }
 
   /** Sambungkan semua kolom jawaban ke objek answers (bentuk sesuai grader). */
-  function bindAnswerInputs(box, answers) {
+  function bindAnswerInputs(box, answers, onChange) {
     box.querySelectorAll('input[type="radio"][name^="q_"]').forEach(r => r.addEventListener('change', () => {
       const qid = r.name.slice(2);
       answers[qid] = Number(r.value);          // indeks sebagai ANGKA, seperti CBT
@@ -703,6 +749,11 @@
       }));
       sync();
     });
+    if (typeof onChange === 'function') {
+      box.addEventListener('input', onChange);
+      box.addEventListener('change', onChange);
+      box.addEventListener('click', (e) => { if (e.target.closest('[data-mv]')) onChange(); });
+    }
   }
 
   function renderAssignments(container, user) {
@@ -784,7 +835,7 @@
         <div class="stat-card accent-primary"><div class="label">Level</div><div class="value">${stats.level}</div><div class="sub">${stats.points} poin</div></div>
         <div class="stat-card accent-success"><div class="label">Kehadiran</div><div class="value">${stats.attendancePct}%</div><div class="sub">${stats.attendanceTotal} sesi tercatat</div></div>
         <div class="stat-card accent-warning"><div class="label">Rata Tugas</div><div class="value">${stats.avgAsg ?? '-'}</div><div class="sub">${stats.gradedCount} dinilai</div></div>
-        <div class="stat-card accent-danger"><div class="label">Rata CBT</div><div class="value">${stats.avgCbt ?? '-'}</div><div class="sub">${stats.cbtDone} ujian selesai</div></div>
+        <div class="stat-card accent-danger"><div class="label">Rata CBT (200–800)</div><div class="value">${stats.avgCbtScaled ?? '-'}</div><div class="sub">${stats.cbtDone} ujian selesai</div></div>
       </div>
 
       <div class="card">
@@ -927,7 +978,13 @@
     let badge = '<span class="badge badge-info">Tersedia</span>';
     let btn = `<button class="btn btn-sm btn-primary" data-start="${c.id}">Mulai Ujian</button>`;
     if (before) { badge = `<span class="badge badge-gray">Belum Dibuka (${UI.fmtDateTime(c.startAt)})</span>`; btn = '<button class="btn btn-sm btn-secondary" disabled>Belum Dibuka</button>'; }
-    else if (done) { badge = `<span class="badge badge-success">Skor: ${attempt.score}</span>`; btn = `<button class="btn btn-sm btn-secondary" data-view="${c.id}">Lihat Hasil</button>`; }
+    else if (done) {
+      const doneAttempt = global.Scoring ? Scoring.ensureFresh(attempt) : attempt;
+      badge = `<span class="badge badge-success">Skor: ${doneAttempt.scoring
+        ? (doneAttempt.scoring.scaled200_800 != null ? doneAttempt.scoring.scaled200_800 + '/800' : 'menunggu esai')
+        : doneAttempt.score}</span>`;
+      btn = `<button class="btn btn-sm btn-secondary" data-view="${c.id}">Lihat Hasil</button>`;
+    }
     else if (attempt && !done) { badge = '<span class="badge badge-warning">Sedang Dikerjakan</span>'; btn = `<button class="btn btn-sm btn-primary" data-start="${c.id}">Lanjutkan</button>`; }
     else if (after) { badge = '<span class="badge badge-warning">Sudah Ditutup</span>'; btn = '<button class="btn btn-sm btn-secondary" disabled>Ditutup</button>'; }
 

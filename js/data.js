@@ -38,6 +38,7 @@
     salaries: 'lms_salaries',
     notifications: 'lms_notifications',
     classPlans: 'lms_class_plans',
+    whiteboards: 'lms_whiteboards',
     motivations: 'lms_motivations',
     securityQuestions: 'lms_security_questions',
     settings: 'lms_settings',
@@ -49,7 +50,7 @@
    * still be cleared on reset / re-seed so everything stays in sync. */
   const EXTRA_KEYS = [
     'lms_class_options', 'lms_events', 'lms_batches', 'lms_feedbacks',
-    'lms_announcements', 'lms_messages'
+    'lms_announcements', 'lms_messages', 'lms_presence_v1'
   ];
 
   /* ===== Hari & jadwal ===== */
@@ -1486,6 +1487,43 @@
       return out.sort((x, y) => y.weight - x.weight);
     },
 
+    /* ===== Whiteboard per kelas ===== */
+    getWhiteboards: () => getAll(KEYS.whiteboards),
+    getWhiteboard: (courseId) => getAll(KEYS.whiteboards).find(w => w.courseId === courseId) || null,
+    saveWhiteboard: (courseId, state, actor) => {
+      const course = findById(KEYS.courses, courseId);
+      if (!course || !DB.canEditWhiteboard(actor, course)) {
+        throw new Error('Aktor tidak berhak mengubah whiteboard kelas ini.');
+      }
+      const list = getAll(KEYS.whiteboards);
+      const i = list.findIndex(w => w.courseId === courseId);
+      const prev = i >= 0 ? list[i] : null;
+      const rec = Object.assign({
+        id: prev ? prev.id : uid('wb'), courseId, schemaVersion: 1,
+        strokes: [], revision: 0, createdAt: prev ? prev.createdAt : Date.now()
+      }, prev || {}, state || {}, {
+        courseId,
+        revision: Math.max(Number(prev && prev.revision) || 0, Number(state && state.revision) || 0) + 1,
+        updatedAt: Date.now(), updatedBy: actor && actor.id ? actor.id : null
+      });
+      if (i >= 0) list[i] = rec; else list.push(rec);
+      save(KEYS.whiteboards, list);
+      return rec;
+    },
+    canViewWhiteboard: (user, course, childId) => {
+      if (!user || !course) return false;
+      if (user.role === 'admin') return true;
+      if (user.role === 'guru') return DB.courseTeacherIds(course).includes(user.id);
+      if (user.role === 'siswa') return DB.isEnrolled(course.id, user.id);
+      if (user.role === 'orangtua') {
+        const ids = childId ? [childId] : (DB.getChildren(user.id) || []).map(c => c.id);
+        return ids.some(id => DB.isEnrolled(course.id, id));
+      }
+      return false;
+    },
+    canEditWhiteboard: (user, course) => !!(user && course &&
+      (user.role === 'admin' || (user.role === 'guru' && DB.courseTeacherIds(course).includes(user.id)))),
+
     /* ===== Attendance ===== */
     getAttendance: () => getAll(KEYS.attendance),
     getAttendanceByCourse: (cid) => getAll(KEYS.attendance).filter(a => a.courseId === cid),
@@ -1711,6 +1749,11 @@
       Object.values(KEYS).forEach(k => localStorage.removeItem(k));
       ['lms_seeded_v1', 'lms_seeded_v2'].forEach(k => localStorage.removeItem(k));
       EXTRA_KEYS.forEach(k => localStorage.removeItem(k));
+      // Draft tugas memakai key per siswa+tugas, jadi bersihkan berdasarkan prefix.
+      for (let i = localStorage.length - 1; i >= 0; i--) {
+        const k = localStorage.key(i);
+        if (k && k.startsWith('lms_assignment_draft:')) localStorage.removeItem(k);
+      }
       seedIfNeeded();
     }
   };

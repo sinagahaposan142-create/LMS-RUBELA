@@ -45,6 +45,24 @@ Menu **CBT / Ujian** kini membuka *workspace* layar penuh dengan sub-halaman sen
 
 > **Catatan privasi:** kamera dan mikrofon hanya dipakai secara lokal di perangkat peserta untuk pratinjau dan indikator suara. Tidak ada rekaman video/audio yang dikirim atau disimpan — sistem hanya mencatat *kejadian* pelanggaran.
 
+### Skor CBT Cohort-Weighted / IRT (200–800)
+- Poin dasar: jawaban benar = **1**, salah/kosong = **0**, tanpa pengurangan nilai.
+- Kesulitan item dihitung setelah peserta mengumpulkan ujian yang sama; soal yang lebih jarang benar memiliki bobot lebih besar (dibatasi agar satu soal tidak mendominasi).
+- Estimasi kemampuan memakai model **1PL/Rasch-like** dan ditransformasikan ke skala **200–800** per subtest; setiap attempt baru merekalibrasi cohort.
+- Skor esai-only tetap **menunggu nilai tutor**, bukan diberi angka tengah palsu. Esai pada ujian campuran tidak masuk kalibrasi objektif.
+- Karena LMS belum mempunyai data peserta nasional, UI menyebut hasil sebagai **skor cohort LMS / sementara**, bukan kalibrasi nasional resmi. Cohort di bawah 30 peserta ditandai sementara.
+
+### Whiteboard & Autosave
+- Setiap detail kelas mempunyai **Whiteboard** vector: pena, penghapus, warna, ketebalan, undo/redo, serta hapus semua.
+- Admin dan tutor kelas dapat menggambar; siswa dan orang tua melihat mode read-only.
+- Autosave maksimal setiap 1 detik, tahan refresh, dan sinkron antar-tab dengan conflict merge/tombstone. Sinkronisasi lintas perangkat memerlukan backend realtime.
+- Deadline setiap bagian CBT tersimpan pada attempt sehingga refresh tidak mengulang waktu; draft tugas juga tersimpan setiap detik.
+
+### Status Online & Papan Berjalan
+- **Sedang Online** (admin & tutor): status Aktif/Menjauh, halaman aktif, browser, sistem operasi, dan jenis perangkat. Tutor hanya melihat pengguna pada kelas yang dia ampu. Sistem memakai heartbeat 15 detik, TTL, deduplikasi beberapa tab, serta pemulihan BFCache.
+- LMS **tidak mengambil IP**. Karena tanpa backend, presence hanya tersinkron antar-tab pada browser/origin yang sama; status global lintas perangkat memerlukan backend realtime.
+- **Papan berjalan** permanen di bawah topbar pada semua panel, mengikuti sasaran Pengumuman, bisa dijeda, aman untuk `prefers-reduced-motion`, dan membuka halaman Pengumuman saat diklik.
+
 ### Pusat Notifikasi (semua peran)
 - Ikon bel di topbar dengan penghitung yang belum dibaca.
 - Notifikasi otomatis terkirim saat: tugas dinilai, submission masuk, siswa bergabung kelas, presensi **Alfa** tersimpan, dan akun orang tua dihubungkan.
@@ -60,6 +78,9 @@ Menu **CBT / Ujian** kini membuka *workspace* layar penuh dengan sub-halaman sen
 - **Kelola Guru** (dengan tarif gaji) & **Kelola Siswa**.
 - **Kelola Orang Tua**: buat akun wali, hubungkan ke satu atau beberapa siswa (daftar centang rapi dengan **pencarian langsung**), lihat siswa yang belum punya wali, serta **Export / Import Excel**.
 - **Semua Kelas**: daftar dengan rekap materi/tugas/siswa + kolom **Password Kelas** beserta tombol atur cepat, plus **Export / Import Excel**. Judul kelas dipilih dari **7 subtest UTBK** atau ditulis manual lewat opsi *Lainnya*.
+- **Sedang Online**: seluruh pengguna aktif, status aktivitas, halaman, browser, OS, dan perangkat (tanpa mengambil IP).
+- **Pemeriksa otomatis**: buat saran nilai esai/uraian dengan Gemini, tinjau, lalu terapkan secara massal tanpa menimpa keputusan manual.
+- **Whiteboard kelas**: edit papan tulis pada setiap detail kelas dengan autosave dan sinkronisasi.
 - **Presensi**: tab **Ambil Presensi** (pilih kelas lewat kotak berbaris, tandai status dengan satu klik **tanpa animasi** agar cepat), plus rekap siswa, rekap guru, dan log lengkap.
 - **Papan Peringkat**: peringkat poin seluruh siswa.
 - **Rekapan**: ringkasan aktivitas per kelas (siswa, materi, modul, rekaman, tugas, CBT, rata-rata nilai, kehadiran) dan per siswa (submission, rata tugas, CBT selesai, kehadiran, total pembayaran).
@@ -69,7 +90,10 @@ Menu **CBT / Ujian** kini membuka *workspace* layar penuh dengan sub-halaman sen
 ### Panel Guru
 - **Overview**: statistik kelas saya, siswa, tugas, submission yang perlu dinilai.
 - **Kelas Saya**: buat / edit / hapus kelas (dengan harga/SPP) dan **atur password kelas**.
-- **Detail Kelas** (7 tab): Materi, **Modul** (dengan beberapa bagian per modul), **Rekaman Kelas** (embed YouTube/Vimeo/video), Tugas, **CBT/Ujian**, **Absensi**, Siswa.
+- **Detail Kelas** (8 tab): Materi, **Modul**, **Rekaman Kelas**, Tugas, **CBT/Ujian**, **Whiteboard**, **Absensi**, Siswa.
+- **Sedang Online**: co-tutor dan siswa pada kelas yang diampu, lengkap dengan status/perangkat.
+- **Penilaian Tugas**: grading terpusat, saran Gemini berbasis rubrik, batch apply dengan audit trail; nilai manual tidak dapat ditimpa AI.
+- **Profil**: ubah data diri/password dan konfigurasi kunci Gemini khusus perangkat tutor.
 - **Modul** (global): kumpulan modul dari seluruh kelas saya.
 - **Rekaman Kelas** (global): agregat rekaman video dengan filter kelas.
 - **Bank Soal**: kelola bank soal multiple-choice (mapel, tingkat kesulitan, 4 pilihan, pembahasan). Digunakan di CBT.
@@ -81,7 +105,8 @@ Menu **CBT / Ujian** kini membuka *workspace* layar penuh dengan sub-halaman sen
 
 ### Panel Siswa
 - **Overview**: sambutan **"Selamat Datang (Nama) — Calon Mahasiswa (Universitas Impian)"** lengkap dengan target jurusan, level & poin, lencana pencapaian, statistik, tugas mendatang, dan kelas saya.
-- **Kelas Saya**: lihat kelas yang diikuti, detail 6 tab (Materi, Modul, Rekaman, Tugas, CBT, Absensi).
+- **Kelas Saya**: lihat kelas yang diikuti, detail 7 tab (Materi, Modul, Rekaman, Tugas, CBT, **Whiteboard**, Absensi). Whiteboard siswa bersifat baca-saja.
+- **Autosave Tugas**: jawaban tersimpan maksimal setiap detik dan dipulihkan setelah refresh/menutup modal.
 - **Jelajah Kelas**: cari & gabung kelas. Penempatan kelas utama tetap diatur Admin, dan setiap kelas dapat **dilindungi password** (diatur Admin maupun guru pengajar) — kelas terkunci menampilkan gerbang password sebelum bergabung, kelas terbuka bisa langsung digabung.
 - **Modul** (global): semua modul dari kelas yang diikuti.
 - **Rekaman Kelas** (global): semua rekaman, filter per kelas, embed video.
@@ -99,7 +124,7 @@ Akun khusus pemantauan (hanya-baca) yang dibuat Admin dan dihubungkan ke satu at
 - **Nilai & Ujian**: seluruh nilai tugas beserta catatan guru + hasil setiap CBT.
 - **Kehadiran**: rekap hadir/izin/sakit/alfa, persentase per kelas, dan riwayat lengkap.
 - **Tugas**: progres pengumpulan dan status tiap tugas.
-- **Kelas & Guru**: kelas yang diikuti, kehadiran per kelas, dan kontak guru pengajar.
+- **Kelas & Guru**: kelas yang diikuti, kehadiran per kelas, kontak guru, dan **Whiteboard read-only** setiap kelas.
 - **Perkembangan**: grafik batang skor CBT & nilai tugas, indikator tren (naik/turun/stabil), lencana anak, dan saran terarah untuk orang tua.
 - **Pembayaran**: riwayat dan status tagihan anak.
 - **Chat Guru**, **Kalender**, **Pengumuman**, **Kritik & Saran**, **Profil**.
@@ -107,7 +132,7 @@ Akun khusus pemantauan (hanya-baca) yang dibuat Admin dan dihubungkan ke satu at
 ### Atribusi Tutor per Konten & per Pertemuan
 Satu kelas subtest bisa diampu **dua tutor atau lebih**, tetapi satu pertemuan hanya diajar satu tutor.
 - Setiap **materi, modul, rekaman, tugas, CBT, dan presensi** menyimpan `createdBy` (tutor penanggung jawab) dan `enteredBy` (akun yang mengetiknya). Kartu konten menampilkan keterangan "Dibuat oleh …" — bila admin yang mengetik, tertulis "… (dicatat admin)".
-- Saat **admin** membuat konten, tersedia pemilih **Tutor Penanggung Jawab** (termasuk di wizard CBT) agar rekap keaktifan tutor tetap akurat.
+- Saat **admin** membuat konten, tersedia pemilih **Tutor Penanggung Jawab** (termasuk wizard CBT **di dalam kelas**) agar rekap keaktifan tutor tetap akurat.
 - **Halaman Kelas**, **Jadwal Kelas**, dan **War Jadwal** menampilkan tutor yang mengajar pada pertemuan tersebut, diambil dari rencana pertemuan (`classPlans`) — bukan dari daftar tutor kelas.
 - **Presensi** kelas multi-tutor menampilkan **semua** tutor pada lembar presensi, dan tutor pertemuan berganti otomatis mengikuti tanggal yang dipilih.
 - **Kepemilikan tugas**: hanya tutor pembuat (atau admin) yang boleh mengedit, mengoreksi, dan menilai tugas tersebut. Validasi/konfirmasi rencana kelas juga hanya bisa dilakukan admin dan tutor yang bersangkutan — dijaga di sisi handler, bukan hanya disembunyikan di tampilan.
@@ -130,7 +155,7 @@ Tombol **Tambah** kini membuka *workspace* satu halaman penuh (bukan modal sempi
 
 ### Jadwal, Kalender & Pengumuman
 - Jadwal kelas tersinkronisasi ke **halaman kelas** (agenda pertemuan hari itu beserta materi/modul yang sudah tersedia) dan ke **Kalender utama** semua peran: admin, tutor, siswa, dan orang tua.
-- **Pengumuman** kini punya sasaran peran **Orang Tua** (selain semua/guru/siswa), dengan label sasaran yang jelas.
+- **Pengumuman** kini punya sasaran peran **Orang Tua**, tautan `http(s)` otomatis menjadi biru/aman, upload gambar terkompresi, dan opsi tampil pada papan berjalan.
 
 ### Integrasi AI (Google Gemini + Agent API)
 Seluruh fitur AI memakai **data asli LMS**, bukan angka contoh, dan dipakai bersama semua panel.
@@ -142,16 +167,19 @@ Seluruh fitur AI memakai **data asli LMS**, bukan angka contoh, dan dipakai bers
 - **Integritas Ujian** (admin & tutor): hanya menampilkan pelanggaran yang **benar-benar tercatat** sistem (pindah tab, keluar layar penuh), durasi pengerjaan tidak wajar, dan skor sempurna berwaktu singkat — disertai keterangan bahwa daftar ini bukan tuduhan.
 - **Buat Soal dengan AI** (Bank Soal): menghasilkan beberapa soal sekaligus beserta pembahasan, lalu **wajib diperiksa** lewat pratinjau sebelum disimpan.
 - **Tulis dengan AI** (editor): tombol 🤖 pada toolbar Materi/Modul/Tugas/Bank Soal untuk menulis, merapikan, meringkas, atau menambah contoh soal.
+- **Pemeriksa Esai AI** (admin & tutor): rubrik, saran skor/confidence/alasan/feedback, pemeriksaan batch, konfirmasi manusia, dan riwayat audit. Isian singkat memakai normalisasi deterministik serta toleransi numerik.
 - **Agent Web** (admin): kirim URL + tujuan, terima data terstruktur yang bisa diunduh sebagai CSV.
 
 > **Keamanan kunci API.** Aplikasi ini statis tanpa server, sehingga kunci yang ditulis di dalam
 > kode akan terbaca publik. Karena itu kunci **tidak disertakan di repositori**. Admin mengisinya
-> di **Pengaturan → Integrasi AI**, dan kunci hanya disimpan pada `localStorage` browser tersebut.
+> di **Pengaturan → Integrasi AI**; tutor pada perangkat berbeda dapat mengisinya melalui
+> **Profil → Integrasi AI Perangkat Ini**. Kunci hanya disimpan pada `localStorage` browser tersebut.
 > Bila kunci belum diisi, halaman AI tetap menampilkan analisis dari data asli LMS — hanya ulasan
 > naratif AI yang dinonaktifkan, lengkap dengan petunjuk cara mengaktifkannya.
 
 Hasil audit lengkap 23 poin permintaan beserta buktinya ada di
-[`docs/AUDIT-23-POIN.md`](docs/AUDIT-23-POIN.md).
+[`docs/AUDIT-23-POIN.md`](docs/AUDIT-23-POIN.md). Dokumentasi dan pengujian fitur ronde ini ada di
+[`docs/AUDIT-FITUR-RONDE-6.md`](docs/AUDIT-FITUR-RONDE-6.md).
 
 ### Keuangan & Branding
 - **Pemasukan** dibedakan per jenis: pembayaran SPP **dan denda siswa** (mis. pelanggaran atau keluar kelas) dengan daftar alasan denda siap pakai.
@@ -170,6 +198,7 @@ users ─── guru ───▶ courses ───▶ materials
   │        │          │   │       └─ questionIds[] ──▶ questions (bank soal)
   │        │          │   ├───▶ enrollments ◀── siswa
   │        │          │   ├───▶ attendance ◀── siswa & guru
+  │        │          │   ├───▶ whiteboards (vector strokes per kelas)
   │        │          │   └───▶ payments ◀── siswa
   │        └─▶ salaries (gaji guru)
   │        └─▶ attendance (kehadiran guru)
@@ -262,6 +291,7 @@ LMS-RUBELA/
 └── js/
     ├── data.js          # Data store (localStorage) + seed + helper atribusi tutor, pertemuan, denda/branding
     ├── auth.js          # Session + login (4 peran) + register
+    ├── presence.js      # Heartbeat/status online, scope tutor, BroadcastChannel/storage
     ├── login.js         # Controller halaman login
     ├── loginquiz.js     # Kuis penyemangat sebelum masuk dashboard
     ├── ui.js            # Helper format (Rp, tanggal, durasi), modal, toast, progress, meter, greeting
@@ -281,12 +311,13 @@ LMS-RUBELA/
     │                    #   lembar presensi (pill), papan peringkat, lencana
     ├── cbt.js           # Workspace CBT: daftar ujian, wizard 6 langkah, bank soal per subtest,
     │                    #   pemantauan langsung, hasil & analisis per subtest
-    ├── exam.js          # Runner ujian peserta: halaman pembuka, cek kamera/mikrofon,
-    │                    #   pengerjaan berurutan per subtest, pencatatan pelanggaran, hasil
+    ├── exam.js          # Runner ujian peserta: autosave jawaban/deadline, keamanan, hasil
+    ├── scoring.js       # Raw 1/0, kesulitan empiris, bobot cohort, Rasch-like 200–800
+    ├── autograder.js    # Saran nilai esai Gemini, batch apply, confidence & audit trail
+    ├── whiteboard.js    # Canvas vector per kelas, autosave, conflict merge, role guards
     ├── dashboard.js     # Router role-based + sidebar + pusat notifikasi + tema + drawer mobile
-    ├── admin.js         # Panel Admin (23 menu, termasuk Kelola Orang Tua, Keuangan,
-    │                    #   Agent Web, Branding & Integrasi AI)
-    ├── guru.js          # Panel Guru (18 menu)
+    ├── admin.js         # Panel Admin (24 menu, termasuk Online, Agent Web & Integrasi AI)
+    ├── guru.js          # Panel Guru (19 menu, termasuk Online & pemeriksa esai AI)
     ├── siswa.js         # Panel Siswa (18 menu)
     └── orangtua.js      # Panel Orang Tua (13 menu pemantauan)
 ```

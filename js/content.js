@@ -592,7 +592,8 @@
       dueDate: UI.toDateInput(editing ? editing.dueDate : (Date.now() + 7 * 86400000)),
       mode: editing ? (editing.mode || 'uraian') : 'uraian',
       questionIds: editing && Array.isArray(editing.questionIds) ? editing.questionIds.slice() : [],
-      maxScore: editing ? (editing.maxScore || 100) : 100
+      maxScore: editing ? (editing.maxScore || 100) : 100,
+      rubric: editing ? (editing.rubric || '') : ''
     };
     let dirty = false;
 
@@ -675,10 +676,19 @@
                  data-ph="Jelaskan apa yang harus dikerjakan siswa. Rumus, tabel, gambar, dan tautan tersedia.">${draft.description}</div>
           </div>
 
+          <div class="ce-card">
+            <h3 class="ce-h">4. Rubrik Pemeriksaan Otomatis</h3>
+            <div class="form-group">
+              <label for="ceRubric">Kriteria Penilaian Esai / Uraian</label>
+              <textarea id="ceRubric" rows="4" placeholder="Contoh: Ketepatan konsep 50%, kelengkapan langkah 30%, kejelasan penjelasan 20%. Sebutkan jawaban/poin utama yang wajib ada.">${esc(draft.rubric)}</textarea>
+              <div class="muted small">Dipakai Gemini sebagai dasar saran nilai. AI tidak langsung menetapkan nilai—admin/tutor tetap meninjau atau menerapkan saran secara massal.</div>
+            </div>
+          </div>
+
           ${isSoal ? `
           <div class="ce-card">
             <div class="flex-between" style="flex-wrap:wrap;gap:10px;">
-              <h3 class="ce-h" style="margin:0;">4. Daftar Soal (${draft.questionIds.length})</h3>
+              <h3 class="ce-h" style="margin:0;">5. Daftar Soal (${draft.questionIds.length})</h3>
               <div class="flex-gap">
                 <button type="button" class="btn btn-sm btn-secondary" id="cePickQ">📚 Ambil dari Bank Soal</button>
                 <button type="button" class="btn btn-sm btn-primary" id="ceNewQ">+ Tulis Soal Baru</button>
@@ -700,17 +710,19 @@
       Editor.attach(main, {
         onInput: (el) => { if (el.id === 'ceDesc') { draft.description = el.innerHTML; dirty = true; paintPreview(); } }
       });
-      ['ceTitle', 'ceDue', 'ceMax'].forEach(id => {
+      ['ceTitle', 'ceDue', 'ceMax', 'ceRubric'].forEach(id => {
         const el = main.querySelector('#' + id);
         if (el) el.addEventListener('input', () => {
           draft.title = main.querySelector('#ceTitle').value;
           draft.dueDate = main.querySelector('#ceDue').value;
           draft.maxScore = Number(main.querySelector('#ceMax').value) || 100;
+          draft.rubric = main.querySelector('#ceRubric').value;
           dirty = true; paintPreview();
         });
       });
       main.querySelectorAll('[data-mode]').forEach(b => b.addEventListener('click', () => {
         draft.description = (main.querySelector('#ceDesc') || {}).innerHTML || draft.description;
+        draft.rubric = (main.querySelector('#ceRubric') || {}).value || draft.rubric;
         draft.mode = b.dataset.mode;
         dirty = true;
         paint();
@@ -721,6 +733,7 @@
       const newQ = main.querySelector('#ceNewQ');
       if (newQ) newQ.addEventListener('click', () => {
         draft.description = (main.querySelector('#ceDesc') || {}).innerHTML || draft.description;
+        draft.rubric = (main.querySelector('#ceRubric') || {}).value || draft.rubric;
         QEditor.open(user, null, (saved) => {
           if (saved && saved.id) { draft.questionIds.push(saved.id); dirty = true; }
           paint();
@@ -728,6 +741,7 @@
       });
       main.querySelectorAll('[data-edit-q]').forEach(b => b.addEventListener('click', () => {
         draft.description = (main.querySelector('#ceDesc') || {}).innerHTML || draft.description;
+        draft.rubric = (main.querySelector('#ceRubric') || {}).value || draft.rubric;
         QEditor.open(user, b.dataset.editQ, () => paint(), { subtest: course.subtest });
       }));
       main.querySelectorAll('[data-rm-q]').forEach(b => b.addEventListener('click', () => {
@@ -760,6 +774,7 @@
     /** Pemilih soal dari bank pusat, difilter per subtest dan kata kunci. */
     function openQuestionPicker() {
       draft.description = (wsEl.querySelector('#ceDesc') || {}).innerHTML || draft.description;
+      draft.rubric = (wsEl.querySelector('#ceRubric') || {}).value || draft.rubric;
       let sub = course.subtest || (DB.SUBTESTS[0] && DB.SUBTESTS[0].name);
       let q = '';
 
@@ -886,6 +901,7 @@
         dueDate: new Date(due).getTime(),
         mode: draft.mode,
         questionIds: draft.mode === 'soal' ? draft.questionIds.slice() : [],
+        rubric: form.querySelector('#ceRubric').value.trim(),
         maxScore: Math.max(1, Math.min(100, Number(form.querySelector('#ceMax').value) || 100))
       };
       let saved;

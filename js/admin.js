@@ -29,6 +29,7 @@
     if (section === 'pengumuman') return Shared.renderAnnouncements(container, user);
     if (section === 'feedback') return Shared.renderFeedback(container, user);
     if (section === 'chat') return Shared.renderChat(container, user);
+    if (section === 'online') return Presence.renderPanel(container, user);
     if (section === 'ai-analytics') return Shared.renderAiAnalytics(container, user);
     if (section === 'agent-web') return renderAgentWeb(container, user);
     if (section === 'keuangan') return renderKeuangan(container);
@@ -1067,6 +1068,7 @@
         <button class="tab-btn" data-atab="recordings">Rekaman (${DB.getRecordingsByCourse(course.id).length})</button>
         <button class="tab-btn" data-atab="assignments">Tugas (${DB.getAssignmentsByCourse(course.id).length})</button>
         <button class="tab-btn" data-atab="cbts">CBT (${DB.getCbtsByCourse(course.id).length})</button>
+        <button class="tab-btn" data-atab="whiteboard">Whiteboard</button>
         <button class="tab-btn" data-atab="attendance">Presensi</button>
         <button class="tab-btn" data-atab="students">Siswa (${enrollments.length})</button>
       </div>

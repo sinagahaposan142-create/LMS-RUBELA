@@ -23,6 +23,7 @@
       { key: 'motivasi', label: 'Kata Motivasi', icon: '💡' },
       { key: 'feedback', label: 'Kritik & Saran', icon: '💬' },
       { key: 'chat', label: 'Chat', icon: '💭' },
+      { key: 'online', label: 'Sedang Online', icon: '🟢' },
       { key: 'ai-analytics', label: 'AI Analytics', icon: '🤖' },
       { key: 'agent-web', label: 'Agent Web', icon: '🌐' },
       { key: 'keuangan', label: 'Keuangan', icon: '💰' },
@@ -45,6 +46,7 @@
       { key: 'pengumuman', label: 'Pengumuman', icon: '📢' },
       { key: 'feedback', label: 'Kritik & Saran', icon: '💬' },
       { key: 'chat', label: 'Chat', icon: '💭' },
+      { key: 'online', label: 'Sedang Online', icon: '🟢' },
       { key: 'ai-analytics', label: 'AI Analytics', icon: '🤖' },
       { key: 'keuangan', label: 'Honor Saya', icon: '💰' },
       { key: 'profile', label: 'Profil', icon: '👤' }
@@ -134,7 +136,13 @@
     const navItem = (NAVS[user.role] || []).find(n => n.key === key);
     document.getElementById('pageTitle').textContent = navItem ? navItem.label : 'Dashboard';
     const content = document.getElementById('content');
+    if (window.Whiteboard) Whiteboard.destroy();
+    if (content.__presenceDispose) {
+      content.__presenceDispose();
+      delete content.__presenceDispose;
+    }
     content.innerHTML = '';
+    if (window.Presence) Presence.setPage(key);
 
     const mod = (PANELS[user.role] || (() => null))();
     if (!mod || typeof mod.render !== 'function') {
@@ -275,11 +283,24 @@
   });
 
   const genericModal = document.getElementById('genericModal');
-  document.getElementById('modalClose').addEventListener('click', () => UI.modal.close());
-  genericModal.addEventListener('click', (e) => { if (e.target === genericModal) UI.modal.close(); });
+  function closeGenericModal() {
+    if (window.Whiteboard) Whiteboard.destroy();
+    UI.modal.close();
+  }
+  document.getElementById('modalClose').addEventListener('click', closeGenericModal);
+  genericModal.addEventListener('click', (e) => { if (e.target === genericModal) closeGenericModal(); });
   document.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape' && !genericModal.classList.contains('hidden')) UI.modal.close();
+    if (e.key === 'Escape' && !genericModal.classList.contains('hidden')) closeGenericModal();
   });
+
+  // Expose SEBELUM ticker pertama dirender agar tombol papan berjalan hidup
+  // sejak paint awal, bukan baru setelah pengumuman berubah.
+  window.Dashboard = {
+    navigate,
+    currentUser: user,
+    refreshNotifications: renderBell,
+    hasSection: (key) => (NAVS[user.role] || []).some(n => n.key === key)
+  };
 
   renderSidebar();
   document.getElementById('clockContainer').innerHTML = UI.clockWidgetHtml();
@@ -290,16 +311,43 @@
     Effects.bindThemeToggle();
   }
   renderBell();
+
+  /* Papan berjalan: memakai audience yang sama dengan halaman Pengumuman. */
+  function renderTickerBar() {
+    if (window.Shared && Shared.renderTicker) Shared.renderTicker(document.getElementById('tickerBar'), user);
+  }
+  renderTickerBar();
+  window.addEventListener('lms:announcements-changed', renderTickerBar);
+  window.addEventListener('storage', (e) => {
+    if (e.key === 'lms_announcements') renderTickerBar();
+  });
+
+  /* Presence/status online: badge ringkas di topbar + halaman khusus admin/tutor. */
+  function renderPresenceBadge() {
+    const wrap = document.getElementById('presenceWrap');
+    if (!wrap || !window.Presence) return;
+    const visible = Presence.visibleTo(user);
+    const active = visible.filter(r => r.state === 'online').length;
+    const canOpen = (NAVS[user.role] || []).some(n => n.key === 'online');
+    wrap.innerHTML = `<button type="button" class="presence-btn ${canOpen ? '' : 'is-static'}"
+      id="presenceBtn" title="${active} pengguna aktif${canOpen ? ' — buka daftar' : ''}"
+      aria-label="${active} pengguna aktif">
+      <span class="presence-dot online"></span><strong>${active}</strong><span class="presence-label">online</span>
+    </button>`;
+    const btn = document.getElementById('presenceBtn');
+    if (btn && canOpen) btn.addEventListener('click', () => navigate('online'));
+  }
+  let stopPresenceBadge = null;
+  if (window.Presence) {
+    Presence.start(user);
+    renderPresenceBadge();
+    stopPresenceBadge = Presence.subscribe(renderPresenceBadge);
+  }
+
   navigate('overview');
 
   // Greet the user once per session
   UI.toast(`${UI.greeting()}, ${user.name.split(' ')[0]}! 👋`, 'info');
 
-  // Expose for role modules
-  window.Dashboard = {
-    navigate,
-    currentUser: user,
-    refreshNotifications: renderBell,
-    hasSection: (key) => (NAVS[user.role] || []).some(n => n.key === key)
-  };
+  // Dashboard API sudah diekspor sebelum inisialisasi ticker.
 })();

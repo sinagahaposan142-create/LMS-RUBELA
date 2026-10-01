@@ -255,7 +255,9 @@
         <strong>🤖 Fitur AI belum aktif.</strong> ${esc(why)}
         ${isAdmin
           ? ' Buka <strong>Pengaturan → Integrasi AI</strong> untuk memasukkan kunci API Gemini.'
-          : ' Hubungi admin agar mengaktifkan integrasi AI terlebih dahulu.'}
+          : (user && user.role === 'guru'
+            ? ' Buka <strong>Profil → Integrasi AI Perangkat Ini</strong>. Karena LMS belum memiliki backend, kunci admin tidak dapat tersinkron otomatis ke perangkat tutor lain.'
+            : ' Hubungi admin agar mengaktifkan integrasi AI terlebih dahulu.')}
         <div class="muted small" style="margin-top:6px;">
           Tanpa kunci API, halaman ini tetap menampilkan analisis dari data asli LMS —
           hanya ulasan naratif dari AI yang tidak tersedia.

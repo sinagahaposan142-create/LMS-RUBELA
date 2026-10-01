@@ -429,8 +429,14 @@
   /* =====================================================================
    * Penilaian per format soal
    * ===================================================================*/
-  function normalizeText(s) {
-    return String(s == null ? '' : s).trim().toLowerCase().replace(/\s+/g, ' ');
+  function normalizeText(s, tolerant) {
+    let t = String(s == null ? '' : s).trim().toLowerCase().replace(/\s+/g, ' ');
+    if (tolerant !== false) {
+      // Variasi penulisan yang tidak mengubah makna: diakritik dan tanda baca.
+      if (t.normalize) t = t.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+      t = t.replace(/[^\p{L}\p{N}\s]/gu, '').replace(/\s+/g, ' ').trim();
+    }
+    return t;
   }
   function asNumber(s) {
     const t = String(s == null ? '' : s).trim().replace(/\s/g, '').replace(',', '.');
@@ -438,10 +444,10 @@
     return isFinite(n) ? n : null;
   }
 
-  /** @returns {{auto:boolean, correct:boolean}} */
+  /** @returns {{auto:boolean, correct:boolean, reason?:string, confidence?:number}} */
   function gradeQuestion(q, ans) {
     const f = q.questionType || 'Pilihan Ganda';
-    if (f === 'Esai') return { auto: false, correct: false };
+    if (f === 'Esai') return { auto: false, correct: false, reason: 'Esai memerlukan rubrik/AI dan konfirmasi tutor.' };
 
     if (f === 'Pilihan Lebih dari Satu') {
       const key = (q.correctIndices || []).slice().sort((a, b) => a - b).join(',');
@@ -450,12 +456,34 @@
     }
     if (f === 'Isian Singkat') {
       const accepted = q.answers || [];
-      if (!accepted.length || ans == null || ans === '') return { auto: true, correct: false };
+      if (!accepted.length || ans == null || ans === '') return { auto: true, correct: false, reason: 'Jawaban kosong atau kunci belum diatur.', confidence: 1 };
       if (q.numeric) {
         const gv = asNumber(ans);
-        return { auto: true, correct: gv != null && accepted.some(a => asNumber(a) === gv) };
+        const policy = q.shortAnswerPolicy || {};
+        const absTol = Math.max(0, Number(policy.numericAbsTolerance != null ? policy.numericAbsTolerance : q.numericTolerance) || 0);
+        const relTol = Math.max(0, Number(policy.numericRelTolerance) || 0);
+        const matched = gv != null && accepted.some(a => {
+          const key = asNumber(a);
+          if (key == null) return false;
+          const tol = Math.max(absTol, relTol * Math.abs(key));
+          return Math.abs(gv - key) <= tol;
+        });
+        return { auto: true, correct: matched,
+          reason: matched ? `Nilai numerik cocok${absTol || relTol ? ' dalam batas toleransi' : ''}.` : 'Nilai numerik tidak cocok dengan kunci.', confidence: 1 };
       }
-      return { auto: true, correct: accepted.some(a => normalizeText(a) === normalizeText(ans)) };
+      // Cocok persis dahulu, lalu toleransi aman (kapital, spasi, tanda baca,
+      // diakritik). Tidak memakai fuzzy typo agar jawaban berbeda tidak
+      // dianggap benar secara gegabah.
+      const gotExact = normalizeText(ans, false);
+      if (accepted.some(a => normalizeText(a, false) === gotExact)) {
+        return { auto: true, correct: true, reason: 'Cocok persis dengan salah satu kunci.', confidence: 1 };
+      }
+      const tolerant = !(q.shortAnswerPolicy && q.shortAnswerPolicy.mode === 'exact');
+      const got = normalizeText(ans, tolerant);
+      const matched = tolerant && accepted.some(a => normalizeText(a, true) === got);
+      return { auto: true, correct: matched,
+        reason: matched ? 'Cocok setelah normalisasi kapital, spasi, tanda baca, dan diakritik.' : 'Tidak cocok dengan daftar jawaban yang diterima.',
+        confidence: matched ? 0.98 : 1 };
     }
     if (f === 'Majemuk Kompleks') {
       const st = q.statements || [];
@@ -503,6 +531,7 @@
     }
     const answers = Object.assign({}, attempt.answers || {});
     let sectionIndex = Math.min(attempt.currentSection || 0, sections.length - 1);
+    const sectionDeadlines = Object.assign({}, attempt.sectionDeadlines || {});
     let sectionDeadline = 0;
     let timer = null;
 
@@ -752,7 +781,15 @@
       const section = sections[sectionIndex];
       const st = DB.subtestByName(section.subtest);
       const questions = section.questionIds.map(id => DB.getQuestion(id)).filter(Boolean);
-      sectionDeadline = Date.now() + secMinutes(section, cbt) * 60000;
+      // Deadline per bagian disimpan di attempt. Reload/resume tidak boleh
+      // memberikan waktu baru dari awal.
+      const persistedDeadline = Number(sectionDeadlines[sectionIndex]);
+      if (persistedDeadline > 0) sectionDeadline = persistedDeadline;
+      else {
+        sectionDeadline = Date.now() + secMinutes(section, cbt) * 60000;
+        sectionDeadlines[sectionIndex] = sectionDeadline;
+        DB.updateCbtAttempt(attempt.id, { sectionDeadlines });
+      }
 
       content.innerHTML = `
         <div class="exam-shell">
@@ -1034,7 +1071,7 @@
     }
 
     function persist() {
-      DB.updateCbtAttempt(attempt.id, { answers, currentSection: sectionIndex });
+      DB.updateCbtAttempt(attempt.id, { answers, currentSection: sectionIndex, sectionDeadlines });
     }
 
     /** Nilai bagian aktif, lalu lanjut atau kirim. */
@@ -1060,7 +1097,7 @@
 
       if (sectionIndex < sections.length - 1) {
         sectionIndex++;
-        DB.updateCbtAttempt(attempt.id, { answers, sectionScores, currentSection: sectionIndex });
+        DB.updateCbtAttempt(attempt.id, { answers, sectionScores, currentSection: sectionIndex, sectionDeadlines });
         UI.toast(`Bagian selesai. Lanjut ke bagian ${sectionIndex + 1}.`, 'success');
         window.scrollTo({ top: 0, behavior: 'smooth' });
         // Pastikan tetap layar penuh setelah pindah bagian
@@ -1085,13 +1122,18 @@
 
       DB.updateCbtAttempt(attempt.id, {
         answers, score, correctCount: correct, totalCount: scorable,
-        sectionScores, currentSection: sections.length, submittedAt: Date.now()
+        sectionScores, sectionDeadlines, currentSection: sections.length, submittedAt: Date.now()
       });
+      // Satu peserta baru mengubah estimasi kesulitan item; hitung ulang skor
+      // seluruh cohort CBT agar bobot relatif tetap adil dan konsisten.
+      if (global.Scoring) Scoring.recomputeCbt(cbt.id);
+      const updated = DB.getCbtAttempts().find(a => a.id === attempt.id);
+      const scaled = updated && updated.scoring ? updated.scoring.scaled200_800 : null;
 
       DB.notifyStudentAndParents(user.id, {
         type: 'cbt', icon: '🖥️',
         title: 'Ujian CBT selesai',
-        body: `${cbt.title} — skor ${score} (${correct}/${scorable} benar).`,
+        body: `${cbt.title} — ${correct}/${scorable} benar${scaled != null ? `, skor cohort ${scaled}/800` : `, skor ${score}`}.`,
         link: 'cbt'
       }, { title: `${user.name} menyelesaikan ujian`, link: 'anak-nilai' });
 
@@ -1102,8 +1144,7 @@
         document.exitFullscreen().catch(() => { /* noop */ });
       }
       cleanup();
-      UI.toast(`Ujian selesai. Skor akhir: ${score}`, 'success');
-      const updated = DB.getCbtAttempts().find(a => a.id === attempt.id);
+      UI.toast(`Ujian selesai. ${scaled != null ? `Skor cohort: ${scaled}/800` : `Skor: ${score}`}`, 'success');
       showResult(cbt, updated);
       if (typeof onFinish === 'function') onFinish();
     }
@@ -1114,6 +1155,7 @@
    * ===================================================================*/
   function showResult(cbt, attempt) {
     cleanup();
+    if (global.Scoring) attempt = Scoring.ensureFresh(attempt);
     const content = document.getElementById('content');
     const sections = DB.cbtSections(cbt);
     const scores = attempt.sectionScores || [];
@@ -1122,9 +1164,16 @@
       <div class="exam-shell">
         <div class="card">
           <div class="score-display">
-            <div class="score">${attempt.score ?? 0}</div>
-            <div class="label">Skor Akhir — ${attempt.correctCount || 0} benar dari ${attempt.totalCount || 0} soal berbobot</div>
+            ${attempt.scoring ? Scoring.scoreHtml(attempt, false) : `<div class="score">${attempt.score ?? 0}</div>
+              <div class="label">Skor Akhir — ${attempt.correctCount || 0} benar dari ${attempt.totalCount || 0} soal</div>`}
           </div>
+          ${attempt.scoring && attempt.scoring.scaled200_800 != null ? `<div class="alert alert-info small" style="margin-top:10px;">
+            <strong>Metode cohort-weighted / Rasch-like.</strong> Benar = 1, salah/kosong = 0, tanpa minus.
+            Kesulitan dihitung dari ${attempt.scoring.cohortN} peserta CBT ini; soal yang lebih jarang benar berbobot lebih tinggi.
+            ${attempt.scoring.provisional ? 'Skor masih sementara karena cohort belum mencapai 30 peserta.' : ''}
+            Ini skala internal LMS 200–800, bukan kalibrasi nasional resmi.
+            ${attempt.scoring.manualCount ? `${attempt.scoring.manualCount} soal esai tidak masuk kalibrasi objektif dan tetap menunggu nilai tutor.` : ''}
+          </div>` : (attempt.scoring ? '<div class="alert alert-warning small">Ujian ini belum memiliki soal objektif yang dapat dikalibrasi. Nilai menunggu pemeriksaan esai oleh tutor.</div>' : '')}
           <div class="muted small" style="text-align:center;">
             ${UI.esc(cbt.title)} • dikerjakan ${UI.fmtDateTime(attempt.startedAt)} • dikirim ${UI.fmtDateTime(attempt.submittedAt)}
           </div>
@@ -1137,10 +1186,11 @@
           ${scores.length === 0 ? '<div class="empty"><div class="empty-icon">📭</div>Tidak ada rincian subtest.</div>'
             : scores.slice().sort((a, b) => DB.subtestOrder(a.subtest) - DB.subtestOrder(b.subtest)).map(s => {
               const st = DB.subtestByName(s.subtest);
+              const irt = attempt.scoring && (attempt.scoring.sections || []).find(x => x.subtest === s.subtest);
               return `<div style="margin-bottom:12px;">
                 <div class="flex-between">
                   <strong style="font-size:13px;">${st ? st.icon : '📘'} ${UI.esc(s.subtest)}</strong>
-                  <span class="muted small">${s.correct}/${s.total} benar${s.essayCount ? ` • ${s.essayCount} esai dinilai manual` : ''}</span>
+                  <span class="muted small">${irt ? `<strong>${irt.scaled200_800}/800</strong> • ` : ''}${s.correct}/${s.total} benar${s.essayCount ? ` • ${s.essayCount} esai dinilai manual` : ''}</span>
                 </div>
                 ${UI.progressHtml(s.score, '', 'auto')}
               </div>`;

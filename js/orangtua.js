@@ -116,7 +116,7 @@
     if (st.attendanceTotal >= 3 && st.attendancePct < 75) flags.push(`Kehadiran baru ${st.attendancePct}% (di bawah 75%)`);
     if (late.length > 0) flags.push(`${late.length} tugas melewati deadline`);
     if (st.avgAsg != null && st.avgAsg < 60) flags.push(`Rata-rata nilai tugas rendah (${st.avgAsg})`);
-    if (st.avgCbt != null && st.avgCbt < 50) flags.push(`Rata-rata skor CBT rendah (${st.avgCbt})`);
+    if (st.avgCbtScaled != null && st.avgCbtScaled < 450) flags.push(`Rata-rata skor CBT cohort rendah (${st.avgCbtScaled}/800)`);
     if (unpaid > 0) flags.push(`Ada tagihan belum lunas sebesar ${UI.fmtRp(unpaid)}`);
 
     // Data masih terlalu sedikit untuk disimpulkan
@@ -167,7 +167,7 @@
       <div class="stats-grid">
         <div class="stat-card accent-success"><div class="label">Kehadiran</div><div class="value">${st.attendancePct}%</div><div class="sub">${st.attendanceCounts.hadir} hadir dari ${st.attendanceTotal} sesi</div></div>
         <div class="stat-card accent-primary"><div class="label">Rata-rata Tugas</div><div class="value">${st.avgAsg ?? '-'}</div><div class="sub">${st.gradedCount} tugas dinilai</div></div>
-        <div class="stat-card accent-warning"><div class="label">Rata-rata CBT</div><div class="value">${st.avgCbt ?? '-'}</div><div class="sub">${st.cbtDone} ujian selesai</div></div>
+        <div class="stat-card accent-warning"><div class="label">Rata-rata CBT (200–800)</div><div class="value">${st.avgCbtScaled ?? '-'}</div><div class="sub">${st.cbtDone} ujian selesai</div></div>
         <div class="stat-card accent-danger"><div class="label">Tagihan</div><div class="value">${UI.fmtRp(unpaid)}</div><div class="sub">${unpaid > 0 ? 'belum lunas' : 'semua lunas ✓'}</div></div>
       </div>
 
@@ -183,7 +183,7 @@
             <div class="label" style="margin:0;">Nilai Tugas</div>
           </div>
           <div class="stat-card" style="text-align:center;">
-            ${UI.meterHtml(st.avgCbt ?? 0)}
+            ${UI.meterHtml(st.avgCbtScaled == null ? 0 : Scoring.scaledToPercent(st.avgCbtScaled))}
             <div class="label" style="margin:0;">Skor CBT</div>
           </div>
           <div class="stat-card" style="text-align:center;">
@@ -219,7 +219,7 @@
       const cbt = DB.getCbt(a.cbtId);
       items.push({
         ts: a.submittedAt,
-        title: `Menyelesaikan ujian — skor ${a.score ?? 0}`,
+        title: `Menyelesaikan ujian — skor ${a.scoring && a.scoring.scaled200_800 != null ? a.scoring.scaled200_800 + '/800' : (a.score ?? 0)}`,
         meta: cbt ? cbt.title : 'CBT',
         body: `${a.correctCount ?? 0} benar dari ${a.totalCount ?? 0} soal`
       });
@@ -256,14 +256,17 @@
     const avg = graded.length ? Math.round(graded.reduce((a, s) => a + s.grade, 0) / graded.length) : null;
     const best = graded.length ? Math.max(...graded.map(s => s.grade)) : null;
     const attempts = DB.getCbtAttemptsByStudent(child.id).filter(a => a.submittedAt)
+      .map(a => global.Scoring ? Scoring.ensureFresh(a) : a)
       .slice().sort((a, b) => b.submittedAt - a.submittedAt);
-    const avgCbt = attempts.length ? Math.round(attempts.reduce((a, x) => a + (x.score || 0), 0) / attempts.length) : null;
+    const cbtValue = a => a.scoring ? a.scoring.scaled200_800 : (a.score || 0);
+    const scoredAttempts = attempts.filter(a => cbtValue(a) != null);
+    const avgCbt = scoredAttempts.length ? Math.round(scoredAttempts.reduce((a, x) => a + cbtValue(x), 0) / scoredAttempts.length) : null;
 
     el.innerHTML = `
       <div class="stats-grid">
         <div class="stat-card accent-primary"><div class="label">Rata-rata Tugas</div><div class="value">${avg ?? '-'}</div></div>
         <div class="stat-card accent-success"><div class="label">Nilai Terbaik</div><div class="value">${best ?? '-'}</div></div>
-        <div class="stat-card accent-warning"><div class="label">Rata-rata CBT</div><div class="value">${avgCbt ?? '-'}</div></div>
+        <div class="stat-card accent-warning"><div class="label">Rata-rata CBT (200–800)</div><div class="value">${avgCbt ?? '-'}</div></div>
         <div class="stat-card accent-danger"><div class="label">Menunggu Nilai</div><div class="value">${subs.length - graded.length}</div></div>
       </div>
 
@@ -294,13 +297,15 @@
           <tbody>${attempts.map(at => {
             const cbt = DB.getCbt(at.cbtId);
             const c = cbt ? DB.getCourse(cbt.courseId) : null;
-            const tone = (at.score || 0) >= 75 ? 'var(--success)' : ((at.score || 0) >= 50 ? 'var(--warning)' : 'var(--danger)');
+            const tone = at.scoring
+              ? (at.scoring.scaled200_800 >= 600 ? 'var(--success)' : (at.scoring.scaled200_800 >= 450 ? 'var(--warning)' : 'var(--danger)'))
+              : ((at.score || 0) >= 75 ? 'var(--success)' : ((at.score || 0) >= 50 ? 'var(--warning)' : 'var(--danger)'));
             return `<tr>
               <td><strong>${UI.esc(cbt ? cbt.title : '-')}</strong></td>
               <td>${UI.esc(c ? c.title : '-')}</td>
               <td>${UI.fmtDateTime(at.submittedAt)}</td>
               <td>${at.correctCount ?? 0}/${at.totalCount ?? 0}</td>
-              <td><strong style="color:${tone};">${at.score ?? 0}</strong></td>
+              <td style="color:${tone};">${at.scoring ? Scoring.scoreHtml(at, true) : `<strong>${at.score ?? 0}</strong>`}</td>
             </tr>`;
           }).join('')}</tbody>
         </table></div>`}
@@ -441,7 +446,10 @@
               </div>
               <div class="course-footer">
                 <span>${DB.getMaterialsByCourse(c.id).length} materi • ${DB.getAssignmentsByCourse(c.id).length} tugas</span>
-                ${t ? `<button class="btn btn-sm btn-secondary" data-chat-teacher="${t.id}">💭 Hubungi</button>` : ''}
+                <div class="flex-gap">
+                  <button class="btn btn-sm btn-primary" data-parent-wb="${c.id}">🖍️ Whiteboard</button>
+                  ${t ? `<button class="btn btn-sm btn-secondary" data-chat-teacher="${t.id}">💭 Hubungi</button>` : ''}
+                </div>
               </div>
             </div>`;
           }).join('')}
@@ -467,6 +475,16 @@
       </div>
     `;
 
+    el.querySelectorAll('[data-parent-wb]').forEach(b => b.addEventListener('click', () => {
+      const course = DB.getCourse(b.dataset.parentWb);
+      if (!course || !DB.canViewWhiteboard(Dashboard.currentUser, course, child.id)) {
+        UI.toast('Whiteboard kelas tidak dapat dibuka.', 'error'); return;
+      }
+      UI.modal.open(`Whiteboard — ${course.title}`, '<div id="parentWhiteboard"></div>');
+      Whiteboard.mount({ container: document.getElementById('parentWhiteboard'), course,
+        user: Dashboard.currentUser, childId: child.id });
+    }));
+
     el.querySelectorAll('[data-chat-teacher]').forEach(b => b.addEventListener('click', () => {
       UI.toast('Membuka menu Chat Guru...', 'info');
       Dashboard.navigate('chat');
@@ -477,6 +495,7 @@
   function renderPerkembangan(el, child) {
     const st = Shared.studentStats(child.id);
     const attempts = DB.getCbtAttemptsByStudent(child.id).filter(a => a.submittedAt)
+      .map(a => global.Scoring ? Scoring.ensureFresh(a) : a)
       .slice().sort((a, b) => a.submittedAt - b.submittedAt);
     const graded = DB.getSubmissionsByStudent(child.id).filter(s => s.grade != null)
       .slice().sort((a, b) => a.submittedAt - b.submittedAt);
@@ -488,7 +507,8 @@
       const avgOf = (xs) => Math.round(xs.reduce((a, x) => a + pick(x), 0) / xs.length);
       return avgOf(arr.slice(mid)) - avgOf(arr.slice(0, mid));
     };
-    const cbtTrend = trend(attempts, a => a.score || 0);
+    const cbtTrend = trend(attempts.filter(a => !a.scoring || a.scoring.scaled200_800 != null),
+      a => a.scoring ? a.scoring.scaled200_800 : (a.score || 0));
     const asgTrend = trend(graded, s => s.grade);
     const trendBadge = (v) => {
       if (v == null) return '<span class="badge badge-gray">Data belum cukup</span>';
@@ -497,8 +517,7 @@
       return '<span class="badge badge-info">→ Stabil</span>';
     };
 
-    const maxBar = 100;
-    const bars = (rows) => rows.length === 0
+    const bars = (rows, maxBar) => rows.length === 0
       ? emptyState('Belum ada data.')
       : `<div style="display:flex;align-items:flex-end;gap:10px;height:170px;padding:10px 0;">
           ${rows.map((r, i) => `
@@ -522,10 +541,10 @@
 
       <div class="card">
         <div class="card-header">${UI.secHead('📊', 'Grafik Skor CBT', 'Urut dari ujian terlama ke terbaru')}</div>
-        ${bars(attempts.map((a, i) => {
+        ${bars(attempts.filter(a => !a.scoring || a.scoring.scaled200_800 != null).map((a, i) => {
           const cbt = DB.getCbt(a.cbtId);
-          return { v: a.score || 0, label: cbt ? cbt.title : 'Ujian ' + (i + 1), short: 'U' + (i + 1) };
-        }))}
+          return { v: a.scoring ? a.scoring.scaled200_800 : (a.score || 0), label: cbt ? cbt.title : 'Ujian ' + (i + 1), short: 'U' + (i + 1) };
+        }), attempts.some(a => a.scoring) ? 800 : 100)}
       </div>
 
       <div class="card">
@@ -533,7 +552,7 @@
         ${bars(graded.map((s, i) => {
           const a = DB.getAssignment(s.assignmentId);
           return { v: s.grade, label: a ? a.title : 'Tugas ' + (i + 1), short: 'T' + (i + 1) };
-        }))}
+        }), 100)}
       </div>
 
       ${Shared.achievementsHtml(st)}
@@ -543,7 +562,7 @@
         <ul style="margin:0;padding-left:20px;color:var(--gray-700);font-size:14px;line-height:1.9;">
           ${st.attendancePct < 80 ? '<li>Bantu pastikan anak mengikuti sesi kelas secara rutin — kehadiran masih di bawah 80%.</li>' : '<li>Kehadiran sudah baik, pertahankan rutinitas belajarnya.</li>'}
           ${st.pendingAsg.length > 0 ? `<li>Ada ${st.pendingAsg.length} tugas belum dikumpulkan. Ajak anak menyusun jadwal pengerjaan.</li>` : '<li>Semua tugas terkumpul — apresiasi kedisiplinannya.</li>'}
-          ${st.avgCbt != null && st.avgCbt < 60 ? '<li>Skor CBT masih perlu ditingkatkan. Dorong anak memakai menu AI Tools untuk latihan terarah.</li>' : '<li>Hasil CBT cukup baik, dorong anak menaikkan target skor.</li>'}
+          ${st.avgCbtScaled != null && st.avgCbtScaled < 500 ? '<li>Skor CBT cohort masih perlu ditingkatkan. Dorong anak memakai menu AI Tools untuk latihan terarah.</li>' : '<li>Hasil CBT cukup baik, dorong anak menaikkan target skor.</li>'}
           ${child.targetUniv ? `<li>Target kampus: <strong>${UI.esc(child.targetUniv)}</strong>${child.targetMajor ? ' — ' + UI.esc(child.targetMajor) : ''}. Diskusikan progresnya secara berkala.</li>` : '<li>Universitas impian belum diisi. Ajak anak menentukan target kampusnya.</li>'}
         </ul>
       </div>

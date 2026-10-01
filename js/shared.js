@@ -548,29 +548,80 @@
     return a.targetType || '-';
   }
 
+  /** Satu sumber aturan audience untuk halaman Pengumuman DAN papan berjalan. */
+  function isAnnouncementVisible(a, user) {
+    if (!a || !user) return false;
+    if (user.role === 'admin') return true;
+    if (a.targetType === 'semua') return true;
+    if (a.targetType === 'individu') return !!(a.targetIds || []).includes(user.id);
+    if (a.targetType === 'role') return a.targetRole === user.role;
+    if (a.targetType !== 'kelas') return false;
+
+    const allowed = new Set();
+    if (user.role === 'guru') {
+      // Bug lama: guru diperiksa sebagai enrollment siswa sehingga tidak pernah
+      // menerima pengumuman kelasnya. Kini memakai relasi tutor kelas.
+      DB.getCoursesByTeacher(user.id).forEach(c => allowed.add(c.id));
+    } else if (user.role === 'orangtua') {
+      (DB.getChildren(user.id) || []).forEach(ch =>
+        DB.getEnrollmentsByStudent(ch.id).forEach(e => allowed.add(e.courseId)));
+    } else if (user.role === 'siswa') {
+      DB.getEnrollmentsByStudent(user.id).forEach(e => allowed.add(e.courseId));
+    }
+    return (a.targetIds || []).some(id => allowed.has(id));
+  }
+
+  function visibleAnnouncementsFor(user) {
+    return DB.getAnnouncements().filter(a => isAnnouncementVisible(a, user))
+      .sort((a, b) => b.createdAt - a.createdAt);
+  }
+
+  /** Escape dulu, lalu ubah URL http(s) menjadi tautan aman berwarna biru. */
+  function autoLinkText(text) {
+    const safe = UI.esc(String(text || ''));
+    const linked = safe.replace(/(https?:\/\/[^\s<]+)/gi, raw => {
+      let url = raw;
+      let tail = '';
+      while (/[.,!?;:)]$/.test(url)) { tail = url.slice(-1) + tail; url = url.slice(0, -1); }
+      return `<a class="ann-auto-link" href="${url}" target="_blank" rel="noopener noreferrer">${url}</a>${tail}`;
+    });
+    return linked.replace(/\n/g, '<br>');
+  }
+
+  function announcementContentHtml(a) {
+    return `${a.imageData ? `<img class="ann-image" src="${UI.esc(a.imageData)}" alt="Gambar pengumuman ${UI.esc(a.title || '')}" loading="lazy" />` : ''}
+      <div class="ann-content">${autoLinkText(a.content)}</div>`;
+  }
+
+  /** Papan berjalan permanen di bawah topbar, audience-nya sama dengan pengumuman. */
+  function renderTicker(container, user) {
+    if (!container) return;
+    const marked = visibleAnnouncementsFor(user).filter(a => a.showInTicker);
+    const fallback = `Selamat datang di ${DB.getSettings().appName || 'LMS Rubela'} • Tetap konsisten belajar dan raih kampus impianmu!`;
+    const items = marked.length ? marked.slice(0, 8).map(a => `${a.title}: ${a.content}`) : [fallback];
+    const text = items.join('   ✦   ');
+    container.innerHTML = `<div class="ticker-label">📢 INFO</div>
+      <button type="button" class="ticker-viewport" id="tickerOpen" title="Buka Pengumuman">
+        <span class="ticker-track">${UI.esc(text)}</span>
+      </button>
+      <button type="button" class="ticker-toggle" id="tickerToggle" aria-label="Jeda papan berjalan" title="Jeda/lanjutkan">⏸</button>`;
+    const open = container.querySelector('#tickerOpen');
+    if (open && global.Dashboard && Dashboard.hasSection('pengumuman')) {
+      open.addEventListener('click', () => Dashboard.navigate('pengumuman'));
+    }
+    const toggle = container.querySelector('#tickerToggle');
+    if (toggle) toggle.addEventListener('click', () => {
+      const paused = container.classList.toggle('is-paused');
+      toggle.textContent = paused ? '▶' : '⏸';
+      toggle.setAttribute('aria-label', paused ? 'Lanjutkan papan berjalan' : 'Jeda papan berjalan');
+    });
+  }
+
   function renderAnnouncements(container, user) {
     const canEdit = user.role === 'admin' || user.role === 'guru';
-    const all = DB.getAnnouncements().sort((a, b) => b.createdAt - a.createdAt);
-    // Filter: siswa only see announcements targeted to them or all
-    const visible = user.role === 'admin' ? all : all.filter(a => {
-      if (a.targetType === 'semua') return true;
-      if (a.targetType === 'individu' && a.targetIds && a.targetIds.includes(user.id)) return true;
-      if (a.targetType === 'kelas') {
-        /* Orang tua tidak terdaftar di kelas mana pun, jadi kelas yang
-         * relevan diambil dari kelas anak-anaknya. Tanpa ini pengumuman
-         * bertarget kelas tidak pernah sampai ke orang tua. */
-        const ids = [];
-        if (user.role === 'orangtua') {
-          (DB.getChildren(user.id) || []).forEach(ch =>
-            DB.getEnrollmentsByStudent(ch.id).forEach(e => ids.push(e.courseId)));
-        } else {
-          DB.getEnrollmentsByStudent(user.id).forEach(e => ids.push(e.courseId));
-        }
-        return ids.some(cid => a.targetIds && a.targetIds.includes(cid));
-      }
-      if (a.targetType === 'role' && a.targetRole === user.role) return true;
-      return false;
-    });
+    const visible = user.role === 'admin'
+      ? DB.getAnnouncements().sort((a, b) => b.createdAt - a.createdAt)
+      : visibleAnnouncementsFor(user);
 
     container.innerHTML = `
       <div class="card">
@@ -586,11 +637,12 @@
                 <div class="title">${UI.esc(a.title)}</div>
                 <div class="flex-gap">
                   <span class="badge ${a.targetType === 'semua' ? 'badge-success' : 'badge-info'}">${UI.esc(audienceLabel(a))}</span>
-                  ${canEdit && a.authorId === user.id ? `<button class="btn btn-sm btn-danger" data-del-ann="${a.id}">Hapus</button>` : ''}
+                  ${a.showInTicker ? '<span class="badge badge-warning">📢 Papan berjalan</span>' : ''}
+                  ${canEdit && (user.role === 'admin' || a.authorId === user.id) ? `<button class="btn btn-sm btn-danger" data-del-ann="${a.id}">Hapus</button>` : ''}
                 </div>
               </div>
               <div class="meta">${UI.esc(author?.name || '-')} • ${UI.fmtDateTime(a.createdAt)}</div>
-              <div class="content">${UI.esc(a.content)}</div>
+              ${announcementContentHtml(a)}
             </div>`;
           }).join('')}
       </div>
@@ -602,19 +654,35 @@
     }
     container.querySelectorAll('[data-del-ann]').forEach(b => b.addEventListener('click', () => {
       DB.deleteAnnouncement(b.dataset.delAnn);
+      global.dispatchEvent(new CustomEvent('lms:announcements-changed'));
       UI.toast('Pengumuman dihapus.');
       renderAnnouncements(container, user);
     }));
   }
 
   function openAnnouncementForm(container, user) {
-    const courses = DB.getCourses();
+    // Tutor hanya dapat menargetkan kelas yang benar-benar dia ampu.
+    const courses = user.role === 'guru' ? DB.getCoursesByTeacher(user.id) : DB.getCourses();
+    let pendingImage = '';
+    let imageJob = 0;
+    let imageProcessing = false;
     const body = `
       <form id="annForm" class="form">
         <div class="form-group"><label>Judul</label>
           <input name="title" required placeholder="Judul pengumuman..." /></div>
         <div class="form-group"><label>Isi Pengumuman</label>
-          <textarea name="content" required rows="4" placeholder="Tulis pengumuman..."></textarea></div>
+          <textarea name="content" required rows="4" placeholder="Tulis pengumuman... Tautan https:// akan otomatis menjadi biru dan bisa diklik."></textarea>
+          <div class="muted small">Tautan yang diawali http:// atau https:// otomatis menjadi tautan biru yang aman.</div></div>
+        <div class="form-group"><label for="annImage">Gambar (opsional)</label>
+          <input type="file" id="annImage" accept="image/png,image/jpeg,image/webp,image/gif" />
+          <div class="muted small">Gambar diperkecil otomatis agar hemat penyimpanan browser.</div>
+          <div id="annImagePreview"></div>
+        </div>
+        <label class="sec-opt">
+          <input type="checkbox" name="showInTicker" value="1" />
+          <div><div class="so-nm">📢 Tampilkan di papan berjalan</div>
+          <div class="so-ds">Judul dan isi singkat akan bergerak di bagian atas dashboard sesuai sasaran pengumuman.</div></div>
+        </label>
         <div class="form-group"><label>Ditujukan Kepada</label>
           <select name="targetType" id="annTarget">
             <option value="semua">Semua Pengguna (Tutor + Siswa + Orang Tua)</option>
@@ -626,11 +694,45 @@
         <div id="annTargetDetail" class="form-group hidden"></div>
         <div class="flex-gap" style="justify-content:flex-end;">
           <button type="button" class="btn btn-secondary" id="cancelBtn">Batal</button>
-          <button type="submit" class="btn btn-primary">Kirim</button>
+          <button type="submit" class="btn btn-primary" id="annSubmit">Kirim</button>
         </div>
       </form>`;
     UI.modal.open('Buat Pengumuman', body);
     document.getElementById('cancelBtn').addEventListener('click', () => UI.modal.close());
+    document.getElementById('annImage').addEventListener('change', async (e) => {
+      const file = e.target.files && e.target.files[0];
+      const preview = document.getElementById('annImagePreview');
+      const submit = document.getElementById('annSubmit');
+      const token = ++imageJob;
+      if (!file) { pendingImage = ''; imageProcessing = false; submit.disabled = false; preview.innerHTML = ''; return; }
+      imageProcessing = true;
+      submit.disabled = true;
+      preview.innerHTML = global.AI ? AI.loadingHtml('Memproses gambar…') : '<span class="muted">Memproses gambar…</span>';
+      try {
+        const result = await Editor.compressImage(file);
+        if (token !== imageJob) return;
+        pendingImage = result;
+        imageProcessing = false;
+        submit.disabled = false;
+        preview.innerHTML = `<img class="ann-image is-preview" src="${UI.esc(pendingImage)}" alt="Pratinjau gambar" />
+          <button type="button" class="btn btn-sm btn-secondary" id="annRemoveImage">Hapus gambar</button>`;
+        document.getElementById('annRemoveImage').addEventListener('click', () => {
+          pendingImage = '';
+          imageJob++;
+          imageProcessing = false;
+          document.getElementById('annSubmit').disabled = false;
+          document.getElementById('annImage').value = '';
+          preview.innerHTML = '';
+        });
+      } catch (err) {
+        if (token !== imageJob) return;
+        pendingImage = '';
+        imageProcessing = false;
+        submit.disabled = false;
+        preview.innerHTML = '';
+        UI.toast(err.message || 'Gagal membaca gambar.', 'error');
+      }
+    });
 
     const targetSel = document.getElementById('annTarget');
     const detailBox = document.getElementById('annTargetDetail');
@@ -665,6 +767,7 @@
 
     document.getElementById('annForm').addEventListener('submit', (e) => {
       e.preventDefault();
+      if (imageProcessing) { UI.toast('Tunggu hingga gambar selesai diproses.', 'info'); return; }
       const fd = new FormData(e.target);
       const payload = {
         title: fd.get('title').trim(),
@@ -672,9 +775,16 @@
         targetType: fd.get('targetType'),
         targetRole: fd.get('targetRole') || null,
         targetIds: fd.getAll('tid').length > 0 ? fd.getAll('tid') : null,
+        showInTicker: fd.get('showInTicker') === '1',
+        imageData: pendingImage || '',
         authorId: user.id
       };
+      if ((payload.targetType === 'kelas' || payload.targetType === 'individu') && !payload.targetIds) {
+        UI.toast('Pilih minimal satu sasaran.', 'error');
+        return;
+      }
       DB.addAnnouncement(payload);
+      global.dispatchEvent(new CustomEvent('lms:announcements-changed'));
       UI.toast('Pengumuman dipublikasikan!');
       UI.modal.close();
       renderAnnouncements(container, user);
@@ -1523,8 +1633,11 @@
     const subs = DB.getSubmissionsByStudent(studentId);
     const graded = subs.filter(s => s.grade != null);
     const avgAsg = graded.length ? Math.round(graded.reduce((a, s) => a + s.grade, 0) / graded.length) : null;
-    const attempts = DB.getCbtAttemptsByStudent(studentId).filter(a => a.submittedAt);
+    const attempts = DB.getCbtAttemptsByStudent(studentId).filter(a => a.submittedAt)
+      .map(a => global.Scoring ? Scoring.ensureFresh(a) : a);
     const avgCbt = attempts.length ? Math.round(attempts.reduce((a, x) => a + (x.score || 0), 0) / attempts.length) : null;
+    const scaledVals = attempts.map(a => a.scoring && a.scoring.scaled200_800).filter(v => v != null);
+    const avgCbtScaled = scaledVals.length ? Math.round(scaledVals.reduce((a, v) => a + v, 0) / scaledVals.length) : null;
     const att = DB.getAttendanceByUser(studentId).filter(a => a.role === 'siswa');
     const counts = { hadir: 0, izin: 0, sakit: 0, alfa: 0 };
     att.forEach(a => { counts[a.status] = (counts[a.status] || 0) + 1; });
@@ -1553,7 +1666,7 @@
     return {
       studentId, points, level, nextLevelAt, levelProgress,
       submissions: subs.length, gradedCount: graded.length, avgAsg,
-      cbtDone: attempts.length, avgCbt,
+      cbtDone: attempts.length, avgCbt, avgCbtScaled,
       attendanceCounts: counts, attendanceTotal: att.length, attendancePct,
       courses: enrolled.length, assignmentsTotal: allAsg.length, pendingAsg
     };
@@ -2081,7 +2194,8 @@
    */
   global.Shared = {
     toEmbedUrl, videoEmbedHtml, startCbt, showCbtResult, renderCalendar, renderFeedback,
-    renderAnnouncements, renderChat, renderAiTools, renderAiAnalytics,
+    renderAnnouncements, renderTicker, visibleAnnouncementsFor, isAnnouncementVisible,
+    autoLinkText, announcementContentHtml, renderChat, renderAiTools, renderAiAnalytics,
     // Password kelas
     openCoursePasswordForm, openCoursePasswordGate,
     // Gamifikasi & rekap lintas peran

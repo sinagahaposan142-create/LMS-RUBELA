@@ -89,6 +89,7 @@
   }
 
   function logout() {
+    if (global.Presence && typeof Presence.stop === 'function') Presence.stop(true);
     clearSession();
     window.location.href = 'index.html';
   }

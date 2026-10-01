@@ -1150,29 +1150,38 @@
     wsEl.__onBack = () => { closeWorkspace(); if (typeof onDone === 'function') onDone(); };
 
     const sections = DB.cbtSections(cbt);
-    const attempts = DB.getCbtAttemptsByCbt(cbt.id).filter(a => a.submittedAt);
-    const avg = attempts.length ? Math.round(attempts.reduce((n, a) => n + (a.score || 0), 0) / attempts.length) : null;
-    const best = attempts.length ? Math.max(...attempts.map(a => a.score || 0)) : null;
-    const worst = attempts.length ? Math.min(...attempts.map(a => a.score || 0)) : null;
+    if (global.Scoring) Scoring.recomputeCbt(cbt.id);
+    const attempts = DB.getCbtAttemptsByCbt(cbt.id).filter(a => a.submittedAt)
+      .map(a => global.Scoring ? Scoring.ensureFresh(a) : a);
+    const scoreOf = a => a.scoring ? a.scoring.scaled200_800 : (a.score || 0);
+    const scoredAttempts = attempts.filter(a => scoreOf(a) != null);
+    const avg = scoredAttempts.length ? Math.round(scoredAttempts.reduce((n, a) => n + scoreOf(a), 0) / scoredAttempts.length) : null;
+    const best = scoredAttempts.length ? Math.max(...scoredAttempts.map(scoreOf)) : null;
+    const worst = scoredAttempts.length ? Math.min(...scoredAttempts.map(scoreOf)) : null;
 
     // Rata-rata per subtest
     const subAvg = sections.map(s => {
-      const vals = attempts.map(a => (a.sectionScores || []).find(x => x.subtest === s.subtest))
-        .filter(Boolean).map(x => x.score || 0);
+      const vals = attempts.map(a => {
+        const irt = a.scoring && (a.scoring.sections || []).find(x => x.subtest === s.subtest);
+        const legacy = (a.sectionScores || []).find(x => x.subtest === s.subtest);
+        return irt ? { scaled: irt.scaled200_800, legacy: irt.legacyPercent } : (legacy ? { scaled: null, legacy: legacy.score || 0 } : null);
+      }).filter(Boolean);
       return {
         subtest: s.subtest,
         count: vals.length,
-        avg: vals.length ? Math.round(vals.reduce((n, v) => n + v, 0) / vals.length) : null
+        avg: vals.length ? Math.round(vals.reduce((n, v) => n + v.legacy, 0) / vals.length) : null,
+        scaledAvg: vals.some(v => v.scaled != null) ? Math.round(vals.filter(v => v.scaled != null).reduce((n, v) => n + v.scaled, 0) / vals.filter(v => v.scaled != null).length) : null
       };
     });
 
     body.innerHTML = `
       <div class="stats-grid">
         <div class="stat-card accent-primary"><div class="label">Peserta Selesai</div><div class="value">${attempts.length}</div></div>
-        <div class="stat-card accent-success"><div class="label">Rata-rata</div><div class="value">${avg ?? '-'}</div></div>
-        <div class="stat-card accent-warning"><div class="label">Tertinggi</div><div class="value">${best ?? '-'}</div></div>
-        <div class="stat-card accent-danger"><div class="label">Terendah</div><div class="value">${worst ?? '-'}</div></div>
+        <div class="stat-card accent-success"><div class="label">Rata-rata (200–800)</div><div class="value">${avg ?? '-'}</div></div>
+        <div class="stat-card accent-warning"><div class="label">Tertinggi (200–800)</div><div class="value">${best ?? '-'}</div></div>
+        <div class="stat-card accent-danger"><div class="label">Terendah (200–800)</div><div class="value">${worst ?? '-'}</div></div>
       </div>
+      ${attempts.length ? `<div class="alert alert-info small"><strong>Skor cohort-weighted / Rasch-like:</strong> benar=1, salah/kosong=0, tanpa minus. Bobot item dihitung dari ${attempts.length} peserta yang sudah selesai; skala 200–800 ini bersifat ${attempts[0].scoring && attempts[0].scoring.provisional ? 'sementara' : 'terkalibrasi cohort'} dan bukan skor nasional resmi.</div>` : ''}
 
       <div class="card">
         <div class="card-header">${UI.secHead('🧪', 'Rata-rata per Subtest', 'Membantu melihat subtest terlemah')}</div>
@@ -1180,7 +1189,7 @@
           const st = DB.subtestByName(s.subtest);
           return `<div style="margin-bottom:12px;">
             <div class="flex-between"><strong style="font-size:13px;">${st ? st.icon : '📘'} ${UI.esc(s.subtest)}</strong>
-              <span class="muted small">${s.count} peserta</span></div>
+              <span class="muted small">${s.scaledAvg != null ? `<strong>${s.scaledAvg}/800</strong> • ` : ''}${s.count} peserta</span></div>
             ${UI.progressHtml(s.avg ?? 0, '', 'auto')}
           </div>`;
         }).join('')}
@@ -1193,17 +1202,18 @@
           <thead><tr><th>Peserta</th><th>Kelas</th><th>Skor</th><th>Benar</th>
             ${sections.map(s => `<th>${UI.esc(DB.subtestByName(s.subtest)?.short || s.subtest)}</th>`).join('')}
             <th>Pelanggaran</th><th>Selesai</th></tr></thead>
-          <tbody>${attempts.slice().sort((a, b) => (b.score || 0) - (a.score || 0)).map(a => {
+          <tbody>${attempts.slice().sort((a, b) => scoreOf(b) - scoreOf(a)).map(a => {
             const s = DB.getUser(a.studentId);
             const vios = (a.violations || []).length;
             return `<tr>
               <td><strong>${UI.esc(s ? s.name : '-')}</strong></td>
               <td>${UI.esc(s ? (s.kelas || '-') : '-')}</td>
-              <td><strong>${a.score ?? 0}</strong></td>
+              <td>${a.scoring ? Scoring.scoreHtml(a, true) : `<strong>${a.score ?? 0}</strong>`}</td>
               <td>${a.correctCount ?? 0}/${a.totalCount ?? 0}</td>
               ${sections.map(sec2 => {
                 const ss = (a.sectionScores || []).find(x => x.subtest === sec2.subtest);
-                return `<td>${ss ? ss.score : '-'}</td>`;
+                const irt = a.scoring && (a.scoring.sections || []).find(x => x.subtest === sec2.subtest);
+                return `<td>${irt ? `<strong>${irt.scaled200_800}</strong><div class="muted small">${ss ? ss.score + '%' : ''}</div>` : (ss ? ss.score : '-')}</td>`;
               }).join('')}
               <td>${vios ? `<span class="badge badge-warning">${vios}</span>` : '<span class="muted small">0</span>'}</td>
               <td class="small">${UI.fmtDateTime(a.submittedAt)}</td>

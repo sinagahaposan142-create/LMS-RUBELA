@@ -31,9 +31,16 @@
     if (!list.length) return null;
     return Math.round(list.reduce((a, b) => a + b, 0) / list.length);
   }
+  function attemptScore(attempt) {
+    if (!attempt) return null;
+    const a = global.Scoring ? Scoring.ensureFresh(attempt) : attempt;
+    return a.scoring ? a.scoring.scaled200_800 : (a.score == null ? null : a.score);
+  }
+  function averageCbt(attempts) { return average((attempts || []).map(attemptScore)); }
   function nOrDash(v) { return v == null ? '<span class="muted">–</span>' : v; }
   function tone(v) {
     if (v == null) return '';
+    if (v > 100) return v >= 600 ? 'ok' : (v >= 450 ? 'warn' : 'bad');
     return v >= 75 ? 'ok' : (v >= 55 ? 'warn' : 'bad');
   }
   function scorePill(v, suffix) {
@@ -112,7 +119,7 @@
       attempts: attempts.length,
       violations,
       avgAsg: average(graded.map(s => s.grade)),
-      avgCbt: average(attempts.map(a => a.score)),
+      avgCbt: averageCbt(attempts),
       sessions: new Set(att.map(a => a.date)).size,
       attTotal: att.length,
       hadir: att.filter(a => a.status === 'hadir').length,
@@ -230,11 +237,12 @@
     });
 
     const avgAsg = average(graded.map(s => s.grade));
-    const avgCbt = average(attempts.map(a => a.score));
+    const avgCbt = averageCbt(attempts);
+    const avgCbtPct = average(attempts.map(a => a.score));
     const presentPct = pctOf(att.filter(a => a.status === 'hadir').length, att.length);
     // Indeks performa gabungan: 40% CBT, 35% tugas, 25% kehadiran
     const parts = [];
-    if (avgCbt != null) parts.push([avgCbt, 0.40]);
+    if (avgCbtPct != null) parts.push([avgCbtPct, 0.40]);
     if (avgAsg != null) parts.push([avgAsg, 0.35]);
     if (att.length) parts.push([presentPct, 0.25]);
     const wsum = parts.reduce((n, p) => n + p[1], 0);
@@ -381,7 +389,7 @@
       <div class="stats-grid">
         <div class="stat-card accent-primary"><div class="label">Tutor</div><div class="value">${sc.tutors.length}</div><div class="sub">${sc.courses.length} kelas subtest</div></div>
         <div class="stat-card accent-success"><div class="label">Siswa Aktif</div><div class="value">${sc.students.length}</div><div class="sub">${DB.getMainClasses().length} kelas utama</div></div>
-        <div class="stat-card accent-info"><div class="label">Rata-rata CBT</div><div class="value">${avgCbt == null ? '–' : avgCbt}</div><div class="sub">rata tugas ${avgAsg == null ? '–' : avgAsg}</div></div>
+        <div class="stat-card accent-info"><div class="label">Rata-rata CBT (200–800)</div><div class="value">${avgCbt == null ? '–' : avgCbt}</div><div class="sub">rata tugas ${avgAsg == null ? '–' : avgAsg}</div></div>
         <div class="stat-card accent-warning"><div class="label">Kehadiran</div><div class="value">${pctOf(totalHadir, totalAtt)}%</div><div class="sub">${totalHadir}/${totalAtt} catatan</div></div>
         <div class="stat-card accent-primary"><div class="label">Rencana Kelas</div><div class="value">${totalPlans}</div><div class="sub">${totalFixed} sudah fix (${pctOf(totalFixed, totalPlans)}%)</div></div>
         <div class="stat-card accent-danger"><div class="label">Belum Dinilai</div><div class="value">${ungraded}</div><div class="sub">submission menunggu</div></div>
@@ -425,7 +433,7 @@
         <div class="card-header">${UI.secHead('👨‍🏫', 'Ringkasan Kinerja Tutor', 'klik tab Rekap Tutor untuk detail lengkap')}</div>
         ${tutorRows.length === 0 ? emptyState('Belum ada tutor.') : `
         <div class="table-wrap"><table class="table">
-          <thead><tr><th>Tutor</th><th>Kelas</th><th>Siswa</th><th>Rencana Fix</th><th>Kedisiplinan</th><th>Rata CBT</th><th>Belum Dinilai</th></tr></thead>
+          <thead><tr><th>Tutor</th><th>Kelas</th><th>Siswa</th><th>Rencana Fix</th><th>Kedisiplinan</th><th>Rata CBT (200–800)</th><th>Belum Dinilai</th></tr></thead>
           <tbody>${tutorRows.map(t => `<tr>
             <td><strong>${esc(t.user.name)}</strong><div class="muted small">${esc(t.subtests.join(', ') || '-')}</div></td>
             <td>${t.classes}</td>
@@ -479,7 +487,7 @@
             <th>Tutor</th><th>Subtest</th><th>Kelas</th><th>Siswa</th>
             <th>Materi</th><th>Modul</th><th>Rekaman</th><th>Tugas</th><th>Soal</th><th>CBT</th>
             <th>Sesi</th><th>Rencana</th><th>Fix</th><th>Kedisiplinan</th>
-            <th>Rata Tugas</th><th>Rata CBT</th><th>Hadir Kelas</th><th>Belum Dinilai</th><th>Aksi</th>
+            <th>Rata Tugas</th><th>Rata CBT (200–800)</th><th>Hadir Kelas</th><th>Belum Dinilai</th><th>Aksi</th>
           </tr></thead>
           <tbody>${rows.map(t => `<tr>
             <td><strong>${esc(t.user.name)}</strong><div class="muted small">@${esc(t.user.username)}</div></td>
@@ -511,7 +519,7 @@
     }));
     bindCsv(document.getElementById('rkTutorCsv'), 'rekap-tutor.csv',
       ['Tutor', 'Username', 'Subtest', 'Kelas', 'Siswa', 'Materi', 'Modul', 'Rekaman', 'Tugas', 'Soal', 'CBT',
-        'Sesi', 'Rencana', 'Fix', 'Kedisiplinan %', 'Rata Tugas', 'Rata CBT', 'Hadir Kelas %', 'Belum Dinilai'],
+        'Sesi', 'Rencana', 'Fix', 'Kedisiplinan %', 'Rata Tugas', 'Rata CBT (200–800)', 'Hadir Kelas %', 'Belum Dinilai'],
       () => rows.map(t => [t.user.name, t.user.username, t.subtests.join(', '), t.classes, t.students,
         t.materials, t.modules, t.recordings, t.assignments, t.questions, t.cbts, t.sessions,
         t.plans, t.plansFixed, t.disciplinePct, t.avgAsg ?? '', t.avgCbt ?? '', t.classPresentPct, t.ungraded]));
@@ -559,7 +567,7 @@
         <div class="card-header">${UI.secHead('📚', 'Rincian Tiap Kelas', 'performa kelas yang diampu tutor ini')}${csvBtn('rkTdKelasCsv')}</div>
         ${t.per.length === 0 ? emptyState('Tutor ini belum mengampu kelas.', '📚') : `
         <div class="table-wrap"><table class="table">
-          <thead><tr><th>Kelas</th><th>Kelas Utama</th><th>Jadwal</th><th>Siswa</th><th>Materi</th><th>Modul</th><th>Tugas</th><th>CBT</th><th>Sesi</th><th>Kehadiran</th><th>Rata Tugas</th><th>Rata CBT</th><th>Rencana Fix</th></tr></thead>
+          <thead><tr><th>Kelas</th><th>Kelas Utama</th><th>Jadwal</th><th>Siswa</th><th>Materi</th><th>Modul</th><th>Tugas</th><th>CBT</th><th>Sesi</th><th>Kehadiran</th><th>Rata Tugas</th><th>Rata CBT (200–800)</th><th>Rencana Fix</th></tr></thead>
           <tbody>${t.per.map(p => `<tr>
             <td><strong>${esc(DB.courseTitle ? DB.courseTitle(p.course) : p.course.title)}</strong></td>
             <td>${esc((p.course.mainClasses || []).join(', ') || '-')}</td>
@@ -632,7 +640,7 @@
           <tbody>${allCbt.map(({ c, course }) => {
             const atts = DB.getCbtAttemptsByCbt(c.id);
             const done = atts.filter(a => a.submittedAt);
-            const scores = done.map(a => a.score).filter(s => s != null);
+            const scores = done.map(attemptScore).filter(s => s != null);
             const viol = atts.reduce((n, a) => n + ((a.violations || []).length), 0);
             return `<tr>
               <td><strong>${esc(c.title)}</strong></td>
@@ -698,7 +706,7 @@
         <div class="card-header">${UI.secHead('👨‍🎓', `Siswa yang Diajar (${t.students})`, 'klik untuk membuka rekap siswa')}</div>
         ${t.studentIds.length === 0 ? emptyState('Belum ada siswa terdaftar.', '👨‍🎓') : `
         <div class="table-wrap"><table class="table">
-          <thead><tr><th>Siswa</th><th>Kelas Utama</th><th>Indeks</th><th>Rata CBT</th><th>Rata Tugas</th><th>Kehadiran</th><th>Aksi</th></tr></thead>
+          <thead><tr><th>Siswa</th><th>Kelas Utama</th><th>Indeks</th><th>Rata CBT (200–800)</th><th>Rata Tugas</th><th>Kehadiran</th><th>Aksi</th></tr></thead>
           <tbody>${t.studentIds.map(id => DB.getUser(id)).filter(Boolean).map(s => {
             const r = studentStats(s);
             return `<tr>
@@ -727,7 +735,7 @@
       repaint();
     }));
     bindCsv(document.getElementById('rkTdKelasCsv'), `rekap-tutor-${guru.username}-kelas.csv`,
-      ['Kelas', 'Kelas Utama', 'Jadwal', 'Siswa', 'Materi', 'Modul', 'Tugas', 'CBT', 'Sesi', 'Kehadiran %', 'Rata Tugas', 'Rata CBT', 'Rencana', 'Fix'],
+      ['Kelas', 'Kelas Utama', 'Jadwal', 'Siswa', 'Materi', 'Modul', 'Tugas', 'CBT', 'Sesi', 'Kehadiran %', 'Rata Tugas', 'Rata CBT (200–800)', 'Rencana', 'Fix'],
       () => t.per.map(p => [DB.courseTitle(p.course), (p.course.mainClasses || []).join(', '),
         DB.courseScheduleLabel(p.course), p.students, p.materials, p.modules, p.assignments, p.cbts,
         p.sessions, p.presentPct, p.avgAsg ?? '', p.avgCbt ?? '', p.plans, p.plansFixed]));
@@ -787,7 +795,7 @@
         <div class="table-wrap"><table class="table">
           <thead><tr>
             <th>Siswa</th><th>Kelas Utama</th><th>Target</th><th>Kelas Subtest</th>
-            <th>Indeks</th><th>Rata CBT</th><th>CBT Selesai</th><th>Rata Tugas</th>
+            <th>Indeks</th><th>Rata CBT (200–800)</th><th>CBT Selesai</th><th>Rata Tugas</th>
             <th>Terkumpul</th><th>Nunggak</th><th>Terlambat</th>
             <th>Hadir</th><th>Izin</th><th>Sakit</th><th>Alfa</th><th>Kehadiran</th>
             <th>Terkuat</th><th>Terlemah</th><th>Pelanggaran</th><th>Terbayar</th><th>Tagihan</th><th>Aksi</th>
@@ -829,7 +837,7 @@
     paintBody();
 
     bindCsv(document.getElementById('rkSiswaCsv'), 'rekap-siswa.csv',
-      ['Siswa', 'Username', 'Kelas Utama', 'Target', 'Kelas Subtest', 'Indeks', 'Rata CBT', 'CBT Selesai',
+      ['Siswa', 'Username', 'Kelas Utama', 'Target', 'Kelas Subtest', 'Indeks', 'Rata CBT (200–800)', 'CBT Selesai',
         'Rata Tugas', 'Terkumpul', 'Total Tugas', 'Nunggak', 'Terlambat', 'Hadir', 'Izin', 'Sakit', 'Alfa',
         'Kehadiran %', 'Subtest Terkuat', 'Subtest Terlemah', 'Pelanggaran', 'Terbayar', 'Tagihan'],
       () => filtered().map(r => [r.user.name, r.user.username, r.user.kelas || '', r.user.target || '',
@@ -866,7 +874,7 @@
 
       <div class="stats-grid">
         <div class="stat-card accent-primary"><div class="label">Indeks Performa</div><div class="value">${r.performance == null ? '–' : r.performance}</div><div class="sub">40% CBT • 35% tugas • 25% hadir</div></div>
-        <div class="stat-card accent-info"><div class="label">Rata-rata CBT</div><div class="value">${r.avgCbt == null ? '–' : r.avgCbt}</div><div class="sub">${r.attempts} ujian selesai</div></div>
+        <div class="stat-card accent-info"><div class="label">Rata-rata CBT (200–800)</div><div class="value">${r.avgCbt == null ? '–' : r.avgCbt}</div><div class="sub">${r.attempts} ujian selesai</div></div>
         <div class="stat-card accent-success"><div class="label">Rata-rata Tugas</div><div class="value">${r.avgAsg == null ? '–' : r.avgAsg}</div><div class="sub">${r.graded}/${r.subs} dinilai</div></div>
         <div class="stat-card accent-warning"><div class="label">Kehadiran</div><div class="value">${r.attTotal ? r.presentPct + '%' : '–'}</div><div class="sub">${r.hadir}H ${r.izin}I ${r.sakit}S ${r.alfa}A</div></div>
         <div class="stat-card accent-primary"><div class="label">Kelas Subtest</div><div class="value">${r.classes}</div><div class="sub">${r.plans.length} rencana kelas</div></div>
@@ -896,7 +904,7 @@
         <div class="card-header">${UI.secHead('📚', `Kelas yang Diikuti (${r.classes})`, 'performa siswa ini di setiap kelas')}</div>
         ${r.courses.length === 0 ? emptyState('Belum terdaftar di kelas mana pun.', '📚') : `
         <div class="table-wrap"><table class="table">
-          <thead><tr><th>Kelas</th><th>Subtest</th><th>Tutor</th><th>Jadwal</th><th>Kehadiran</th><th>Tugas</th><th>Rata Tugas</th><th>CBT</th><th>Rata CBT</th></tr></thead>
+          <thead><tr><th>Kelas</th><th>Subtest</th><th>Tutor</th><th>Jadwal</th><th>Kehadiran</th><th>Tugas</th><th>Rata Tugas</th><th>CBT</th><th>Rata CBT (200–800)</th></tr></thead>
           <tbody>${r.courses.map(c => {
             const asg = DB.getAssignmentsByCourse(c.id);
             const asgIds = asg.map(a => a.id);
@@ -914,7 +922,7 @@
               <td>${mySubs.length}/${asg.length}</td>
               <td>${nOrDash(average(myGraded.map(x => x.grade)))}</td>
               <td>${myAtt.length}/${cbtIds.length}</td>
-              <td>${nOrDash(average(myAtt.map(a => a.score)))}</td>
+              <td>${nOrDash(averageCbt(myAtt))}</td>
             </tr>`;
           }).join('')}</tbody>
         </table></div>`}
@@ -933,7 +941,7 @@
               <td><strong>${esc(cbt ? cbt.title : 'Ujian dihapus')}</strong></td>
               <td class="muted small">${esc(c ? (DB.courseTitle ? DB.courseTitle(c) : c.title) : '-')}</td>
               <td>${a.submittedAt ? UI.fmtDate(a.submittedAt) : '-'}</td>
-              <td>${scorePill(a.score)}</td>
+              <td>${scorePill(attemptScore(a))}</td>
               <td>${a.correctCount ?? '-'}/${a.totalCount ?? '-'}</td>
               <td>${dur}</td>
               <td>${(a.violations || []).length ? `<span class="badge badge-danger">${(a.violations || []).length}</span>` : '0'}</td>
@@ -1047,7 +1055,7 @@
             <th>Kelas</th><th>Subtest</th><th>Kelas Utama</th><th>Tutor</th><th>Jadwal</th>
             <th>Siswa</th><th>Materi</th><th>Modul</th><th>Rekaman</th>
             <th>Tugas</th><th>Terkumpul</th><th>Belum Dinilai</th>
-            <th>CBT</th><th>Attempt</th><th>Rata Tugas</th><th>Rata CBT</th>
+            <th>CBT</th><th>Attempt</th><th>Rata Tugas</th><th>Rata CBT (200–800)</th>
             <th>Sesi</th><th>Kehadiran</th><th>Rencana</th><th>Fix</th><th>Aksi</th>
           </tr></thead>
           <tbody>${rows.map(p => `<tr>
@@ -1082,7 +1090,7 @@
     }));
     bindCsv(document.getElementById('rkKelasCsv'), 'rekap-kelas.csv',
       ['Kelas', 'Subtest', 'Kelas Utama', 'Tutor', 'Jadwal', 'Siswa', 'Materi', 'Modul', 'Rekaman', 'Tugas',
-        'Terkumpul', 'Diharapkan', 'Belum Dinilai', 'CBT', 'Attempt', 'Rata Tugas', 'Rata CBT', 'Sesi',
+        'Terkumpul', 'Diharapkan', 'Belum Dinilai', 'CBT', 'Attempt', 'Rata Tugas', 'Rata CBT (200–800)', 'Sesi',
         'Kehadiran %', 'Rencana', 'Fix', 'Diubah', 'Dibatalkan'],
       () => rows.map(p => [DB.courseTitle(p.course), p.course.subtest || '', (p.course.mainClasses || []).join(', '),
         DB.courseTeachers(p.course).map(t => t.name).join(' & '), DB.courseScheduleLabel(p.course),
@@ -1116,14 +1124,14 @@
         <div class="stat-card accent-primary"><div class="label">Siswa</div><div class="value">${p.students}</div><div class="sub">${p.sessions} sesi tercatat</div></div>
         <div class="stat-card accent-warning"><div class="label">Kehadiran</div><div class="value">${p.attTotal ? p.presentPct + '%' : '–'}</div><div class="sub">${p.hadir}H ${p.izin}I ${p.sakit}S ${p.alfa}A</div></div>
         <div class="stat-card accent-success"><div class="label">Rata Tugas</div><div class="value">${p.avgAsg == null ? '–' : p.avgAsg}</div><div class="sub">${p.submissions}/${p.expectedSubs} terkumpul</div></div>
-        <div class="stat-card accent-info"><div class="label">Rata CBT</div><div class="value">${p.avgCbt == null ? '–' : p.avgCbt}</div><div class="sub">${p.attempts} attempt • ${p.violations} pelanggaran</div></div>
+        <div class="stat-card accent-info"><div class="label">Rata CBT (200–800)</div><div class="value">${p.avgCbt == null ? '–' : p.avgCbt}</div><div class="sub">${p.attempts} attempt • ${p.violations} pelanggaran</div></div>
       </div>
 
       <div class="card">
         <div class="card-header">${UI.secHead('👨‍🎓', `Siswa di Kelas Ini (${students.length})`, 'performa tiap siswa pada kelas ini')}${csvBtn('rkCdSiswaCsv')}</div>
         ${students.length === 0 ? emptyState('Belum ada siswa terdaftar.', '👨‍🎓') : `
         <div class="table-wrap"><table class="table">
-          <thead><tr><th>Siswa</th><th>Kelas Utama</th><th>Hadir</th><th>Izin</th><th>Sakit</th><th>Alfa</th><th>Kehadiran</th><th>Tugas</th><th>Rata Tugas</th><th>CBT</th><th>Rata CBT</th><th>Aksi</th></tr></thead>
+          <thead><tr><th>Siswa</th><th>Kelas Utama</th><th>Hadir</th><th>Izin</th><th>Sakit</th><th>Alfa</th><th>Kehadiran</th><th>Tugas</th><th>Rata Tugas</th><th>CBT</th><th>Rata CBT (200–800)</th><th>Aksi</th></tr></thead>
           <tbody>${students.map(s => {
             const att = DB.getAttendanceByUser(s.id).filter(a => a.role === 'siswa' && a.courseId === course.id);
             const asgIds = p.assignmentList.map(a => a.id);
@@ -1142,7 +1150,7 @@
               <td>${subs.length}/${p.assignments}</td>
               <td>${nOrDash(average(graded.map(x => x.grade)))}</td>
               <td>${atts.length}/${p.cbts}</td>
-              <td>${nOrDash(average(atts.map(a => a.score)))}</td>
+              <td>${nOrDash(averageCbt(atts))}</td>
               <td class="actions"><button class="btn btn-sm btn-secondary" data-goto-student="${s.id}">Rekap</button></td>
             </tr>`;
           }).join('')}</tbody>

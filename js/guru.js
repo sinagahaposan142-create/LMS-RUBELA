@@ -43,6 +43,7 @@
     if (section === 'pengumuman') return Shared.renderAnnouncements(container, user);
     if (section === 'feedback') return Shared.renderFeedback(container, user);
     if (section === 'chat') return Shared.renderChat(container, user);
+    if (section === 'online') return Presence.renderPanel(container, user);
     if (section === 'ai-analytics') return Shared.renderAiAnalytics(container, user);
     if (section === 'keuangan') return renderHonorSection(container, user);
     if (section === 'profile') return renderProfile(container, user);
@@ -299,6 +300,7 @@
         <button class="tab-btn" data-tab="recordings">Rekaman (${DB.getRecordingsByCourse(course.id).length})</button>
         <button class="tab-btn" data-tab="assignments">Tugas (${assignments.length})</button>
         <button class="tab-btn" data-tab="cbts">CBT (${DB.getCbtsByCourse(course.id).length})</button>
+        <button class="tab-btn" data-tab="whiteboard">Whiteboard</button>
         <button class="tab-btn" data-tab="attendance">Presensi</button>
         <button class="tab-btn" data-tab="students">Siswa (${enrollments.length})</button>
       </div>
@@ -324,11 +326,13 @@
 
   function renderTab(tab, course, user) {
     const el = document.getElementById('tabContent');
+    if (global.Whiteboard) Whiteboard.destroy();
     if (tab === 'materials') return renderMaterialsTab(el, course, user);
     if (tab === 'modules') return renderModulesTab(el, course, user);
     if (tab === 'recordings') return renderRecordingsTab(el, course, user);
     if (tab === 'assignments') return renderAssignmentsTab(el, course, user);
     if (tab === 'cbts') return renderCbtsTab(el, course, user);
+    if (tab === 'whiteboard') return Whiteboard.mount({ container: el, course, user });
     if (tab === 'attendance') return renderAttendanceTab(el, course, user);
     if (tab === 'students') return renderStudentsTab(el, course, user);
   }
@@ -433,14 +437,23 @@
       return { student, sub };
     });
 
+    const proposed = subs.filter(s => s.grade == null && AutoGrader.proposalIsFresh(asg, s));
+    const needsAi = subs.filter(s => s.grade == null);
     const body = `
       <p class="muted">${UI.esc(asg.title)} — Deadline ${UI.fmtDate(asg.dueDate)}</p>
+      <div class="flex-gap" style="margin-bottom:12px;">
+        <button class="btn btn-primary btn-sm" id="batchAiGrade" ${needsAi.length && AI.ready() ? '' : 'disabled'}>🤖 Periksa ${needsAi.length} Jawaban dengan AI</button>
+        <button class="btn btn-success btn-sm" id="applyAiGrades" ${proposed.length ? '' : 'disabled'}>✓ Terapkan ${proposed.length} Saran Sekaligus</button>
+      </div>
+      ${!AI.ready() ? AI.noticeHtml(user) : ''}
+      <div id="batchAiStatus"></div>
       <div class="table-wrap"><table class="table">
         <thead><tr><th>Siswa</th><th>Status</th><th>Dikirim</th><th>Nilai</th><th>Aksi</th></tr></thead>
         <tbody>
           ${rows.map(r => `<tr>
             <td><strong>${UI.esc(r.student ? r.student.name : '-')}</strong></td>
-            <td>${r.sub ? (r.sub.grade != null ? '<span class="badge badge-success">Dinilai</span>' : '<span class="badge badge-warning">Perlu Dinilai</span>') : '<span class="badge badge-gray">Belum Submit</span>'}</td>
+            <td>${r.sub ? (r.sub.grade != null ? '<span class="badge badge-success">Dinilai</span>' :
+              (AutoGrader.proposalIsFresh(asg, r.sub) ? '<span class="badge badge-info">Saran AI siap</span>' : '<span class="badge badge-warning">Perlu Dinilai</span>')) : '<span class="badge badge-gray">Belum Submit</span>'}</td>
             <td>${r.sub ? UI.fmtDateTime(r.sub.submittedAt) : '-'}</td>
             <td>${r.sub && r.sub.grade != null ? r.sub.grade : '-'}</td>
             <td>${r.sub ? `<button class="btn btn-sm btn-primary" data-sub="${r.sub.id}">${r.sub.grade != null ? 'Ubah Nilai' : 'Beri Nilai'}</button>` : '-'}</td>
@@ -449,8 +462,53 @@
       </table></div>
     `;
     UI.modal.open('Daftar Submission', body);
+    const batchBtn = document.getElementById('batchAiGrade');
+    if (batchBtn) batchBtn.addEventListener('click', () => runBatchAiGrade(asg, needsAi, user));
+    const applyBtn = document.getElementById('applyAiGrades');
+    if (applyBtn) applyBtn.addEventListener('click', () => applyBatchAiGrades(asg, proposed, user));
     document.getElementById('modalBody').querySelectorAll('[data-sub]').forEach(b =>
       b.addEventListener('click', () => openGradeForm(b.dataset.sub, assignmentId, user)));
+  }
+
+  async function runBatchAiGrade(asg, submissions, user) {
+    const box = document.getElementById('batchAiStatus');
+    const btn = document.getElementById('batchAiGrade');
+    if (!submissions.length) { UI.toast('Tidak ada jawaban yang perlu diperiksa.', 'info'); return; }
+    btn.disabled = true;
+    box.innerHTML = AI.loadingHtml(`Menyiapkan pemeriksaan 0/${submissions.length}…`);
+    const result = await AutoGrader.suggestBatch(user, asg, submissions, (done, total) => {
+      const live = document.getElementById('batchAiStatus');
+      if (live) live.innerHTML = AI.loadingHtml(`Memeriksa jawaban ${done}/${total}…`);
+    });
+    const live = document.getElementById('batchAiStatus');
+    if (live) live.innerHTML = `<div class="alert ${result.failed.length ? 'alert-warning' : 'alert-success'}">
+      <strong>${result.ok.length} saran nilai berhasil dibuat.</strong>
+      ${result.failed.length ? `${result.failed.length} gagal: ${UI.esc(result.failed[0].error.message)}` : 'Periksa saran atau terapkan sekaligus.'}
+    </div>`;
+    setTimeout(() => openGradeModal(asg.id, user), 900);
+  }
+
+  function notifyGrade(sub, asg, student) {
+    DB.notifyStudentAndParents(sub.studentId, {
+      type: 'nilai', icon: '🏆', title: 'Tugas telah dinilai',
+      body: `${asg.title} — nilai ${sub.grade}${sub.feedback ? ' • ' + sub.feedback : ''}`,
+      link: 'grades'
+    }, { title: `Nilai baru untuk ${student ? student.name : 'anak Anda'}`, link: 'anak-nilai' });
+  }
+
+  function applyBatchAiGrades(asg, submissions, user) {
+    if (!submissions.length) return;
+    if (!UI.confirmDialog(`Terapkan ${submissions.length} saran nilai AI sekaligus? Semua keputusan tetap tercatat pada riwayat audit.`)) return;
+    let ok = 0;
+    submissions.forEach(s => {
+      try {
+        const saved = AutoGrader.applySuggestion(user, asg, DB.getSubmission(s.id));
+        notifyGrade(saved, asg, DB.getUser(saved.studentId));
+        ok++;
+      } catch (e) { console.warn(e); }
+    });
+    UI.toast(`${ok} saran AI diterapkan dan notifikasi dikirim.`, 'success');
+    openGradeModal(asg.id, user);
   }
 
   function openGradeForm(submissionId, assignmentId, user) {
@@ -509,13 +567,19 @@
           </table></div>`
         : `<div class="content mt-1 rt-content">${sub.content ? RichText.render(sub.content) : '<span class="muted">(tanpa jawaban tertulis)</span>'}</div>`}
       </div>
+      ${AutoGrader.proposalIsFresh(asg, sub) ? `<div class="alert alert-info">
+        <strong>🤖 Saran pemeriksa otomatis: ${sub.aiSuggestion.score}/${asg.maxScore || 100}</strong>
+        • confidence ${Math.round(sub.aiSuggestion.confidence * 100)}%
+        <div class="small" style="margin-top:5px;">${UI.esc(sub.aiSuggestion.reason)}</div>
+        <div class="muted small">Ini saran, bukan nilai final. Anda boleh mengubahnya sebelum menyimpan.</div>
+      </div>` : ''}
       <form id="gradeForm" class="form">
         <div class="form-row">
           <div class="form-group"><label>Nilai (0-${asg ? (asg.maxScore || 100) : 100})</label>
             <input name="grade" type="number" min="0" max="${asg ? (asg.maxScore || 100) : 100}" required
-                   value="${sub.grade != null ? sub.grade : (autoInfo && autoInfo.suggested != null ? autoInfo.suggested : '')}" /></div>
+                   value="${sub.grade != null ? sub.grade : (AutoGrader.proposalIsFresh(asg, sub) ? sub.aiSuggestion.score : (autoInfo && autoInfo.suggested != null ? autoInfo.suggested : ''))}" /></div>
           <div class="form-group"><label>Feedback</label>
-            <input name="feedback" value="${UI.esc(sub.feedback || '')}" /></div>
+            <input name="feedback" value="${UI.esc(sub.feedback || (AutoGrader.proposalIsFresh(asg, sub) ? sub.aiSuggestion.feedback : ''))}" /></div>
         </div>
         <div class="flex-gap" style="justify-content:flex-end;">
           <button type="button" class="btn btn-secondary" id="cancelBtn">Batal</button>
@@ -530,7 +594,16 @@
       const fd = new FormData(e.target);
       const grade = Number(fd.get('grade'));
       const feedback = fd.get('feedback').trim();
-      DB.updateSubmission(sub.id, { grade, feedback, gradedBy: user ? user.id : null, gradedAt: Date.now() });
+      const history = (sub.gradingHistory || []).slice();
+      history.push({ eventId: DB.uid('grade_evt'), type: 'manual_saved', at: Date.now(),
+        actorId: user ? user.id : null, finalGrade: grade,
+        suggestedGrade: AutoGrader.proposalIsFresh(asg, sub) ? sub.aiSuggestion.score : null });
+      const currentSuggestion = sub.aiSuggestion;
+      const retiredSuggestion = currentSuggestion && currentSuggestion.status === 'proposed'
+        ? Object.assign({}, currentSuggestion, { status: 'superseded', supersededAt: Date.now(), supersededBy: user ? user.id : null })
+        : currentSuggestion;
+      DB.updateSubmission(sub.id, { grade, feedback, gradedBy: user ? user.id : null,
+        gradedAt: Date.now(), gradingHistory: history, aiSuggestion: retiredSuggestion });
       // Sinkron: siswa dan orang tuanya langsung mendapat notifikasi nilai
       const asgRec = DB.getAssignment(assignmentId);
       DB.notifyStudentAndParents(sub.studentId, {
@@ -638,7 +711,31 @@
           <button class="btn btn-primary" type="submit">Simpan</button>
         </form>
       </div>
+      <div class="card">
+        <div class="card-header">${UI.secHead('🤖', 'Integrasi AI Perangkat Ini', 'diperlukan untuk pemeriksa esai otomatis di browser tutor')}</div>
+        <div class="alert alert-warning small"><strong>Catatan keamanan:</strong> LMS ini belum memiliki backend. Kunci disimpan hanya di localStorage perangkat ini dan tidak masuk repositori. Gunakan kunci terbatas/terpisah dan jangan membagikannya.</div>
+        <div class="form">
+          <div class="form-group"><label for="guruGeminiKey">Kunci API Gemini</label>
+            <div class="flex-gap"><input id="guruGeminiKey" type="password" autocomplete="off" value="${UI.esc(DB.getSettings().geminiApiKey || '')}" style="flex:1" />
+            <button type="button" class="btn btn-sm btn-secondary" id="guruGeminiShow">Lihat</button></div>
+          </div>
+          <div class="form-group"><label for="guruGeminiModel">Model</label>
+            <input id="guruGeminiModel" value="${UI.esc(DB.getSettings().geminiModel || 'gemini-flash-latest')}" /></div>
+          <button type="button" class="btn btn-primary" id="guruGeminiSave">Simpan Integrasi AI</button>
+        </div>
+      </div>
     `;
+    document.getElementById('guruGeminiShow').addEventListener('click', () => {
+      const input = document.getElementById('guruGeminiKey');
+      const show = input.type === 'password'; input.type = show ? 'text' : 'password';
+      document.getElementById('guruGeminiShow').textContent = show ? 'Sembunyikan' : 'Lihat';
+    });
+    document.getElementById('guruGeminiSave').addEventListener('click', () => {
+      DB.setSetting('geminiApiKey', document.getElementById('guruGeminiKey').value.trim());
+      DB.setSetting('geminiModel', document.getElementById('guruGeminiModel').value.trim() || 'gemini-flash-latest');
+      DB.setSetting('aiEnabled', true);
+      UI.toast('Integrasi AI perangkat tutor disimpan.', 'success');
+    });
     document.getElementById('profileForm').addEventListener('submit', (e) => {
       e.preventDefault();
       const fd = new FormData(e.target);
@@ -862,20 +959,23 @@
     const cbt = DB.getCbt(cbtId);
     const course = DB.getCourse(cbt.courseId);
     const enrollments = DB.getEnrollmentsByCourse(cbt.courseId);
+    if (global.Scoring) Scoring.recomputeCbt(cbt.id);
     const rows = enrollments.map(e => {
       const student = DB.getUser(e.studentId);
-      const attempt = DB.getCbtAttemptByStudent(cbt.id, e.studentId);
+      let attempt = DB.getCbtAttemptByStudent(cbt.id, e.studentId);
+      if (attempt && attempt.submittedAt && global.Scoring) attempt = Scoring.ensureFresh(attempt);
       return { student, attempt };
     });
     const submitted = rows.filter(r => r.attempt && r.attempt.submittedAt);
-    const avg = submitted.length ? Math.round(submitted.reduce((sum, r) => sum + (r.attempt.score || 0), 0) / submitted.length) : null;
+    const scoreOf = r => r.attempt.scoring ? r.attempt.scoring.scaled200_800 : (r.attempt.score || 0);
+    const avg = submitted.length ? Math.round(submitted.reduce((sum, r) => sum + scoreOf(r), 0) / submitted.length) : null;
 
     const body = `
       <div class="muted small mb-1">${UI.esc(cbt.title)} (${UI.esc(course.title)})</div>
       <div class="stats-grid">
         <div class="stat-card"><div class="label">Peserta</div><div class="value">${enrollments.length}</div></div>
         <div class="stat-card accent-success"><div class="label">Sudah Mengerjakan</div><div class="value">${submitted.length}</div></div>
-        <div class="stat-card accent-primary"><div class="label">Rata-rata</div><div class="value">${avg ?? '-'}</div></div>
+        <div class="stat-card accent-primary"><div class="label">Rata-rata ${submitted.some(r => r.attempt.scoring) ? '(200–800)' : ''}</div><div class="value">${avg ?? '-'}</div></div>
       </div>
       <div class="table-wrap"><table class="table">
         <thead><tr><th>Siswa</th><th>Status</th><th>Benar</th><th>Skor</th><th>Dikirim</th></tr></thead>
@@ -887,7 +987,7 @@
               <td><strong>${UI.esc(r.student?.name || '-')}</strong></td>
               <td><span class="badge badge-success">Selesai</span></td>
               <td>${r.attempt.correctCount}/${r.attempt.totalCount}</td>
-              <td><strong>${r.attempt.score}</strong></td>
+              <td>${r.attempt.scoring ? Scoring.scoreHtml(r.attempt, true) : `<strong>${r.attempt.score}</strong>`}</td>
               <td>${UI.fmtDateTime(r.attempt.submittedAt)}</td>
             </tr>`;
           }).join('')}
@@ -1152,11 +1252,13 @@
     renderCourseTab: (tab, course, user, el) => {
       const target = el || document.getElementById('tabContent');
       if (!target) return;
+      if (global.Whiteboard) Whiteboard.destroy();
       if (tab === 'materials') return renderMaterialsTab(target, course, user);
       if (tab === 'modules') return renderModulesTab(target, course, user);
       if (tab === 'recordings') return renderRecordingsTab(target, course, user);
       if (tab === 'assignments') return renderAssignmentsTab(target, course, user);
       if (tab === 'cbts') return renderCbtsTab(target, course, user);
+      if (tab === 'whiteboard') return Whiteboard.mount({ container: target, course, user });
       if (tab === 'attendance') return renderAttendanceTab(target, course, user);
       if (tab === 'students') return renderStudentsTab(target, course, user);
     },
