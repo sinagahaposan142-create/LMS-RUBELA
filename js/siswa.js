@@ -31,13 +31,16 @@
     if (section === 'feedback') return Shared.renderFeedback(container, user);
     if (section === 'keuangan') return renderPaymentsSection(container, user);
     if (section === 'profile') return renderProfile(container, user);
+    if (section === 'streak') return StreakAPI.renderPage(container, DB.getUser(user.id) || user);
+    if (section === 'arena') return Arena.render(container, user);
+    if (section === 'course') return CourseHub.render(container, user);
+    if (section === 'ayat') return Verses.renderPage(container, user);
+    if (section === 'mesin-waktu') return TimeCapsule.renderPage(container, DB.getUser(user.id) || user);
   }
 
   function renderOverview(container, user) {
-    const enrolled = DB.getEnrollmentsByStudent(user.id);
-    const enrolledCourses = enrolled.map(e => DB.getCourse(e.courseId)).filter(Boolean);
-    const courseIds = enrolledCourses.map(c => c.id);
-    const allAsg = DB.getAssignments().filter(a => courseIds.includes(a.courseId));
+    const enrolledCourses = DB.visibleCoursesForStudent(user.id);
+    const allAsg = DB.studentContent('assignment', user.id);
     const mySubs = DB.getSubmissionsByStudent(user.id);
     const submittedIds = new Set(mySubs.map(s => s.assignmentId));
     const pending = allAsg.filter(a => !submittedIds.has(a.id));
@@ -68,6 +71,11 @@
           </div>
         </div>
       </section>
+
+      <div class="ov-duo">
+        ${StreakAPI.widgetHtml(DB.getUser(user.id) || user)}
+        ${Verses.cardHtml(user)}
+      </div>
 
       ${Shared.motivationHtml('siswa')}
 
@@ -131,6 +139,8 @@
       </div>
     `;
 
+    StreakAPI.bindWidget(container);
+    Verses.bindCard(container);
     const viewAll = document.getElementById('viewAllAsg');
     if (viewAll) viewAll.addEventListener('click', () => Dashboard.navigate('assignments'));
     const goLb = document.getElementById('goLeaderboard');
@@ -182,8 +192,9 @@
 
   function courseCard(c, idx) {
     const t = DB.getUser(c.teacherId);
-    const matCount = DB.getMaterialsByCourse(c.id).length;
-    const asgCount = DB.getAssignmentsByCourse(c.id).length;
+    const sid = global.Dashboard && Dashboard.currentUser ? Dashboard.currentUser.id : null;
+    const matCount = sid ? DB.studentContent('material', sid, c.id).length : DB.getMaterialsByCourse(c.id).length;
+    const asgCount = sid ? DB.studentContent('assignment', sid, c.id).length : DB.getAssignmentsByCourse(c.id).length;
     return `
       <div class="course-card">
         <div class="course-banner ${UI.bannerClass(idx)}">${UI.esc((c.title || '?').slice(0, 1).toUpperCase())}</div>
@@ -201,8 +212,7 @@
   }
 
   function renderMyCourses(container, user) {
-    const enrolled = DB.getEnrollmentsByStudent(user.id);
-    const courses = enrolled.map(e => DB.getCourse(e.courseId)).filter(Boolean);
+    const courses = DB.visibleCoursesForStudent(user.id);
     container.innerHTML = `
       <div class="card">
         <div class="card-header">
@@ -223,7 +233,8 @@
   /* Jelajah Kelas — pendaftaran mandiri tetap tersedia, namun setiap kelas
    * dapat dilindungi password yang diatur oleh admin atau guru pengajar. */
   function renderBrowse(container, user) {
-    const all = DB.getCourses();
+    // Kelas yang dimatikan admin tidak tampil di Jelajah Kelas.
+    const all = DB.getCourses().filter(c => c.active !== false);
     const lockedCount = all.filter(c => DB.hasCoursePassword(c.id)).length;
 
     container.innerHTML = `
@@ -310,13 +321,13 @@
 
   function renderCourseDetail(container, user) {
     const course = DB.getCourse(currentCourseId);
-    if (!course || !DB.isEnrolled(course.id, user.id)) {
+    if (!course || course.active === false || !DB.isEnrolled(course.id, user.id)) {
       currentCourseId = null;
       return renderMyCourses(container, user);
     }
     const teacher = DB.getUser(course.teacherId);
-    const materials = DB.getMaterialsByCourse(course.id);
-    const assignments = DB.getAssignmentsByCourse(course.id);
+    const materials = DB.studentContent('material', user.id, course.id);
+    const assignments = DB.studentContent('assignment', user.id, course.id);
 
     container.innerHTML = `
       <div class="flex-between mb-2">
@@ -333,10 +344,10 @@
 
       <div class="tabs">
         <button class="tab-btn active" data-tab="materials">Materi (${materials.length})</button>
-        <button class="tab-btn" data-tab="modules">Modul (${DB.getModulesByCourse(course.id).length})</button>
-        <button class="tab-btn" data-tab="recordings">Rekaman (${DB.getRecordingsByCourse(course.id).length})</button>
+        <button class="tab-btn" data-tab="modules">Modul (${DB.studentContent('module', user.id, course.id).length})</button>
+        <button class="tab-btn" data-tab="recordings">Rekaman (${DB.studentContent('recording', user.id, course.id).length})</button>
         <button class="tab-btn" data-tab="assignments">Tugas (${assignments.length})</button>
-        <button class="tab-btn" data-tab="cbts">CBT (${DB.getCbtsByCourse(course.id).length})</button>
+        <button class="tab-btn" data-tab="cbts">CBT (${DB.studentContent('cbt', user.id, course.id).length})</button>
         <button class="tab-btn" data-tab="whiteboard">Whiteboard</button>
         <button class="tab-btn" data-tab="attendance">Presensi</button>
       </div>
@@ -361,19 +372,19 @@
       const tab = btn.dataset.tab;
       const el = document.getElementById('tabContent');
       if (global.Whiteboard) Whiteboard.destroy();
-      if (tab === 'materials') renderCourseMaterials(el, course);
-      else if (tab === 'modules') renderCourseModules(el, course);
-      else if (tab === 'recordings') renderCourseRecordings(el, course);
+      if (tab === 'materials') renderCourseMaterials(el, course, user);
+      else if (tab === 'modules') renderCourseModules(el, course, user);
+      else if (tab === 'recordings') renderCourseRecordings(el, course, user);
       else if (tab === 'assignments') renderCourseAssignments(el, course, user);
       else if (tab === 'cbts') renderCourseCbts(el, course, user);
       else if (tab === 'whiteboard') Whiteboard.mount({ container: el, course, user });
       else if (tab === 'attendance') renderCourseAttendance(el, course, user);
     }));
-    renderCourseMaterials(document.getElementById('tabContent'), course);
+    renderCourseMaterials(document.getElementById('tabContent'), course, user);
   }
 
-  function renderCourseMaterials(el, course) {
-    const materials = DB.getMaterialsByCourse(course.id).slice().sort((a, b) => a.createdAt - b.createdAt);
+  function renderCourseMaterials(el, course, user) {
+    const materials = DB.studentContent('material', user.id, course.id).slice().sort((a, b) => a.createdAt - b.createdAt);
     el.innerHTML = `
       <div class="card">
         <div class="card-header"><h3>Materi Pembelajaran</h3></div>
@@ -397,12 +408,14 @@
               <div class="meta">${credit(m, course)} • ${UI.fmtDate(m.createdAt)}</div>
               <div class="content rt-content">${RichText.render(m.content || '')}</div>
               ${m.link ? `<div class="mt-1"><a href="${UI.esc(m.link)}" target="_blank" rel="noopener">Buka tautan →</a></div>` : ''}
-            </div>`).join('')
+              <div class="mt-1">${Arena.readButtonHtml(user, 'mat:' + m.id)}</div>
+            </div>`).join(''),
+      onPaint: (box) => Arena.bindReadButtons(box, user)
     });
   }
 
   function renderCourseAssignments(el, course, user) {
-    const assignments = DB.getAssignmentsByCourse(course.id).slice().sort((a, b) => a.dueDate - b.dueDate);
+    const assignments = DB.studentContent('assignment', user.id, course.id).slice().sort((a, b) => a.dueDate - b.dueDate);
     el.innerHTML = `
       <div class="card">
         <div class="card-header"><h3>Daftar Tugas</h3></div>
@@ -769,8 +782,8 @@
   }
 
   function renderAssignments(container, user) {
-    const enrolled = DB.getEnrollmentsByStudent(user.id).map(e => e.courseId);
-    const allAsg = DB.getAssignments().filter(a => enrolled.includes(a.courseId))
+    const enrolled = DB.visibleCoursesForStudent(user.id).map(c => c.id);
+    const allAsg = DB.studentContent('assignment', user.id)
       .slice().sort((a, b) => a.dueDate - b.dueDate);
     container.innerHTML = `
       <div class="card">
@@ -958,6 +971,7 @@
         targetMajor: (fd.get('targetMajor') || '').trim()
       };
       patch.birthDate = birthDate;
+      patch.religion = ProfileFields.religionOf(fd);
       patch.photo = photoField.value();
       const pw = fd.get('password');
       if (pw) patch.password = pw;
@@ -972,8 +986,8 @@
   }
 
   /* ========== Course detail extra tabs ========== */
-  function renderCourseModules(el, course) {
-    const modules = DB.getModulesByCourse(course.id);
+  function renderCourseModules(el, course, user) {
+    const modules = DB.studentContent('module', user.id, course.id);
     el.innerHTML = `
       <div class="card">
         <div class="card-header"><h3>Modul Pembelajaran</h3></div>
@@ -990,14 +1004,16 @@
                   <div class="module-section-content rt-content">${RichText.render(s.content || '')}</div>
                 </div>`).join('') || '<div class="module-section muted">Belum ada bagian.</div>'}
               ${m.link ? `<div class="module-section"><a href="${UI.esc(m.link)}" target="_blank" rel="noopener">Buka tautan modul →</a></div>` : ''}
+              <div class="module-section">${Arena.readButtonHtml(user, 'mod:' + m.id)}</div>
             </div>
           </div>`).join('')}
       </div>
     `;
+    Arena.bindReadButtons(el, user);
   }
 
-  function renderCourseRecordings(el, course) {
-    const recs = DB.getRecordingsByCourse(course.id).slice().sort((a, b) => b.recordedAt - a.recordedAt);
+  function renderCourseRecordings(el, course, user) {
+    const recs = DB.studentContent('recording', user.id, course.id).slice().sort((a, b) => b.recordedAt - a.recordedAt);
     el.innerHTML = `
       <div class="card">
         <div class="card-header"><h3>Rekaman Kelas</h3></div>
@@ -1016,7 +1032,7 @@
   }
 
   function renderCourseCbts(el, course, user) {
-    const cbts = DB.getCbtsByCourse(course.id);
+    const cbts = DB.studentContent('cbt', user.id, course.id);
     el.innerHTML = `
       <div class="card">
         <div class="card-header"><h3>Ujian Online</h3></div>
@@ -1106,7 +1122,7 @@
   function renderModulSection(container, user) {
     const enrolled = DB.getEnrollmentsByStudent(user.id).map(e => e.courseId);
     const courses = enrolled.map(cid => DB.getCourse(cid)).filter(Boolean);
-    const modules = DB.getModules().filter(m => enrolled.includes(m.courseId));
+    const modules = DB.studentContent('module', user.id);
     container.innerHTML = `
       <div class="card">
         <div class="card-header">
@@ -1153,7 +1169,7 @@
   function renderRekamanSection(container, user) {
     const enrolled = DB.getEnrollmentsByStudent(user.id).map(e => e.courseId);
     const courses = enrolled.map(cid => DB.getCourse(cid)).filter(Boolean);
-    const recs = DB.getRecordings().filter(r => enrolled.includes(r.courseId)).sort((a, b) => b.recordedAt - a.recordedAt);
+    const recs = DB.studentContent('recording', user.id).sort((a, b) => b.recordedAt - a.recordedAt);
     container.innerHTML = `
       <div class="card">
         <div class="card-header">

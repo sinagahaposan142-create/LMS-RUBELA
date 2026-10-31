@@ -157,6 +157,7 @@
     `;
 
     const reload = () => renderCbtHome(container, user);
+    Visibility.bind(container, user, reload);
     const statusOf = (c) => c.endAt < now ? 'done' : (c.startAt <= now ? 'live' : 'upcoming');
     const cbtCourses = [...new Set(cbts.flatMap(c => (c.courseIds && c.courseIds.length) ? c.courseIds : (c.courseId ? [c.courseId] : [])))]
       .map(id => DB.getCourse(id)).filter(Boolean);
@@ -172,6 +173,7 @@
           options: [{ value: 'live', label: 'Berlangsung' }, { value: 'upcoming', label: 'Akan datang' }, { value: 'done', label: 'Selesai' }] },
         { key: 'mode', label: 'Semua mode', get: c => c.subtestMode || 'custom',
           options: [{ value: 'full', label: '7 Subtest' }, { value: 'single', label: '1 Subtest' }, { value: 'custom', label: 'Custom' }] },
+        { key: 'act', label: 'Aktif & nonaktif', get: c => c.active === false ? 'off' : 'on', options: [{ value: 'on', label: 'Aktif' }, { value: 'off', label: 'Nonaktif' }] },
         { key: 'course', label: 'Semua kelas', get: c => (c.courseIds && c.courseIds.length) ? c.courseIds : (c.courseId ? [c.courseId] : []),
           options: cbtCourses.map(c => ({ value: c.id, label: DB.courseTitle(c) })) }
       ],
@@ -226,6 +228,7 @@
                   ? `<button class="btn btn-sm btn-secondary" data-edit-cbt="${c.id}">Edit</button>
                      <button class="btn btn-sm btn-danger" data-del-cbt="${c.id}">Hapus</button>`
                   : `<span class="lock-note">🔒 milik ${UI.esc(DB.contentOwnerName(c, DB.getCourse(c.courseId)) || 'tutor lain')}</span>`}
+                ${Visibility.controlsHtml('cbt', c, user)}
               </td>
             </tr>`;
           }).join('')}</tbody>

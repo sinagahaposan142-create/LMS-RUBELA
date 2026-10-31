@@ -199,6 +199,23 @@ Hasil audit lengkap 23 poin permintaan beserta buktinya ada di
   bingkai foto, poin hadiah (diatur admin), animasi membuka kado, moderasi & laporan pesan.
 - **Admin & Staff**, **Notifikasi & Riwayat Aktivitas**, tanggal lahir & foto profil di semua form akun.
 
+### Fitur Ronde 8 (detail: `docs/AUDIT-FITUR-RONDE-8.md`)
+- **Streak & gamifikasi**: 11 jenis aktivitas dengan kriteria jelas (login dipisahkan dari belajar), current/longest streak,
+  hari aktif, weekly/monthly streak, daily goal, XP & level, milestone 3–365 hari + batch (174 hari, dapat diperpanjang admin),
+  Streak Freeze dengan aturan admin, pengingat sebelum streak putus, riwayat terverifikasi (rantai hash), leaderboard & perbandingan teman (opt-in).
+- **Kampus Danau Rubela**: ilustrasi SVG danau dengan lima gedung rektorat (nama & sumber peringkat dapat diubah admin),
+  suasana waktu & cuaca, elemen yang terbuka sesuai milestone, hotspot interaktif.
+- **Arena Belajar**: tantangan harian, mini quiz, latihan soal, Reading Text + soal pemahaman (dikelola admin), Games Area.
+- **Mesin Waktu**: surat untuk diri sendiri, terenkripsi AES-GCM di perangkat dengan kode F2 (PBKDF2 600.000 iterasi),
+  Recovery Key, pembatasan percobaan, countdown, animasi amplop, kartu kenangan. Admin hanya melihat data operasional.
+- **Musik latar global**: unggah MP3/WAV/OGG tervalidasi (signature, ukuran, durasi, kuota, lisensi), playlist & suasana,
+  pemutar mini yang tidak restart saat berpindah menu, otomatis berhenti saat ujian.
+- **Ayat Harian** sesuai agama mentee (dikelola admin, berganti tiap hari).
+- **Course Mandiri** tanpa tutor: katalog, halaman course, kurikulum, pemutar pelajaran, kuis, catatan, sertifikat.
+- **Aktifkan / Matikan / Aktifkan ulang** untuk kelas, materi, modul, rekaman, tugas, tryout/CBT, course & pelajaran,
+  serta kebijakan "siswa baru hanya melihat konten baru" untuk kelas dan course.
+- **Chat** kini selalu menampilkan kotak ketik di semua ukuran layar (satu panel di ponsel/tablet).
+
 ## Arsitektur Data (semua tersinkronisasi)
 
 Semua entitas direlasikan via ID, jadi update/hapus satu entitas otomatis konsisten di seluruh panel:
@@ -247,7 +264,7 @@ Tekan *Export Excel* untuk mengunduh template berisi kolom lengkap (termasuk dat
 | Data | Kolom |
 |------|-------|
 | Guru | Nama, Username, **Password**, Email, WhatsApp, Subtest, Tarif Gaji, Tanggal Lahir, Status |
-| Siswa | Nama, Username, **Password**, Email, Telepon, Kelas, Universitas Tujuan, Jurusan Tujuan, Tanggal Lahir, Status |
+| Siswa | Nama, Username, **Password**, Email, Telepon, Kelas, Universitas Tujuan, Jurusan Tujuan, Tanggal Lahir, Agama, Status |
 | Orang Tua | Nama, Username, **Password**, Email, Telepon, Hubungan, **Username Anak** (pisahkan koma), Status |
 | Kelas | Judul Kelas, Subtest, Kelas Utama, Username Guru (boleh beberapa), Hari, Jam Mulai, Jam Selesai, Tanggal Mulai, Jumlah Pertemuan, Tautan Kelas, Kategori, Deskripsi, Biaya, Password |
 | Bank Soal | Subtest, Format, Tingkat, Pertanyaan, A, B, C, D, E, Kunci, Pembahasan |
@@ -334,11 +351,19 @@ LMS-RUBELA/
     ├── data-search.js   # Pencarian/filter/sort/pagination bersama untuk semua daftar
     ├── attendance-insights.js # Ring, grafik, rekap & riwayat persentase kehadiran
     ├── birthday.js      # Banner ulang tahun, Birthday Wall, hadiah, moderasi
+    ├── idb.js           # Penyimpanan berkas besar (IndexedDB): audio musik & lampiran terenkripsi
+    ├── visibility.js    # Kontrol Aktifkan / Matikan / Aktifkan ulang konten
+    ├── streak.js        # Streak API, Kampus Danau, statistik, leaderboard, pengaturan admin
+    ├── arena.js         # Arena Belajar: tantangan, mini quiz, latihan, Reading Text, games
+    ├── verses.js        # Ayat Harian sesuai agama
+    ├── course-hub.js    # Course mandiri (admin, tanpa tutor) + pemutar pelajaran
+    ├── timecapsule.js   # Mesin Waktu + enkripsi F2 & Recovery Key
+    ├── music.js         # Musik latar global + pengelola admin
     ├── dashboard.js     # Router role-based + sidebar + pusat notifikasi + tema + drawer mobile
-    ├── admin.js         # Panel Admin (27 menu, termasuk Admin & Staff, Ulang Tahun, Notifikasi & Aktivitas)
-    ├── guru.js          # Panel Guru (21 menu)
-    ├── siswa.js         # Panel Siswa (20 menu)
-    └── orangtua.js      # Panel Orang Tua (15 menu pemantauan)
+    ├── admin.js         # Panel Admin (33 menu)
+    ├── guru.js          # Panel Guru (22 menu)
+    ├── siswa.js         # Panel Siswa (25 menu)
+    └── orangtua.js      # Panel Orang Tua (17 menu pemantauan)
 ```
 
 ## Tips

@@ -30,6 +30,7 @@
       return renderMyCourses(container, user);
     }
     if (section === 'modul') return renderModulSection(container, user);
+    if (section === 'streak-siswa') return StreakAPI.renderTutor(container, user);
     if (section === 'rekaman') return renderRekamanSection(container, user);
     // Bank soal & CBT memakai workspace khusus bersama (js/cbt.js)
     if (section === 'bank-soal') return CbtAdmin.renderBankHome(container, user);
@@ -369,9 +370,10 @@
               <div class="meta">${credit(m, course)} • Dibuat ${UI.fmtDate(m.createdAt)}${m.updatedAt ? ` • Diubah ${UI.fmtDate(m.updatedAt)}` : ''}</div>
               <div class="content rt-content">${RichText.render(m.content || '')}</div>
               ${m.link ? `<div class="mt-1"><a href="${UI.esc(m.link)}" target="_blank" rel="noopener">Buka tautan →</a></div>` : ''}
-              <div class="flex-gap mt-1">${ownerActionsHtml(user, m, course, 'data-edit-mat', 'data-del-mat')}</div>
+              <div class="flex-gap mt-1">${ownerActionsHtml(user, m, course, 'data-edit-mat', 'data-del-mat')}${Visibility.controlsHtml('material', m, user)}</div>
             </div>`).join(''),
       onPaint: (res) => {
+        Visibility.bind(el, user, reload);
         res.querySelectorAll('[data-edit-mat]').forEach(b => b.addEventListener('click', () =>
           ContentEditor.openMaterial({ user, course, editId: b.dataset.editMat, onSaved: (r) => { if (r) reload(); } })));
         res.querySelectorAll('[data-del-mat]').forEach(b => b.addEventListener('click', () => {
@@ -417,6 +419,7 @@
                      <button class="btn btn-sm btn-secondary" data-edit-asg="${a.id}">Edit</button>
                      <button class="btn btn-sm btn-danger" data-del-asg="${a.id}">Hapus</button>`
                   : `<span class="lock-note">🔒 Hanya ${UI.esc(DB.contentOwnerName(a, course) || 'tutor pembuat')} yang dapat menyunting & menilai tugas ini</span>`}
+                ${Visibility.controlsHtml('assignment', a, user)}
               </div>
             </div>`;
         }).join('')}
@@ -424,6 +427,7 @@
     `;
     document.getElementById('addAsgBtn').addEventListener('click', () =>
       ContentEditor.openAssignment({ user, course, onSaved: (r) => { if (r) reload(); } }));
+    Visibility.bind(el, user, reload);
     el.querySelectorAll('[data-edit-asg]').forEach(b => b.addEventListener('click', () =>
       ContentEditor.openAssignment({ user, course, editId: b.dataset.editAsg, onSaved: (r) => { if (r) reload(); } })));
     el.querySelectorAll('[data-del-asg]').forEach(b => b.addEventListener('click', () => {
@@ -790,6 +794,7 @@
         subject: fd.get('subject').trim()
       };
       patch.birthDate = birthDate;
+      patch.religion = ProfileFields.religionOf(fd);
       patch.photo = photoField.value();
       const pw = fd.get('password');
       if (pw) patch.password = pw;
@@ -819,6 +824,7 @@
     document.getElementById('addModBtn').addEventListener('click', () =>
       ContentEditor.openModule({ user, course, onSaved: (r) => { if (r) renderModulesTab(el, course, user); } }));
     bindModuleActions(el, course, user);
+    Visibility.bind(el, user, () => renderModulesTab(el, course, user));
   }
 
   function moduleCardHtml(m, ownerActions, course, user) {
@@ -839,6 +845,7 @@
         </div>
         ${ownerActions && user ? `<div class="module-section flex-gap">
           ${ownerActionsHtml(user, m, c, 'data-edit-mod', 'data-del-mod')}
+          ${Visibility.controlsHtml('module', m, user)}
         </div>` : ''}
       </div>
     `;
@@ -876,12 +883,13 @@
             <div class="meta">${credit(r, course)}</div>
             ${Shared.videoEmbedHtml(r.url)}
             ${r.notes ? `<div class="content rt-content">${RichText.render(r.notes)}</div>` : ''}
-            <div class="flex-gap mt-1">${ownerActionsHtml(user, r, course, 'data-edit-rec', 'data-del-rec')}</div>
+            <div class="flex-gap mt-1">${ownerActionsHtml(user, r, course, 'data-edit-rec', 'data-del-rec')}${Visibility.controlsHtml('recording', r, user)}</div>
           </div>`).join('')}
       </div>
     `;
     document.getElementById('addRecBtn').addEventListener('click', () =>
       ContentEditor.openRecording({ user, course, onSaved: (r) => { if (r) reload(); } }));
+    Visibility.bind(el, user, reload);
     el.querySelectorAll('[data-edit-rec]').forEach(b => b.addEventListener('click', () =>
       ContentEditor.openRecording({ user, course, editId: b.dataset.editRec, onSaved: (r) => { if (r) reload(); } })));
     el.querySelectorAll('[data-del-rec]').forEach(b => b.addEventListener('click', () => {
@@ -930,12 +938,14 @@
                 ? `<button class="btn btn-sm btn-secondary" data-edit-cbt="${c.id}">Edit</button>
                    <button class="btn btn-sm btn-danger" data-del-cbt="${c.id}">Hapus</button>`
                 : `<span class="lock-note">🔒 Hanya ${UI.esc(DB.contentOwnerName(c, course) || 'tutor pembuat')} yang dapat mengubah ujian ini</span>`}
+              ${Visibility.controlsHtml('cbt', c, user)}
             </div>
           </div>`;
         }).join('')}
       </div>
     `;
     document.getElementById('addCbtBtn').addEventListener('click', () => startCbtWizard(course, user, null, reload));
+    Visibility.bind(el, user, reload);
     el.querySelectorAll('[data-edit-cbt]').forEach(b => b.addEventListener('click', () => {
       const c = DB.getCbt(b.dataset.editCbt);
       if (!DB.canManageContent(user, c, course)) { UI.toast('Hanya tutor pembuatnya yang dapat mengubah ujian ini.', 'error'); return; }

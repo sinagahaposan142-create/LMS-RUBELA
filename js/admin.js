@@ -11,6 +11,12 @@
     if (section === 'siswa') return renderUsers(container, 'siswa');
     if (section === 'orangtua') return renderParents(container);
     if (section === 'staff') return renderStaff(container, user);
+    if (section === 'streak-admin') return StreakAPI.renderAdmin(container, user);
+    if (section === 'arena-admin') return Arena.renderAdmin(container, user);
+    if (section === 'course-admin') return CourseHub.renderAdmin(container, user);
+    if (section === 'ayat-admin') return Verses.renderAdmin(container, user);
+    if (section === 'musik') return Music.renderAdmin(container, user);
+    if (section === 'mesin-waktu-admin') return TimeCapsule.renderAdmin(container, user);
     if (section === 'courses') {
       if (adminCourseId) return renderAdminCourseDetail(container, adminCourseId, user);
       return renderCourses(container);
@@ -196,7 +202,7 @@
             ${isGuru
               ? '<strong>WhatsApp</strong>, <strong>Subtest</strong>, <strong>Tarif Gaji</strong>'
               : '<strong>Telepon</strong>, <strong>Kelas</strong>, <strong>Universitas Tujuan</strong>, <strong>Jurusan Tujuan</strong>'},
-            <strong>Tanggal Lahir</strong> (format YYYY-MM-DD atau sel tanggal Excel),
+            <strong>Tanggal Lahir</strong> (format YYYY-MM-DD atau sel tanggal Excel), <strong>Agama</strong> (${DB.RELIGIONS.join(' / ')}),
             dan <strong>Status</strong>. Klik <em>Export Excel</em> untuk mendapatkan template dengan kolom lengkap.
             Bila kolom <strong>Password</strong> dikosongkan, akun dibuat dengan password <code>password123</code>.
           </p>
@@ -283,7 +289,7 @@
           Nama: u.name, Username: u.username, Password: u.password || '', Email: u.email || '',
           Telepon: u.phone || '', Kelas: u.kelas || '',
           'Universitas Tujuan': u.targetUniv || '', 'Jurusan Tujuan': u.targetMajor || '',
-          'Tanggal Lahir': u.birthDate || '', Status: u.status || 'Aktif'
+          'Tanggal Lahir': u.birthDate || '', Agama: u.religion || '', Status: u.status || 'Aktif'
         }));
       }
       // Baris contoh agar kolom tetap terlihat walau data masih kosong
@@ -293,7 +299,7 @@
               WhatsApp: '08123456789', Subtest: DB.SUBTESTS[0].name, 'Tarif Gaji': 3000000, 'Tanggal Lahir': '1995-08-17', Status: 'Aktif' }
           : { Nama: 'Contoh Siswa', Username: 'siswa_baru', Password: 'password123', Email: 'siswa@rubela.edu',
               Telepon: '08123456789', Kelas: (DB.getClassOptions()[0] || 'X-A'),
-              'Universitas Tujuan': 'Universitas Indonesia', 'Jurusan Tujuan': 'Teknik Informatika', 'Tanggal Lahir': '2008-05-21', Status: 'Aktif' }];
+              'Universitas Tujuan': 'Universitas Indonesia', 'Jurusan Tujuan': 'Teknik Informatika', 'Tanggal Lahir': '2008-05-21', Agama: 'Islam', Status: 'Aktif' }];
       }
       if (typeof XLSX === 'undefined') { UI.toast('Library Excel belum termuat. Coba reload halaman.', 'error'); return; }
       const ws = XLSX.utils.json_to_sheet(rows);
@@ -329,6 +335,9 @@
             const record = { id: DB.uid('u'), role, name, username, email, password, status: (row.Status || row.status || 'Aktif') };
             const bd = normBirthDate(row['Tanggal Lahir'] != null ? row['Tanggal Lahir'] : row.birthDate);
             if (bd) record.birthDate = bd;
+            const rel = String(row.Agama || row.agama || '').trim();
+            const relMatch = DB.RELIGIONS.find(r => r.toLowerCase() === rel.toLowerCase());
+            if (relMatch) record.religion = relMatch;
             if (isGuru) {
               record.subject = row.Subtest || row.subtest || row['Mata Pelajaran'] || '';
               record.whatsapp = String(row.WhatsApp || row.whatsapp || row.WA || '');
@@ -377,8 +386,16 @@
     if (ymd < '1930-01-01') return 'Tanggal lahir terlalu lampau.';
     return '';
   }
+  function religionOf(fd) {
+    const r = String(fd.get('religion') || '');
+    return DB.RELIGIONS.includes(r) ? r : '';
+  }
   function profileExtraFields(editing) {
-    return `<div class="form-row">
+    return `<div class="form-group"><label>Agama</label>
+            <select name="religion"><option value="">— tidak diisi —</option>
+              ${DB.RELIGIONS.map(r => `<option value="${UI.esc(r)}" ${editing?.religion === r ? 'selected' : ''}>${UI.esc(r)}</option>`).join('')}</select>
+            <div class="muted small">Dipakai untuk menampilkan ayat harian sesuai agama mentee.</div></div>
+          <div class="form-row">
             <div class="form-group"><label>Tanggal Lahir</label>
               <input type="date" name="birthDate" max="${UI.todayYMD()}" value="${UI.esc(editing?.birthDate || '')}" />
               <div class="muted small">Opsional. Ulang tahun mentee dirayakan otomatis.</div></div>
@@ -413,7 +430,7 @@
     del.addEventListener('click', () => { value = ''; paint(); });
     return { value: () => value };
   }
-  global.ProfileFields = { profileExtraFields, bindPhotoField, validateBirthDate };
+  global.ProfileFields = { profileExtraFields, bindPhotoField, validateBirthDate, religionOf };
 
   function openUserForm(role, editId) {
     const isGuru = role === 'guru';
@@ -567,7 +584,7 @@
           err.classList.remove('hidden');
           return;
         }
-        const record = { id: DB.uid('u'), role, name, username, email, password, status, birthDate, photo: photo.value() };
+        const record = { id: DB.uid('u'), role, name, username, email, password, status, birthDate, photo: photo.value(), religion: religionOf(fd) };
         if (isGuru) {
           record.subject = currentSubject();
           record.whatsapp = fd.get('whatsapp').trim();
@@ -586,7 +603,7 @@
           err.classList.remove('hidden');
           return;
         }
-        const patch = { name, email, status, birthDate, photo: photo.value() };
+        const patch = { name, email, status, birthDate, photo: photo.value(), religion: religionOf(fd) };
         if (isGuru) {
           patch.subject = currentSubject();
           patch.whatsapp = fd.get('whatsapp').trim();
@@ -638,6 +655,7 @@
       </div>
     `;
 
+    Visibility.bind(container, currentUser, () => renderCourses(container, currentUser));
     const bindRows = (box) => {
       box.querySelectorAll('[data-set-pw]').forEach(b => b.addEventListener('click', () => {
         Shared.openCoursePasswordForm(b.dataset.setPw, () => renderCourses(container, currentUser));
@@ -670,6 +688,7 @@
         { key: 'main', label: 'Semua kelas utama', get: c => c.mainClasses || [], options: DB.getMainClasses().map(k => ({ value: k, label: k })) },
         { key: 'tutor', label: 'Semua tutor', get: c => DB.courseTeacherIds(c),
           options: DB.getUsers().filter(u => u.role === 'guru').map(u => ({ value: u.id, label: u.name })) },
+        { key: 'act', label: 'Aktif & nonaktif', get: c => c.active === false ? 'off' : 'on', options: [{ value: 'on', label: 'Aktif' }, { value: 'off', label: 'Nonaktif' }] },
         { key: 'lock', label: 'Semua akses', get: c => DB.hasCoursePassword(c.id) ? 'locked' : 'open',
           options: [{ value: 'locked', label: '🔒 Berpassword' }, { value: 'open', label: 'Terbuka' }] }
       ],
@@ -681,7 +700,7 @@
       pageSize: 15,
       empty: 'Belum ada kelas.',
       render: (rows, ctx) => `<div class="table-wrap"><table class="table">
-          <thead><tr><th>Kelas</th><th>Subtest</th><th>Kelas Utama</th><th>Tutor</th><th>Jadwal</th><th>Password</th><th>Siswa</th><th>Aksi</th></tr></thead>
+          <thead><tr><th>Kelas</th><th>Subtest</th><th>Kelas Utama</th><th>Tutor</th><th>Jadwal</th><th>Password</th><th>Siswa</th><th>Status</th><th>Aksi</th></tr></thead>
           <tbody>
             ${rows.map(c => {
               const tutors = DB.courseTeachers(c);
@@ -706,10 +725,13 @@
                   <button class="btn btn-sm btn-secondary" data-set-pw="${c.id}" style="margin-left:6px;">Atur</button>
                 </td>
                 <td>${enrollCount}</td>
+                <td>${c.active === false ? '<span class="badge badge-gray">Nonaktif</span>' : '<span class="badge badge-success">Aktif</span>'}
+                  ${c.newStudentPolicy === 'fromJoin' ? '<div class="muted small">siswa baru: konten baru</div>' : ''}</td>
                 <td class="actions">
                   <button class="btn btn-sm btn-primary" data-open-course="${c.id}">📂 Lihat Kelas</button>
                   <button class="btn btn-sm btn-secondary" data-manage-students="${c.id}">Kelola Siswa</button>
                   <button class="btn btn-sm btn-secondary" data-edit-course="${c.id}">Edit</button>
+                  <button class="btn btn-sm btn-secondary" data-vis-toggle="course:${c.id}" data-on="${c.active === false ? 0 : 1}">${c.active === false ? '▶ Aktifkan' : '⏸ Matikan'}</button>
                   <button class="btn btn-sm btn-danger" data-del="${c.id}">Hapus</button>
                 </td>
               </tr>`;
@@ -943,6 +965,15 @@
           <strong>Jelajah Kelas</strong>. Pendaftaran lewat kelas utama tidak memerlukan password.</p>
         </div>
 
+        <div class="form-row">
+          <div class="form-group"><label>Status kelas</label>
+            <select name="active"><option value="1" ${editing?.active !== false ? 'selected' : ''}>Aktif — terlihat siswa</option>
+              <option value="0" ${editing?.active === false ? 'selected' : ''}>Nonaktif — disembunyikan dari siswa & orang tua</option></select></div>
+          <div class="form-group"><label>Siswa yang bergabung belakangan</label>
+            <select name="newStudentPolicy"><option value="all" ${editing?.newStudentPolicy !== 'fromJoin' ? 'selected' : ''}>Langsung melihat semua materi, tugas & ujian</option>
+              <option value="fromJoin" ${editing?.newStudentPolicy === 'fromJoin' ? 'selected' : ''}>Hanya konten baru; konten lama dibuka lewat "Aktifkan ulang"</option></select></div>
+        </div>
+
         <div id="acPreview" class="alert alert-info"></div>
         <div class="flex-gap" style="justify-content:flex-end;">
           <button type="button" class="btn btn-secondary" id="cancelBtn">Batal</button>
@@ -1024,6 +1055,8 @@
         description: (fd.get('description') || '').trim(),
         password: (fd.get('password') || '').trim(),
         meetingLink: (fd.get('meetingLink') || '').trim(),
+        active: fd.get('active') !== '0',
+        newStudentPolicy: fd.get('newStudentPolicy') === 'fromJoin' ? 'fromJoin' : 'all',
         schedule: {
           days,
           time: fd.get('time') || '',
@@ -2645,7 +2678,7 @@
       const data = {
         name: String(fd.get('name')).trim(), email: String(fd.get('email') || '').trim(),
         position: String(fd.get('position') || '').trim(), phone: String(fd.get('phone') || '').trim(),
-        birthDate, photo: photo.value()
+        birthDate, photo: photo.value(), religion: religionOf(fd)
       };
       if (!data.name) return fail('Nama wajib diisi.');
       if (!(editing && editing.id === me.id)) data.status = fd.get('status') || 'Aktif';

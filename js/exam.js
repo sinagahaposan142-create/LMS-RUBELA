@@ -132,6 +132,11 @@
    * Entry point
    * ===================================================================*/
   function start(cbt, user, onFinish) {
+    const fresh = cbt && DB.getCbt(cbt.id);
+    if (!fresh || (user.role === 'siswa' && !DB.getCbtsForStudent(user.id).some(c => c.id === cbt.id))) {
+      UI.toast('Ujian ini sedang dinonaktifkan atau tidak tersedia untukmu.', 'error');
+      return;
+    }
     const sections = DB.cbtSections(cbt);
     if (sections.length === 0) {
       UI.toast('Ujian ini belum memiliki soal.', 'error');

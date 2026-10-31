@@ -22,6 +22,12 @@
       { key: 'kalender', label: 'Kalender', icon: '📅' },
       { key: 'pengumuman', label: 'Pengumuman', icon: '📢' },
       { key: 'motivasi', label: 'Kata Motivasi', icon: '💡' },
+      { key: 'streak-admin', label: 'Streak & Gamifikasi', icon: '🔥' },
+      { key: 'arena-admin', label: 'Arena Belajar', icon: '🎮' },
+      { key: 'course-admin', label: 'Course Mandiri', icon: '🎓' },
+      { key: 'ayat-admin', label: 'Ayat Harian', icon: '📖' },
+      { key: 'musik', label: 'Musik Latar', icon: '🎵' },
+      { key: 'mesin-waktu-admin', label: 'Mesin Waktu', icon: '⏳' },
       { key: 'birthday', label: 'Ulang Tahun', icon: '🎂' },
       { key: 'notifikasi', label: 'Notifikasi & Aktivitas', icon: '🔔' },
       { key: 'feedback', label: 'Kritik & Saran', icon: '💬' },
@@ -44,6 +50,7 @@
       { key: 'absensi', label: 'Presensi', icon: '📋' },
       { key: 'jadwal-kelas', label: 'Jadwal & War Jadwal', icon: '🗓️' },
       { key: 'rekap', label: 'Rekapan Kelas', icon: '📈' },
+      { key: 'streak-siswa', label: 'Streak Siswa', icon: '🔥' },
       { key: 'leaderboard', label: 'Papan Peringkat', icon: '🏆' },
       { key: 'kalender', label: 'Kalender', icon: '📅' },
       { key: 'pengumuman', label: 'Pengumuman', icon: '📢' },
@@ -58,7 +65,10 @@
     ],
     siswa: [
       { key: 'overview', label: 'Overview', icon: '📊' },
+      { key: 'streak', label: 'Streak Belajar', icon: '🔥' },
+      { key: 'arena', label: 'Arena Belajar', icon: '🎮' },
       { key: 'my-courses', label: 'Kelas Saya', icon: '📚' },
+      { key: 'course', label: 'Course', icon: '🎓' },
       { key: 'browse', label: 'Jelajah Kelas', icon: '🔎' },
       { key: 'modul', label: 'Modul', icon: '📘' },
       { key: 'rekaman', label: 'Rekaman Kelas', icon: '🎥' },
@@ -69,6 +79,8 @@
       { key: 'jadwal-siswa', label: 'Jadwal Kelas', icon: '🗓️' },
       { key: 'leaderboard', label: 'Papan Peringkat', icon: '🥇' },
       { key: 'ai-tools', label: 'AI Tools', icon: '🤖' },
+      { key: 'ayat', label: 'Ayat Harian', icon: '📖' },
+      { key: 'mesin-waktu', label: 'Mesin Waktu', icon: '⏳' },
       { key: 'kalender', label: 'Kalender', icon: '📅' },
       { key: 'pengumuman', label: 'Pengumuman', icon: '📢' },
       { key: 'birthday', label: 'Ulang Tahun', icon: '🎂' },
@@ -85,6 +97,8 @@
       { key: 'anak-tugas', label: 'Tugas', icon: '📝' },
       { key: 'anak-kelas', label: 'Kelas & Guru', icon: '📚' },
       { key: 'anak-perkembangan', label: 'Perkembangan', icon: '📈' },
+      { key: 'anak-streak', label: 'Streak Anak', icon: '🔥' },
+      { key: 'anak-course', label: 'Course Anak', icon: '🎓' },
       { key: 'anak-jadwal', label: 'Jadwal Kelas', icon: '🗓️' },
       { key: 'keuangan', label: 'Pembayaran', icon: '💰' },
       { key: 'kalender', label: 'Kalender', icon: '📅' },
@@ -162,6 +176,10 @@
     document.getElementById('pageTitle').textContent = navItem ? navItem.label : 'Dashboard';
     const content = document.getElementById('content');
     if (window.Whiteboard) Whiteboard.destroy();
+    // Ruang pribadi Mesin Waktu terkunci kembali setiap kali halaman ditinggalkan.
+    if (window.TimeCapsule) TimeCapsule.lock();
+    if (window.Arena) Arena.stop();
+    if (window.CourseHub && key !== 'course' && key !== 'course-admin') CourseHub.reset();
     if (content.__presenceDispose) {
       content.__presenceDispose();
       delete content.__presenceDispose;
@@ -398,6 +416,8 @@
 
   /* ================= Shell wiring ================= */
   document.getElementById('logoutBtn').addEventListener('click', () => {
+    if (window.TimeCapsule) TimeCapsule.lock();
+    if (window.Music) Music.destroy();
     UI.toast('Sampai jumpa, ' + user.name.split(' ')[0] + '! 👋', 'info');
     setTimeout(Auth.logout, 420);
   });
@@ -425,6 +445,11 @@
 
   // Notifikasi ulang tahun dikirim sebelum lonceng pertama kali digambar.
   if (window.Birthday) { try { Birthday.ensureNotifications(); } catch (e) { console.warn('[LMS] notifikasi ulang tahun', e); } }
+  // Streak: catat login harian (bukan aktivitas belajar) & pengingat sebelum streak putus.
+  const streakTick = () => { if (window.StreakAPI) { try { StreakAPI.tick(user); } catch (e) { console.warn('[LMS] streak', e); } } };
+  streakTick();
+  setInterval(streakTick, 5 * 60 * 1000);
+  if (user.role === 'siswa') { try { DB.notifyReadyCapsules(user.id); } catch (e) { console.warn('[LMS] mesin waktu', e); } }
   renderSidebar();
   document.getElementById('clockContainer').innerHTML = UI.clockWidgetHtml();
   UI.startClock();
@@ -468,6 +493,8 @@
   }
 
   navigate('overview');
+  // Musik latar hidup di shell sehingga tidak dimulai ulang saat berpindah menu.
+  if (window.Music) { try { Music.init(user); } catch (e) { console.warn('[LMS] musik', e); } }
 
   // Greet the user once per session
   UI.toast(`${UI.greeting()}, ${user.name.split(' ')[0]}! 👋`, 'info');

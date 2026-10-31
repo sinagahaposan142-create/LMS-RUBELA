@@ -52,7 +52,10 @@
     'lms_class_options', 'lms_events', 'lms_batches', 'lms_feedbacks',
     'lms_announcements', 'lms_messages', 'lms_presence_v1',
     'lms_schema_version', 'lms_birthday_wishes', 'lms_birthday_rewards',
-    'lms_activity_log', 'lms_birthday_notified', 'lms_whiteboard_boards'
+    'lms_activity_log', 'lms_birthday_notified', 'lms_whiteboard_boards',
+    'lms_learning_log', 'lms_streak_grants', 'lms_reading_texts', 'lms_verses',
+    'lms_hub_courses', 'lms_hub_progress', 'lms_capsule_vaults', 'lms_capsules',
+    'lms_music_tracks'
   ];
 
   /* ===== Hari & jadwal ===== */
@@ -86,6 +89,56 @@
   const DIFFICULTIES = ['mudah', 'sedang', 'sulit'];
   /** Penanda "berlaku untuk semua kelas" pada targetClasses sebuah CBT. */
   const ALL_CLASSES = '__ALL__';
+
+  /* ===== Aktivitas belajar (Streak API) =====
+   * learning:false → tidak menyalakan streak (login).
+   * derived:true   → dihitung dari tabel resmi (submission, attempt, presensi),
+   *                  bukan dari laporan klien, sehingga tidak dapat dipalsukan
+   *                  lewat pencatatan aktivitas.
+   * cap            → jumlah per hari yang masih memberi XP; lebih dari itu tetap
+   *                  tercatat (riwayat) tetapi XP 0.
+   */
+  const LEARNING_TYPES = {
+    login:     { label: 'Login harian', icon: '🔑', learning: false, xp: 2, cap: 1,
+                 criteria: 'Masuk ke dashboard. Tidak dihitung sebagai aktivitas belajar.' },
+    latihan:   { label: 'Latihan soal', icon: '🧮', learning: true, xp: 10, cap: 5, minSec: 30, minAnswered: 5,
+                 criteria: 'Menjawab minimal 5 soal latihan dalam satu sesi (≥ 30 detik) lalu menekan Selesai.' },
+    miniquiz:  { label: 'Mini quiz', icon: '⚡', learning: true, xp: 15, cap: 3, minSec: 20, minAnswered: 5,
+                 criteria: 'Menjawab seluruh 5 soal mini quiz lalu mengumpulkannya (≥ 20 detik).' },
+    materi:    { label: 'Membaca materi', icon: '📖', learning: true, xp: 8, cap: 10, minSec: 40, oncePerRef: true,
+                 criteria: 'Membuka materi/pelajaran minimal 40 detik lalu menekan "Selesai dibaca". Satu materi hanya dihitung sekali.' },
+    reading:   { label: 'Reading Text', icon: '📰', learning: true, xp: 15, cap: 3, minSec: 45,
+                 criteria: 'Membaca teks (waktu minimal menyesuaikan panjang teks) dan menjawab semua soal pemahaman.' },
+    tryout:    { label: 'Tryout / CBT', icon: '🖥️', learning: true, xp: 30, cap: 3, derived: true,
+                 criteria: 'Mengumpulkan ujian CBT/tryout (tercatat otomatis dari hasil ujian).' },
+    tugas:     { label: 'Mengumpulkan tugas', icon: '📝', learning: true, xp: 20, cap: 5, derived: true,
+                 criteria: 'Mengumpulkan tugas kelas (tercatat otomatis dari pengumpulan).' },
+    kelas:     { label: 'Mengikuti kelas', icon: '🏫', learning: true, xp: 15, cap: 3, derived: true,
+                 criteria: 'Tercatat Hadir/Terlambat oleh tutor pada presensi kelas.' },
+    target:    { label: 'Target harian', icon: '🎯', learning: true, xp: 10, cap: 1, derived: true,
+                 criteria: 'Menyelesaikan jumlah jenis aktivitas belajar berbeda sesuai target harian.' },
+    tantangan: { label: 'Tantangan harian', icon: '🏆', learning: true, xp: 12, cap: 1, minSec: 5, minAnswered: 1,
+                 criteria: 'Menjawab 1 soal tantangan akademik hari ini (sekali per hari).' },
+    games:     { label: 'Games Area', icon: '🎮', learning: true, xp: 6, cap: 3, minSec: 20, minScore: 6,
+                 criteria: 'Menuntaskan 1 ronde game edukasi dengan skor minimal yang ditentukan.' }
+  };
+  /* Token sesi aktivitas hanya hidup di memori halaman (tidak di localStorage):
+   * durasi dihitung dari waktu token diterbitkan, bukan dari angka kiriman klien. */
+  const learningTokens = new Map();
+  const LOG_PEPPER = 'rubela-lrn-v1';
+  function fnv1a(str) {
+    let h = 0x811c9dc5;
+    for (let i = 0; i < str.length; i++) { h ^= str.charCodeAt(i); h = Math.imul(h, 0x01000193) >>> 0; }
+    return ('0000000' + h.toString(16)).slice(-8);
+  }
+  function chainHash(e) {
+    const base = [LOG_PEPPER, e.prev, e.id, e.userId, e.type, e.refId, e.day, e.at, e.xp, e.learning ? 1 : 0].join('|');
+    return fnv1a(base) + fnv1a(base.split('').reverse().join(''));
+  }
+  function sessionActor() {
+    try { return JSON.parse(localStorage.getItem('lms_session') || 'null'); } catch (e) { return null; }
+  }
+  const RELIGIONS = ['Islam', 'Kristen Protestan', 'Katolik', 'Hindu', 'Buddha', 'Konghucu'];
 
   /* ===== Jenis pemasukan =====
    * Pemasukan bimbel tidak hanya SPP: ada denda keterlambatan, denda
@@ -128,7 +181,7 @@
    * menghapus seluruh data pengguna, sedangkan migrasi ini hanya menambah
    * field yang belum ada (idempoten) sehingga data lama tetap utuh. */
   const SCHEMA_KEY = 'lms_schema_version';
-  const SCHEMA_VERSION = 2;
+  const SCHEMA_VERSION = 3;
 
   /** Jenis konten kelas yang punya pencatatan pembuat. */
   const CONTENT_KINDS = {
@@ -816,6 +869,98 @@
    * Migrasi berversi yang aman: setiap langkah hanya MENAMBAH field yang belum
    * ada, tidak pernah menghapus data. Dijalankan berurutan sekali per versi.
    */
+  /* =====================================================================
+   * Konten awal ronde 8 (hanya dipasang sekali lewat migrasi v3)
+   * ===================================================================*/
+  /** Ayat motivasi belajar. Terjemahan WAJIB ditinjau admin/pemuka agama
+   *  sebelum dipakai resmi (ditandai reviewed:false). */
+  function seedVerses() {
+    const now = Date.now();
+    const V = (religion, reference, text, source) => ({
+      id: uid('verse'), religion, reference, text, source, active: true, reviewed: false, date: '', createdAt: now
+    });
+    return [
+      V('Islam', 'QS. Al-Insyirah [94]: 5–6', 'Maka sesungguhnya beserta kesulitan ada kemudahan. Sesungguhnya beserta kesulitan ada kemudahan.', 'Terjemahan Kemenag RI'),
+      V('Islam', 'QS. Al-Baqarah [2]: 286', 'Allah tidak membebani seseorang melainkan sesuai dengan kesanggupannya.', 'Terjemahan Kemenag RI'),
+      V('Islam', 'QS. Taha [20]: 114', '… dan katakanlah, "Ya Tuhanku, tambahkanlah ilmu kepadaku."', 'Terjemahan Kemenag RI'),
+      V('Islam', 'QS. Al-Mujadilah [58]: 11', '… niscaya Allah akan mengangkat (derajat) orang-orang yang beriman di antaramu dan orang-orang yang diberi ilmu beberapa derajat.', 'Terjemahan Kemenag RI'),
+      V('Kristen Protestan', 'Filipi 4:13', 'Segala perkara dapat kutanggung di dalam Dia yang memberi kekuatan kepadaku.', 'Alkitab Terjemahan Baru (LAI)'),
+      V('Kristen Protestan', 'Amsal 16:3', 'Serahkanlah perbuatanmu kepada TUHAN, maka terlaksanalah segala rencanamu.', 'Alkitab Terjemahan Baru (LAI)'),
+      V('Kristen Protestan', 'Kolose 3:23', 'Apa pun juga yang kamu perbuat, perbuatlah dengan segenap hatimu seperti untuk Tuhan dan bukan untuk manusia.', 'Alkitab Terjemahan Baru (LAI)'),
+      V('Katolik', 'Mazmur 119:105', 'Firman-Mu itu pelita bagi kakiku dan terang bagi jalanku.', 'Alkitab Deuterokanonika (LAI)'),
+      V('Katolik', 'Yeremia 29:11', 'Sebab Aku ini mengetahui rancangan-rancangan apa yang ada pada-Ku mengenai kamu, demikianlah firman TUHAN, yaitu rancangan damai sejahtera dan bukan rancangan kecelakaan, untuk memberikan kepadamu hari depan yang penuh harapan.', 'Alkitab Deuterokanonika (LAI)'),
+      V('Katolik', 'Filipi 4:6', 'Janganlah hendaknya kamu kuatir tentang apa pun juga, tetapi nyatakanlah dalam segala hal keinginanmu kepada Allah dalam doa dan permohonan dengan ucapan syukur.', 'Alkitab Deuterokanonika (LAI)'),
+      V('Hindu', 'Bhagavad Gita 2.47', 'Engkau berhak atas kerjamu, tetapi tidak atas hasilnya. Jangan jadikan hasil sebagai motif kerjamu, dan jangan pula terikat untuk tidak bekerja.', 'Terjemahan bebas — mohon ditinjau'),
+      V('Hindu', 'Bhagavad Gita 6.5', 'Hendaklah seseorang mengangkat dirinya dengan kekuatannya sendiri dan tidak merendahkan dirinya; sebab diri sendirilah sahabat sekaligus musuh bagi dirinya.', 'Terjemahan bebas — mohon ditinjau'),
+      V('Buddha', 'Dhammapada 276', 'Engkau sendirilah yang harus berusaha; para Tathagata hanya menunjukkan jalan.', 'Terjemahan bebas — mohon ditinjau'),
+      V('Buddha', 'Dhammapada 103', 'Walaupun seseorang dapat menaklukkan ribuan musuh dalam ribuan kali pertempuran, penakluk terbesar adalah dia yang dapat menaklukkan dirinya sendiri.', 'Terjemahan bebas — mohon ditinjau'),
+      V('Konghucu', 'Lunyu I : 1', 'Belajar dan selalu dilatih, tidakkah itu menyenangkan?', 'Kitab Sabda Suci — mohon ditinjau'),
+      V('Konghucu', 'Lunyu II : 15', 'Belajar tanpa berpikir akan sia-sia; berpikir tanpa belajar akan berbahaya.', 'Kitab Sabda Suci — mohon ditinjau')
+    ];
+  }
+
+  /** Teks bacaan dengan soal pemahaman (dapat diubah/dihapus admin). */
+  function seedReadingTexts() {
+    const now = Date.now();
+    return [
+      {
+        id: 'rt_tidur', title: 'Tidur dan Daya Ingat', subtest: 'Literasi dalam Bahasa Indonesia', level: 'sedang', active: true,
+        createdAt: now, createdBy: 'u_admin',
+        body: '<p>Banyak pelajar mengurangi jam tidur menjelang ujian karena merasa waktu belajar tidak cukup. Padahal, tidur bukan sekadar waktu istirahat. Saat tidur, otak memproses informasi yang dipelajari sepanjang hari dan memindahkannya dari ingatan jangka pendek ke ingatan jangka panjang. Proses ini disebut konsolidasi memori.</p><p>Penelitian di bidang ilmu saraf menunjukkan bahwa orang yang tidur cukup setelah belajar cenderung mengingat materi lebih baik dibandingkan orang yang begadang. Kurang tidur juga menurunkan kemampuan memusatkan perhatian, sehingga waktu belajar tambahan dari begadang sering kali tidak efektif.</p><p>Karena itu, strategi belajar yang baik bukan menambah jam belajar dengan mengorbankan tidur, melainkan membagi waktu belajar secara teratur sejak jauh hari dan menjaga jadwal tidur yang konsisten.</p>',
+        questions: [
+          { text: 'Apa gagasan utama teks tersebut?', options: ['Begadang membuat belajar lebih efektif', 'Tidur cukup membantu otak menyimpan materi yang dipelajari', 'Ujian sebaiknya ditunda bila kurang tidur', 'Ingatan jangka pendek lebih penting daripada jangka panjang'], correctIndex: 1 },
+          { text: 'Istilah "konsolidasi memori" dalam teks berarti …', options: ['proses lupa saat tidur', 'pemindahan informasi ke ingatan jangka panjang', 'kemampuan memusatkan perhatian', 'jadwal tidur yang teratur'], correctIndex: 1 },
+          { text: 'Saran penulis bagi pelajar adalah …', options: ['belajar semalam suntuk sebelum ujian', 'tidur lebih lama pada hari ujian saja', 'membagi waktu belajar sejak jauh hari dan tidur teratur', 'mengurangi jumlah materi yang dipelajari'], correctIndex: 2 }
+        ]
+      },
+      {
+        id: 'rt_sampah', title: 'Bank Sampah di Lingkungan Sekolah', subtest: 'Penalaran Umum', level: 'mudah', active: true,
+        createdAt: now, createdBy: 'u_admin',
+        body: '<p>Sebuah sekolah menengah membuka bank sampah. Setiap siswa dapat menyetorkan sampah plastik dan kertas yang sudah dipilah. Sampah ditimbang, lalu nilainya dicatat sebagai tabungan siswa. Setiap akhir semester, tabungan dapat ditukar dengan alat tulis.</p><p>Pada bulan pertama, sampah yang terkumpul mencapai 120 kg. Pada bulan ketiga, jumlahnya naik menjadi 210 kg karena kelas-kelas mulai berlomba mengumpulkan sampah. Namun, petugas mencatat bahwa sebagian sampah yang disetor belum dipilah dengan benar sehingga harus disortir ulang.</p><p>Pengelola bank sampah kemudian mengadakan pelatihan singkat cara memilah sampah. Setelah pelatihan, waktu yang dibutuhkan petugas untuk menyortir ulang berkurang hampir setengahnya.</p>',
+        questions: [
+          { text: 'Berapa kenaikan sampah yang terkumpul dari bulan pertama ke bulan ketiga?', options: ['60 kg', '90 kg', '120 kg', '210 kg'], correctIndex: 1 },
+          { text: 'Mengapa pengelola mengadakan pelatihan?', options: ['Agar jumlah sampah berkurang', 'Karena banyak sampah belum dipilah dengan benar', 'Untuk menambah nilai tabungan siswa', 'Karena alat tulis habis'], correctIndex: 1 },
+          { text: 'Kesimpulan yang PALING tepat berdasarkan teks adalah …', options: ['Pelatihan memilah sampah membuat kerja petugas lebih efisien', 'Bank sampah tidak bermanfaat bagi sekolah', 'Sampah kertas lebih bernilai daripada plastik', 'Perlombaan antarkelas menurunkan jumlah sampah'], correctIndex: 0 }
+        ]
+      }
+    ];
+  }
+
+  /** Course mandiri contoh (dikelola admin, tanpa tutor). */
+  function seedHubCourses() {
+    const now = Date.now();
+    return [{
+      id: 'hub_strategi', title: 'Strategi Belajar Efektif Menuju UTBK',
+      subtitle: 'Kebiasaan belajar, manajemen waktu, dan teknik mengerjakan soal yang terbukti membantu.',
+      description: '<p>Course mandiri ini membantu kamu menyusun rutinitas belajar yang konsisten. Setiap pelajaran singkat dan dapat diselesaikan kurang dari 15 menit.</p>',
+      category: 'Pengembangan Diri', level: 'Pemula', language: 'Bahasa Indonesia', cover: '', color: '#4f46e5',
+      outcomes: ['Menyusun jadwal belajar mingguan yang realistis', 'Menerapkan teknik pengulangan berjarak', 'Mengelola waktu saat mengerjakan tryout'],
+      requirements: ['Tidak ada prasyarat', 'Siapkan buku catatan'],
+      audience: { type: 'all', classes: [], studentIds: [] }, enrollMode: 'open',
+      active: true, newStudentPolicy: 'all', certificate: true,
+      createdAt: now, updatedAt: now, createdBy: 'u_admin',
+      sections: [
+        { id: 'sec_s1', title: 'Membangun Kebiasaan', lessons: [
+          { id: 'les_s1a', title: 'Mengapa konsistensi mengalahkan durasi', type: 'article', durationMin: 6, active: true, createdAt: now, dripDays: 0,
+            content: '<p>Belajar 45 menit setiap hari umumnya lebih efektif daripada belajar 5 jam sekali seminggu. Otak membutuhkan pengulangan dan jeda agar informasi tersimpan di ingatan jangka panjang.</p><ul><li>Tetapkan jam belajar yang sama setiap hari.</li><li>Mulai dari target kecil yang pasti tercapai.</li><li>Catat aktivitas belajar agar kemajuan terlihat.</li></ul>' },
+          { id: 'les_s1b', title: 'Pengulangan berjarak (spaced repetition)', type: 'article', durationMin: 8, active: true, createdAt: now, dripDays: 0,
+            content: '<p>Ulangi materi pada hari ke-1, ke-3, ke-7, dan ke-14 setelah pertama dipelajari. Setiap pengulangan memperkuat ingatan sebelum sempat terlupa.</p><p>Gunakan kartu catatan: tulis pertanyaan di satu sisi dan jawabannya di sisi lain.</p>' }
+        ] },
+        { id: 'sec_s2', title: 'Strategi Mengerjakan Soal', lessons: [
+          { id: 'les_s2a', title: 'Mengelola waktu saat tryout', type: 'article', durationMin: 7, active: true, createdAt: now, dripDays: 0,
+            content: '<p>Bagi waktu per soal sejak awal. Lewati soal yang terlalu lama, tandai, lalu kembali setelah soal lain selesai. Sisakan beberapa menit terakhir untuk memeriksa jawaban yang ragu.</p>' },
+          { id: 'les_s2q', title: 'Kuis: Strategi belajar', type: 'quiz', durationMin: 5, active: true, createdAt: now, dripDays: 0, passScore: 70,
+            content: '<p>Jawab pertanyaan berikut untuk menguji pemahamanmu.</p>',
+            questions: [
+              { text: 'Mana yang lebih efektif untuk ingatan jangka panjang?', options: ['Belajar 5 jam sekali seminggu', 'Belajar 45 menit setiap hari', 'Belajar hanya sebelum ujian', 'Tidak perlu mengulang materi'], correctIndex: 1 },
+              { text: 'Pada pengulangan berjarak, setelah hari ke-3 materi diulang pada hari ke-…', options: ['4', '5', '7', '30'], correctIndex: 2 },
+              { text: 'Saat menemui soal yang terlalu lama dikerjakan saat tryout, sebaiknya …', options: ['Terus dikerjakan sampai selesai', 'Dilewati, ditandai, lalu dikerjakan kembali nanti', 'Dijawab asal', 'Mengakhiri tryout'], correctIndex: 1 }
+            ] }
+        ] }
+      ]
+    }];
+  }
+
   function runMigrations() {
     let current = Number(localStorage.getItem(SCHEMA_KEY) || '1') || 1;
     if (current >= SCHEMA_VERSION) return;
@@ -847,6 +992,27 @@
       if (changed) save(KEYS.users, users);
     }
 
+    // v3: agama (ayat harian), preferensi streak, konten awal Arena & Course.
+    // Hanya menambah data yang belum ada; data pengguna tidak disentuh.
+    if (current < 3) {
+      const DEMO_RELIGION = ['Islam', 'Kristen Protestan', 'Katolik', 'Hindu', 'Buddha', 'Konghucu'];
+      const users = load(KEYS.users, []);
+      let changed = false;
+      users.forEach((u, i) => {
+        if (u.religion === undefined) {
+          const m = /^u_siswa(\d+)$/.exec(u.id);
+          u.religion = m ? DEMO_RELIGION[(Number(m[1]) - 1) % DEMO_RELIGION.length] : '';
+          changed = true;
+        }
+        if (u.streakShare === undefined) { u.streakShare = false; changed = true; }
+        users[i] = u;
+      });
+      if (changed) save(KEYS.users, users);
+      if (localStorage.getItem('lms_verses') == null) save('lms_verses', seedVerses());
+      if (localStorage.getItem('lms_reading_texts') == null) save('lms_reading_texts', seedReadingTexts());
+      if (localStorage.getItem('lms_hub_courses') == null) save('lms_hub_courses', seedHubCourses());
+    }
+
     localStorage.setItem(SCHEMA_KEY, String(SCHEMA_VERSION));
   }
 
@@ -871,6 +1037,39 @@
   }
   function remove(key, id) {
     setAll(key, getAll(key).filter(x => x.id !== id));
+  }
+
+  /** Tambahkan satu catatan aktivitas ke rantai milik pengguna (dipakai internal). */
+  function appendLearning(user, type, refId, meta, now) {
+    const def = LEARNING_TYPES[type];
+    const tz = DB.streakTzFor(user);
+    const day = DB.ymdInTz(now, tz);
+    const log = load('lms_learning_log', []);
+    const mine = log.filter(e => e.userId === user.id);
+    const sameDay = mine.filter(e => e.day === day && e.type === type);
+    if (type === 'login') {
+      if (sameDay.length) return { duplicate: true, entry: sameDay[0] };
+    } else {
+      if (type === 'tantangan' && sameDay.length) throw new Error('Tantangan hari ini sudah dijawab. Kembali besok!');
+      if (refId && sameDay.some(e => e.refId === refId)) throw new Error('Aktivitas yang sama sudah tercatat hari ini.');
+      if (def.oncePerRef && refId && mine.some(e => e.type === type && e.refId === refId)) {
+        throw new Error('Materi ini sudah pernah tercatat. Pilih materi lain.');
+      }
+      const last = mine.filter(e => e.type === type).reduce((a, e) => (!a || e.at > a.at ? e : a), null);
+      if (last && now - last.at < 15000) throw new Error('Terlalu cepat. Tunggu beberapa detik sebelum mencatat aktivitas berikutnya.');
+    }
+    let xp = def.xp;
+    let capped = false;
+    if (sameDay.length >= def.cap) { xp = 0; capped = true; }
+    if (!capped && meta && meta.total && meta.correct != null) xp += Math.round(def.xp * 0.5 * (meta.correct / meta.total));
+    if (!capped && type === 'reading' && mine.some(e => e.type === 'reading' && e.refId === refId)) xp = Math.round(xp / 3);
+    const prevEntry = mine.length ? mine[mine.length - 1] : null;
+    const e = { id: uid('lrn'), userId: user.id, type, refId: refId || '', day, tz, at: now, xp, capped,
+      learning: !!def.learning, meta: meta || {}, prev: prevEntry ? prevEntry.h : 'GENESIS' };
+    e.h = chainHash(e);
+    log.push(e);
+    save('lms_learning_log', log);
+    return { entry: e };
   }
 
   const DB = {
@@ -904,6 +1103,41 @@
       birthdayPoints: 50,
       birthdayModeration: 'post',   // 'post' = langsung tampil, 'pre' = tunggu persetujuan
       birthdayMessage: 'Selamat ulang tahun dari keluarga besar Rubela! Terus semangat berjuang menuju PTN impianmu. 🎓',
+      /* ===== Streak & gamifikasi ===== */
+      streakEnabled: true,
+      streakTimezoneMode: 'lms',          // 'lms' = zona LMS, 'user' = zona pilihan pengguna
+      lmsTimezone: 'WIB',
+      streakMinActivities: 1,             // aktivitas belajar sah minimal per hari
+      streakDailyGoal: 3,                 // target harian: jumlah jenis aktivitas berbeda
+      streakWeeklyTarget: 4,              // hari aktif minimal per minggu (weekly streak)
+      streakMonthlyTarget: 12,            // hari aktif minimal per bulan (monthly streak)
+      streakReminderHour: 18,             // jam pengingat sebelum streak putus
+      streakFreezeEnabled: true,
+      streakFreezeEarnEvery: 7,           // dapat 1 freeze setiap kelipatan N hari streak
+      streakFreezeMax: 2,                 // stok maksimal
+      streakFreezeMonthlyLimit: 2,        // pemakaian maksimal per bulan
+      streakProgramDays: 174,             // durasi batch
+      streakProgramExtraDays: 0,          // perpanjangan oleh admin
+      streakProgramStart: '',             // YYYY-MM-DD; kosong = tanggal mulai tahun akademik aktif / hari pertama aktivitas
+      streakMilestones: null,             // null = bawaan (lihat STREAK_MILESTONES)
+      streakUniversities: null,           // null = bawaan (lihat STREAK_UNIVERSITIES)
+      streakLeaderboardEnabled: true,
+      streakLeaderboardMetric: 'current', // current | longest | xp | activeDays
+      streakLeaderboardScope: 'all',      // all | kelas
+      streakLeaderboardSize: 10,
+      streakLeaderboardPrivacy: 'optin',  // optin = hanya yang mengizinkan; all = semua (nama lain disamarkan)
+      /* ===== Mesin Waktu ===== */
+      capsuleEnabled: true,
+      capsuleMaxPerUser: 20,
+      /* ===== Musik latar ===== */
+      musicEnabled: false,
+      musicMainTrackId: '',
+      musicDefaultVolume: 35,
+      musicDashboards: ['admin', 'guru', 'siswa', 'orangtua'],
+      musicShuffle: false,
+      musicAutoplay: true,
+      /* ===== Ayat harian ===== */
+      verseEnabled: true,
       examSecurityDefaults: {
         requireCamera: false, requireMic: false, fullscreen: true,
         blockTabSwitch: true, blockCopy: true, blockScreenshot: true,
@@ -1137,6 +1371,13 @@
         setAll(KEYS.payments, getAll(KEYS.payments).filter(p => p.studentId !== id));
         save('lms_birthday_rewards', DB.getBirthdayRewards().filter(r => r.studentId !== id));
         save('lms_birthday_wishes', DB.getBirthdayWishes().filter(w => w.recipientId !== id));
+        save('lms_learning_log', load('lms_learning_log', []).filter(e => e.userId !== id));
+        save('lms_streak_grants', load('lms_streak_grants', []).filter(g => g.userId !== id));
+        save('lms_hub_progress', load('lms_hub_progress', []).filter(p => p.studentId !== id));
+        // Kapsul terenkripsi ikut dihapus (tidak ada yang dapat membukanya lagi).
+        save('lms_capsules', load('lms_capsules', []).filter(c => c.userId !== id));
+        save('lms_capsule_vaults', load('lms_capsule_vaults', []).filter(v => v.userId !== id));
+        if (global.BlobStore) BlobStore.removePrefix('cap:' + id + ':').catch(() => {});
         // Keep orang tua accounts consistent: drop the link to this child.
         getAll(KEYS.users)
           .filter(u => u.role === 'orangtua' && Array.isArray(u.childIds) && u.childIds.includes(id))
@@ -1478,7 +1719,7 @@
     getRecordings: () => getAll(KEYS.recordings),
     getRecording: (id) => findById(KEYS.recordings, id),
     getRecordingsByCourse: (cid) => getAll(KEYS.recordings).filter(r => r.courseId === cid),
-    addRecording: (r) => add(KEYS.recordings, Object.assign({ recordedAt: Date.now() }, r)),
+    addRecording: (r) => add(KEYS.recordings, Object.assign({ recordedAt: Date.now(), createdAt: Date.now() }, r)),
     updateRecording: (id, p) => update(KEYS.recordings, id, p),
     deleteRecording: (id) => remove(KEYS.recordings, id),
 
@@ -1564,7 +1805,14 @@
     getCbtsForStudent: (studentId) => {
       const student = findById(KEYS.users, studentId);
       if (!student) return [];
-      return getAll(KEYS.cbts).filter(c => DB.cbtTargetsStudent(c, student));
+      const tried = new Set(getAll(KEYS.cbtAttempts).filter(a => a.studentId === studentId).map(a => a.cbtId));
+      // Ujian nonaktif tidak tampil & tidak dapat dikerjakan; hasil yang sudah ada tetap terlihat.
+      return getAll(KEYS.cbts).filter(c => DB.cbtTargetsStudent(c, student)).filter(c => {
+        if (tried.has(c.id)) return true;
+        if (c.active === false) return false;
+        const course = c.courseId ? findById(KEYS.courses, c.courseId) : null;
+        return !course || !DB.isEnrolled(course.id, studentId) || DB.contentVisibleToStudent(c, course, studentId);
+      });
     },
     /** Daftar kelas (tingkat) tujuan dalam bentuk teks siap tampil. */
     cbtTargetLabel: (cbt) => {
@@ -2122,6 +2370,652 @@
       setAll(KEYS.notifications, getAll(KEYS.notifications).filter(n => n.userId !== userId));
     },
 
+    /* =====================================================================
+     * RONDE 8 — STREAK API, VISIBILITAS KONTEN, AYAT, READING TEXT,
+     * COURSE MANDIRI, MESIN WAKTU (ciphertext saja), MUSIK LATAR
+     * ===================================================================*/
+    TZ_OFFSETS: { WIB: 7, WITA: 8, WIT: 9 },
+    LEARNING_TYPES, RELIGIONS,
+    /** YYYY-MM-DD menurut zona waktu tertentu (tidak bergantung zona perangkat). */
+    ymdInTz: (ts, tz) => {
+      const off = DB.TZ_OFFSETS[tz] != null ? DB.TZ_OFFSETS[tz] : 7;
+      return new Date(Number(ts) + off * 3600000).toISOString().slice(0, 10);
+    },
+    hourInTz: (ts, tz) => {
+      const off = DB.TZ_OFFSETS[tz] != null ? DB.TZ_OFFSETS[tz] : 7;
+      return new Date(Number(ts) + off * 3600000).getUTCHours();
+    },
+    /** Zona waktu penghitungan streak seorang pengguna. */
+    streakTzFor: (user) => {
+      const st = DB.getSettings();
+      if (st.streakTimezoneMode === 'user' && user && DB.TZ_OFFSETS[user.timezone] != null) return user.timezone;
+      return DB.TZ_OFFSETS[st.lmsTimezone] != null ? st.lmsTimezone : 'WIB';
+    },
+
+    /* ---------- Pencatatan aktivitas belajar ---------- */
+    getLearningLog: (userId) => load('lms_learning_log', []).filter(e => !userId || e.userId === userId),
+    /**
+     * Terbitkan token sesi aktivitas. Durasi minimum dihitung dari waktu ini.
+     * opts.minSec dipakai Reading Text (menyesuaikan panjang teks).
+     */
+    beginLearning: (userId, type, refId, opts) => {
+      const actor = sessionActor();
+      if (!actor || actor.id !== userId || actor.role !== 'siswa') throw new Error('Aktivitas belajar hanya dicatat untuk akun mentee yang sedang masuk.');
+      const def = LEARNING_TYPES[type];
+      if (!def || def.derived || type === 'login') throw new Error('Jenis aktivitas tidak dikenal.');
+      // Bersihkan token kedaluwarsa agar memori tidak tumbuh.
+      const now = Date.now();
+      learningTokens.forEach((t, k) => { if (now - t.startedAt > 3 * 3600000) learningTokens.delete(k); });
+      const tok = { id: uid('tok'), userId, type, refId: String(refId || '').slice(0, 80), startedAt: now,
+        minSec: Math.max(def.minSec || 0, Math.min(600, Number(opts && opts.minSec) || 0)) };
+      learningTokens.set(tok.id, tok);
+      return { token: tok.id, minSec: tok.minSec, startedAt: now };
+    },
+    /** Sisa detik sebelum token memenuhi durasi minimum (untuk UI). */
+    learningTokenWait: (token) => {
+      const t = learningTokens.get(token);
+      if (!t) return null;
+      return Math.max(0, Math.ceil(t.minSec - (Date.now() - t.startedAt) / 1000));
+    },
+    /**
+     * Catat aktivitas yang sudah DISELESAIKAN. Semua kriteria divalidasi di sini
+     * (lapisan data), bukan di tombol UI: token sesi, durasi minimum, jumlah soal
+     * terjawab, duplikasi, batas harian, dan jeda minimum antar-catatan.
+     */
+    recordLearning: (userId, type, payload) => {
+      const actor = sessionActor();
+      if (!actor || actor.id !== userId) throw new Error('Aktivitas hanya dapat dicatat oleh pemilik akun.');
+      const user = findById(KEYS.users, userId);
+      if (!user || user.role !== 'siswa') throw new Error('Streak belajar hanya berlaku untuk mentee.');
+      if (DB.getSettings().streakEnabled === false) throw new Error('Fitur streak sedang dinonaktifkan admin.');
+      const def = LEARNING_TYPES[type];
+      if (!def || def.derived) throw new Error('Jenis aktivitas tidak dapat dicatat manual.');
+      const p = payload || {};
+      const now = Date.now();
+      let refId = '';
+      const meta = {};
+      if (type !== 'login') {
+        const tok = learningTokens.get(p.token);
+        if (!tok || tok.userId !== userId || tok.type !== type) throw new Error('Sesi aktivitas tidak sah. Mulai ulang aktivitas.');
+        const sec = (now - tok.startedAt) / 1000;
+        if (sec > 3 * 3600) { learningTokens.delete(p.token); throw new Error('Sesi aktivitas kedaluwarsa. Mulai ulang.'); }
+        if (sec < tok.minSec) throw new Error(`Aktivitas terlalu singkat. Tunggu ${Math.ceil(tok.minSec - sec)} detik lagi.`);
+        const answered = Math.max(0, Math.floor(Number(p.answered) || 0));
+        const total = Math.max(0, Math.floor(Number(p.total) || 0));
+        const correct = Math.max(0, Math.min(answered, Math.floor(Number(p.correct) || 0)));
+        if (def.minAnswered && answered < def.minAnswered) throw new Error(`Jawab minimal ${def.minAnswered} soal.`);
+        if ((type === 'miniquiz' || type === 'reading') && (total < 1 || answered < total)) throw new Error('Semua soal harus dijawab.');
+        if (answered > total && total) throw new Error('Data jawaban tidak valid.');
+        if (type === 'games') {
+          const score = Math.floor(Number(p.score) || 0);
+          if (score < def.minScore) throw new Error(`Skor minimal ${def.minScore} untuk menuntaskan ronde.`);
+          meta.score = score;
+        }
+        refId = tok.refId || tok.id;
+        Object.assign(meta, { answered, total, correct, durationSec: Math.round(sec) });
+        if (type === 'tantangan' && Number.isInteger(Number(p.choice))) meta.choice = Number(p.choice);
+        learningTokens.delete(p.token);
+      }
+      return appendLearning(user, type, refId, meta, now);
+    },
+    /** Status "sudah dibaca" materi kelas / pelajaran course (dari log sah). */
+    learnedRefs: (userId, type) => new Set(DB.getLearningLog(userId).filter(e => e.type === type).map(e => e.refId)),
+    /** Periksa rantai hash; catatan yang diubah/disisipkan ditandai tidak sah. */
+    verifyLearningLog: (userId) => {
+      const out = new Map();
+      let prev = 'GENESIS';
+      DB.getLearningLog(userId).forEach(e => {
+        const ok = e.prev === prev && chainHash(e) === e.h;
+        out.set(e.id, ok);
+        prev = e.h;
+      });
+      return out;
+    },
+    /** Aktivitas turunan dari tabel resmi (tidak dapat dicatat dari klien). */
+    derivedLearning: (userId) => {
+      const user = findById(KEYS.users, userId);
+      if (!user) return [];
+      const tz = DB.streakTzFor(user);
+      const out = [];
+      getAll(KEYS.submissions).filter(s => s.studentId === userId && s.submittedAt).forEach(s => {
+        out.push({ id: 'd_sub_' + s.id, userId, type: 'tugas', refId: s.assignmentId, at: s.submittedAt,
+          day: DB.ymdInTz(s.submittedAt, tz), learning: true, derived: true });
+      });
+      getAll(KEYS.cbtAttempts).filter(a => a.studentId === userId && a.submittedAt).forEach(a => {
+        out.push({ id: 'd_cbt_' + a.id, userId, type: 'tryout', refId: a.cbtId, at: a.submittedAt,
+          day: DB.ymdInTz(a.submittedAt, tz), learning: true, derived: true });
+      });
+      getAll(KEYS.attendance).filter(a => a.userId === userId && a.role === 'siswa'
+        && (a.status === 'hadir' || a.status === 'terlambat') && !DB.isCancelledSession(a.courseId, a.date)).forEach(a => {
+        out.push({ id: 'd_att_' + a.id, userId, type: 'kelas', refId: a.courseId, at: Date.parse(a.date + 'T12:00:00Z'),
+          day: a.date, learning: true, derived: true });
+      });
+      return out;
+    },
+    getStreakGrants: (userId) => load('lms_streak_grants', []).filter(g => !userId || g.userId === userId),
+    /** Admin memberi stok Streak Freeze (tercatat & dapat diaudit). */
+    grantStreakFreeze: (userId, count, reason, actor) => {
+      if (!actor || actor.role !== 'admin') throw new Error('Hanya admin yang dapat memberi Streak Freeze.');
+      const u = findById(KEYS.users, userId);
+      if (!u || u.role !== 'siswa') throw new Error('Mentee tidak ditemukan.');
+      const n = Math.floor(Number(count) || 0);
+      if (n < 1 || n > 5) throw new Error('Jumlah freeze 1–5.');
+      const rec = { id: uid('grant'), userId, count: n, reason: String(reason || '').trim().slice(0, 160),
+        at: Date.now(), day: DB.ymdInTz(Date.now(), DB.streakTzFor(u)), by: actor.id };
+      const list = load('lms_streak_grants', []); list.push(rec); save('lms_streak_grants', list);
+      DB.logActivity('streak.freeze', `Memberi ${n} Streak Freeze kepada "${u.name}"`, userId);
+      return rec;
+    },
+
+    /* ---------- Visibilitas konten (aktif/nonaktif & siswa baru) ---------- */
+    CONTENT_STORE: { material: 'lms_materials', module: 'lms_modules', recording: 'lms_recordings',
+      assignment: 'lms_assignments', cbt: 'lms_cbts', course: 'lms_courses' },
+    /**
+     * Konten tampil untuk siswa bila: aktif, kelasnya aktif, dan — pada kelas
+     * dengan kebijakan "fromJoin" — dibuat setelah siswa bergabung atau
+     * diaktifkan ulang setelah siswa bergabung.
+     */
+    contentVisibleToStudent: (rec, course, studentId) => {
+      if (!rec || rec.active === false) return false;
+      if (course) {
+        if (course.active === false) return false;
+        if (course.newStudentPolicy === 'fromJoin') {
+          const e = getAll(KEYS.enrollments).find(x => x.courseId === course.id && x.studentId === studentId);
+          if (e) {
+            const since = Number(e.enrolledAt) || 0;
+            const born = Number(rec.createdAt) || Number(rec.recordedAt) || 0;
+            if (born < since && !((Number(rec.reactivatedAt) || 0) >= since)) return false;
+          }
+        }
+      }
+      return true;
+    },
+    visibleCoursesForStudent: (studentId) => getAll(KEYS.enrollments).filter(e => e.studentId === studentId)
+      .map(e => findById(KEYS.courses, e.courseId)).filter(c => c && c.active !== false),
+    /** Daftar konten kelas yang boleh dilihat siswa (riwayat miliknya tetap tampil). */
+    studentContent: (kind, studentId, courseId) => {
+      const courses = courseId ? [findById(KEYS.courses, courseId)].filter(Boolean) : DB.visibleCoursesForStudent(studentId);
+      const subs = kind === 'assignment' ? new Set(getAll(KEYS.submissions).filter(s => s.studentId === studentId).map(s => s.assignmentId)) : null;
+      const tried = kind === 'cbt' ? new Set(getAll(KEYS.cbtAttempts).filter(a => a.studentId === studentId).map(a => a.cbtId)) : null;
+      return courses.flatMap(c => {
+        if (c.active === false) return [];
+        const list = getAll(DB.CONTENT_STORE[kind]).filter(x => kind === 'cbt'
+          ? (x.courseId === c.id || (x.courseIds || []).includes(c.id)) : x.courseId === c.id);
+        return list.filter(x => DB.contentVisibleToStudent(x, c, studentId)
+          || (subs && subs.has(x.id)) || (tried && tried.has(x.id)));
+      }).filter((x, i, arr) => arr.findIndex(y => y.id === x.id) === i);
+    },
+    canToggleContent: (kind, rec, actor) => {
+      if (!actor || !rec) return false;
+      if (kind === 'course') return actor.role === 'admin';
+      const course = rec.courseId ? findById(KEYS.courses, rec.courseId) : null;
+      return DB.canManageContent(actor, rec, course);
+    },
+    setContentActive: (kind, id, active, actor) => {
+      const key = DB.CONTENT_STORE[kind];
+      if (!key) throw new Error('Jenis konten tidak dikenal.');
+      const rec = findById(key, id);
+      if (!rec) throw new Error('Data tidak ditemukan.');
+      if (!DB.canToggleContent(kind, rec, actor)) throw new Error('Anda tidak berhak mengubah status konten ini.');
+      const out = update(key, id, { active: !!active, activeChangedAt: Date.now(), activeChangedBy: actor.id });
+      DB.logActivity('content.' + (active ? 'activate' : 'deactivate'), `${active ? 'Mengaktifkan' : 'Menonaktifkan'} ${kind} "${rec.title || rec.name || id}"`, id);
+      return out;
+    },
+    /** Aktifkan ulang: tampil juga bagi siswa yang bergabung setelah konten dibuat. */
+    reactivateContent: (kind, id, actor) => {
+      const key = DB.CONTENT_STORE[kind];
+      const rec = key ? findById(key, id) : null;
+      if (!rec) throw new Error('Data tidak ditemukan.');
+      if (!DB.canToggleContent(kind, rec, actor)) throw new Error('Anda tidak berhak mengubah status konten ini.');
+      const now = Date.now();
+      const out = update(key, id, { active: true, reactivatedAt: now, activeChangedAt: now, activeChangedBy: actor.id });
+      DB.logActivity('content.reactivate', `Mengaktifkan ulang ${kind} "${rec.title || id}" untuk siswa baru`, id);
+      const course = rec.courseId ? findById(KEYS.courses, rec.courseId) : null;
+      if (course && ['assignment', 'cbt', 'material', 'module'].includes(kind)) {
+        DB.notifyUsers(getAll(KEYS.enrollments).filter(e => e.courseId === course.id).map(e => e.studentId), {
+          icon: '🔓', title: 'Konten kelas dibuka', body: `${rec.title || 'Konten'} kini tersedia di ${course.title}.`, link: 'my-courses'
+        });
+      }
+      return out;
+    },
+
+    /* ---------- Ayat harian ---------- */
+    getVerses: () => load('lms_verses', []),
+    saveVerse: (rec, actor) => {
+      if (!actor || actor.role !== 'admin') throw new Error('Hanya admin yang dapat mengelola ayat.');
+      const religion = String(rec.religion || '');
+      if (!RELIGIONS.includes(religion)) throw new Error('Pilih agama yang valid.');
+      const text = String(rec.text || '').trim();
+      const reference = String(rec.reference || '').trim();
+      if (text.length < 5 || text.length > 1200) throw new Error('Isi ayat 5–1200 karakter.');
+      if (reference.length < 2 || reference.length > 120) throw new Error('Rujukan ayat wajib diisi (maks. 120 karakter).');
+      const date = String(rec.date || '');
+      if (date && !/^\d{4}-\d{2}-\d{2}$/.test(date)) throw new Error('Format tanggal tidak valid.');
+      const list = load('lms_verses', []);
+      const clean = { religion, text, reference, source: String(rec.source || '').trim().slice(0, 120),
+        active: rec.active !== false, reviewed: !!rec.reviewed, date, updatedAt: Date.now() };
+      let out;
+      if (rec.id) {
+        const i = list.findIndex(v => v.id === rec.id);
+        if (i < 0) throw new Error('Ayat tidak ditemukan.');
+        out = list[i] = Object.assign({}, list[i], clean);
+      } else {
+        out = Object.assign({ id: uid('verse'), createdAt: Date.now() }, clean);
+        list.push(out);
+      }
+      save('lms_verses', list);
+      DB.logActivity('verse.save', `Menyimpan ayat ${religion} (${reference})`, out.id);
+      return out;
+    },
+    deleteVerse: (id, actor) => {
+      if (!actor || actor.role !== 'admin') throw new Error('Hanya admin yang dapat mengelola ayat.');
+      save('lms_verses', load('lms_verses', []).filter(v => v.id !== id));
+      DB.logActivity('verse.delete', 'Menghapus ayat', id);
+    },
+    /** Ayat hari ini: ayat yang dijadwalkan pada tanggal itu, atau rotasi harian. */
+    verseOfDay: (religion, ymd) => {
+      if (!religion) return null;
+      const list = load('lms_verses', []).filter(v => v.religion === religion && v.active !== false);
+      if (!list.length) return null;
+      const pinned = list.find(v => v.date === ymd);
+      if (pinned) return pinned;
+      const pool = list.filter(v => !v.date).sort((a, b) => (a.createdAt - b.createdAt) || a.id.localeCompare(b.id));
+      if (!pool.length) return null;
+      const dayNo = Math.floor(Date.parse(ymd + 'T00:00:00Z') / 86400000);
+      return pool[((dayNo % pool.length) + pool.length) % pool.length];
+    },
+
+    /* ---------- Reading Text ---------- */
+    getReadingTexts: () => load('lms_reading_texts', []),
+    getReadingText: (id) => load('lms_reading_texts', []).find(t => t.id === id) || null,
+    saveReadingText: (rec, actor) => {
+      if (!actor || actor.role !== 'admin') throw new Error('Hanya admin yang dapat mengelola Reading Text.');
+      const title = String(rec.title || '').trim();
+      if (title.length < 3 || title.length > 140) throw new Error('Judul 3–140 karakter.');
+      const body = String(rec.body || '');
+      const plainLen = body.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim().length;
+      if (plainLen < 80) throw new Error('Isi teks minimal 80 karakter.');
+      if (body.length > 60000) throw new Error('Isi teks terlalu panjang.');
+      const qs = Array.isArray(rec.questions) ? rec.questions : [];
+      if (qs.length < 1 || qs.length > 10) throw new Error('Sertakan 1–10 soal pemahaman.');
+      qs.forEach((q, i) => {
+        if (!String(q.text || '').trim()) throw new Error(`Soal ${i + 1} belum diisi.`);
+        const opts = (q.options || []).map(o => String(o || '').trim());
+        if (opts.length < 2 || opts.length > 6 || opts.some(o => !o)) throw new Error(`Soal ${i + 1}: isi 2–6 pilihan jawaban.`);
+        if (!(q.correctIndex >= 0 && q.correctIndex < opts.length)) throw new Error(`Soal ${i + 1}: pilih kunci jawaban.`);
+      });
+      const clean = { title, body, subtest: String(rec.subtest || '').slice(0, 80), level: ['mudah', 'sedang', 'sulit'].includes(rec.level) ? rec.level : 'sedang',
+        active: rec.active !== false, updatedAt: Date.now(),
+        questions: qs.map(q => ({ text: String(q.text).trim().slice(0, 600), options: q.options.map(o => String(o).trim().slice(0, 300)), correctIndex: Number(q.correctIndex) })) };
+      const list = load('lms_reading_texts', []);
+      let out;
+      if (rec.id) {
+        const i = list.findIndex(t => t.id === rec.id);
+        if (i < 0) throw new Error('Teks tidak ditemukan.');
+        out = list[i] = Object.assign({}, list[i], clean);
+      } else {
+        out = Object.assign({ id: uid('rt'), createdAt: Date.now(), createdBy: actor.id }, clean);
+        list.push(out);
+      }
+      save('lms_reading_texts', list);
+      DB.logActivity('reading.save', `Menyimpan Reading Text "${title}"`, out.id);
+      return out;
+    },
+    deleteReadingText: (id, actor) => {
+      if (!actor || actor.role !== 'admin') throw new Error('Hanya admin yang dapat mengelola Reading Text.');
+      save('lms_reading_texts', load('lms_reading_texts', []).filter(t => t.id !== id));
+      DB.logActivity('reading.delete', 'Menghapus Reading Text', id);
+    },
+
+    /* ---------- Course mandiri (dikelola admin, tanpa tutor) ---------- */
+    getHubCourses: () => load('lms_hub_courses', []),
+    getHubCourse: (id) => load('lms_hub_courses', []).find(c => c.id === id) || null,
+    saveHubCourse: (rec, actor) => {
+      if (!actor || actor.role !== 'admin') throw new Error('Course hanya dapat dikelola admin.');
+      const title = String(rec.title || '').trim();
+      if (title.length < 3 || title.length > 140) throw new Error('Judul course 3–140 karakter.');
+      const sections = Array.isArray(rec.sections) ? rec.sections : [];
+      sections.forEach((sec, si) => {
+        if (!String(sec.title || '').trim()) throw new Error(`Bab ${si + 1} belum diberi judul.`);
+        (sec.lessons || []).forEach((l, li) => {
+          if (!String(l.title || '').trim()) throw new Error(`Pelajaran ${si + 1}.${li + 1} belum diberi judul.`);
+          if (!['article', 'video', 'pdf', 'link', 'quiz'].includes(l.type)) throw new Error(`Jenis pelajaran ${si + 1}.${li + 1} tidak valid.`);
+          if ((l.type === 'video' || l.type === 'link' || l.type === 'pdf') && l.url && !/^https:\/\//i.test(l.url)) {
+            throw new Error(`Tautan pelajaran ${si + 1}.${li + 1} harus diawali https://`);
+          }
+          if (l.type === 'quiz') {
+            const qs = l.questions || [];
+            if (!qs.length) throw new Error(`Kuis ${si + 1}.${li + 1} belum memiliki soal.`);
+            qs.forEach((q, qi) => {
+              const opts = (q.options || []).filter(o => String(o).trim());
+              if (!String(q.text || '').trim() || opts.length < 2 || !(q.correctIndex >= 0 && q.correctIndex < opts.length)) {
+                throw new Error(`Kuis ${si + 1}.${li + 1} soal ${qi + 1} belum lengkap.`);
+              }
+            });
+          }
+        });
+      });
+      const list = load('lms_hub_courses', []);
+      const now = Date.now();
+      const clean = Object.assign({}, rec, {
+        title, subtitle: String(rec.subtitle || '').trim().slice(0, 240),
+        category: String(rec.category || '').trim().slice(0, 60), level: String(rec.level || '').slice(0, 30),
+        outcomes: (rec.outcomes || []).map(x => String(x).trim()).filter(Boolean).slice(0, 12),
+        requirements: (rec.requirements || []).map(x => String(x).trim()).filter(Boolean).slice(0, 12),
+        enrollMode: rec.enrollMode === 'assigned' ? 'assigned' : 'open',
+        newStudentPolicy: rec.newStudentPolicy === 'fromJoin' ? 'fromJoin' : 'all',
+        active: rec.active !== false, updatedAt: now
+      });
+      let out;
+      const i = rec.id ? list.findIndex(c => c.id === rec.id) : -1;
+      if (i >= 0) out = list[i] = Object.assign({}, list[i], clean);
+      else { out = Object.assign({ createdAt: now, createdBy: actor.id }, clean, { id: rec.id || uid('hub') }); list.push(out); }
+      save('lms_hub_courses', list);
+      DB.logActivity('hub.save', `Menyimpan course "${title}"`, out.id);
+      return out;
+    },
+    deleteHubCourse: (id, actor) => {
+      if (!actor || actor.role !== 'admin') throw new Error('Course hanya dapat dikelola admin.');
+      save('lms_hub_courses', load('lms_hub_courses', []).filter(c => c.id !== id));
+      save('lms_hub_progress', load('lms_hub_progress', []).filter(p => p.courseId !== id));
+      DB.logActivity('hub.delete', 'Menghapus course', id);
+    },
+    setHubCourseActive: (id, active, actor) => {
+      if (!actor || actor.role !== 'admin') throw new Error('Course hanya dapat dikelola admin.');
+      const c = DB.getHubCourse(id);
+      if (!c) throw new Error('Course tidak ditemukan.');
+      c.active = !!active; c.updatedAt = Date.now();
+      save('lms_hub_courses', load('lms_hub_courses', []).map(x => x.id === id ? c : x));
+      DB.logActivity('hub.' + (active ? 'activate' : 'deactivate'), `${active ? 'Mengaktifkan' : 'Menonaktifkan'} course "${c.title}"`, id);
+      return c;
+    },
+    /** Lesson: aktif/nonaktif & aktifkan ulang (siswa baru). */
+    setHubLessonState: (courseId, lessonId, patch, actor) => {
+      if (!actor || actor.role !== 'admin') throw new Error('Course hanya dapat dikelola admin.');
+      const c = DB.getHubCourse(courseId);
+      if (!c) throw new Error('Course tidak ditemukan.');
+      let found = null;
+      (c.sections || []).forEach(sec => (sec.lessons || []).forEach(l => { if (l.id === lessonId) found = l; }));
+      if (!found) throw new Error('Pelajaran tidak ditemukan.');
+      if (patch.active != null) found.active = !!patch.active;
+      if (patch.reactivate) { found.active = true; found.reactivatedAt = Date.now(); }
+      c.updatedAt = Date.now();
+      save('lms_hub_courses', load('lms_hub_courses', []).map(x => x.id === courseId ? c : x));
+      DB.logActivity('hub.lesson', `Mengubah status pelajaran "${found.title}"`, lessonId);
+      return found;
+    },
+    hubAudienceIncludes: (course, student) => {
+      if (!course || !student || student.role !== 'siswa') return false;
+      const a = course.audience || { type: 'all' };
+      if (a.type === 'kelas') return (a.classes || []).includes(student.kelas);
+      if (a.type === 'students') return (a.studentIds || []).includes(student.id);
+      return true;
+    },
+    getHubProgress: (courseId, studentId) => load('lms_hub_progress', [])
+      .find(p => p.courseId === courseId && p.studentId === studentId) || null,
+    getHubProgressByStudent: (studentId) => load('lms_hub_progress', []).filter(p => p.studentId === studentId),
+    getHubProgressByCourse: (courseId) => load('lms_hub_progress', []).filter(p => p.courseId === courseId),
+    /** Course yang tampil di katalog siswa (aktif & sesuai sasaran). */
+    hubCoursesForStudent: (studentId) => {
+      const st = findById(KEYS.users, studentId);
+      return load('lms_hub_courses', []).filter(c => c.active !== false && DB.hubAudienceIncludes(c, st));
+    },
+    hubEnroll: (courseId, studentId) => {
+      const actor = sessionActor();
+      const c = DB.getHubCourse(courseId);
+      const st = findById(KEYS.users, studentId);
+      if (!c || c.active === false) throw new Error('Course tidak tersedia.');
+      const isAdmin = actor && actor.role === 'admin';
+      if (!isAdmin && (!actor || actor.id !== studentId)) throw new Error('Pendaftaran tidak sah.');
+      if (!DB.hubAudienceIncludes(c, st)) throw new Error('Course ini bukan untuk kelasmu.');
+      if (!isAdmin && c.enrollMode === 'assigned') throw new Error('Course ini didaftarkan oleh admin.');
+      const existing = DB.getHubProgress(courseId, studentId);
+      if (existing) return existing;
+      const rec = { id: uid('hubp'), courseId, studentId, enrolledAt: Date.now(), completed: {}, quiz: {}, notes: {}, lastLessonId: '', completedAt: null };
+      const list = load('lms_hub_progress', []); list.push(rec); save('lms_hub_progress', list);
+      return rec;
+    },
+    hubLessonVisible: (course, lesson, progress) => {
+      if (!lesson || lesson.active === false) return false;
+      if (progress && course.newStudentPolicy === 'fromJoin') {
+        const since = progress.enrolledAt || 0;
+        if ((lesson.createdAt || 0) < since && !((lesson.reactivatedAt || 0) >= since)) return false;
+      }
+      return true;
+    },
+    /** Kapan pelajaran terbuka (drip): null = sudah terbuka. */
+    hubLessonOpensAt: (lesson, progress) => {
+      const d = Number(lesson.dripDays) || 0;
+      if (!d || !progress) return null;
+      const at = (progress.enrolledAt || 0) + d * 86400000;
+      return at > Date.now() ? at : null;
+    },
+    hubLessons: (course) => (course.sections || []).flatMap(sec => (sec.lessons || []).map(l => Object.assign({ sectionId: sec.id, sectionTitle: sec.title }, l))),
+    /**
+     * Tandai pelajaran selesai. Artikel/video/tautan memerlukan token durasi
+     * (≥ 40 detik); kuis dinilai DI SINI dari kunci jawaban, bukan dari UI.
+     */
+    hubCompleteLesson: (courseId, lessonId, studentId, payload) => {
+      const actor = sessionActor();
+      if (!actor || actor.id !== studentId) throw new Error('Hanya pemilik akun yang dapat menyelesaikan pelajaran.');
+      const c = DB.getHubCourse(courseId);
+      if (!c || c.active === false) throw new Error('Course tidak tersedia.');
+      const prog = DB.getHubProgress(courseId, studentId);
+      if (!prog) throw new Error('Daftar course terlebih dahulu.');
+      const lesson = DB.hubLessons(c).find(l => l.id === lessonId);
+      if (!DB.hubLessonVisible(c, lesson, prog)) throw new Error('Pelajaran tidak tersedia.');
+      if (DB.hubLessonOpensAt(lesson, prog)) throw new Error('Pelajaran ini belum dibuka.');
+      const p = payload || {};
+      const user = findById(KEYS.users, studentId);
+      const now = Date.now();
+      let result = { passed: true, score: null };
+      if (lesson.type === 'quiz') {
+        const qs = lesson.questions || [];
+        const ans = Array.isArray(p.answers) ? p.answers : [];
+        if (ans.length !== qs.length || ans.some(a => a == null || a === '')) throw new Error('Jawab semua soal kuis.');
+        const correct = qs.reduce((n, q, i) => n + (Number(ans[i]) === Number(q.correctIndex) ? 1 : 0), 0);
+        const score = Math.round(correct / qs.length * 100);
+        const pass = Number(lesson.passScore) || 70;
+        result = { passed: score >= pass, score, correct, total: qs.length };
+        prog.quiz = Object.assign({}, prog.quiz, { [lessonId]: { score, passed: result.passed, at: now, answers: ans.map(Number), attempts: ((prog.quiz || {})[lessonId] || {}).attempts + 1 || 1 } });
+      } else {
+        const tok = learningTokens.get(p.token);
+        if (!tok || tok.userId !== studentId || tok.refId !== 'hub:' + lessonId) throw new Error('Sesi belajar tidak sah. Buka ulang pelajaran.');
+        const wait = tok.minSec - (now - tok.startedAt) / 1000;
+        if (wait > 0) throw new Error(`Pelajari dulu minimal ${Math.ceil(wait)} detik lagi.`);
+        learningTokens.delete(p.token);
+      }
+      const already = !!(prog.completed || {})[lessonId];
+      if (result.passed && !already) {
+        prog.completed = Object.assign({}, prog.completed, { [lessonId]: now });
+        // Aktivitas belajar sah: pelajaran = "membaca materi", kuis = "mini quiz".
+        try { appendLearning(user, lesson.type === 'quiz' ? 'miniquiz' : 'materi', 'hub:' + lessonId, { score: result.score }, now); } catch (e) { /* duplikasi diabaikan */ }
+      }
+      prog.lastLessonId = lessonId;
+      const visible = DB.hubLessons(c).filter(l => DB.hubLessonVisible(c, l, prog));
+      if (!prog.completedAt && visible.length && visible.every(l => prog.completed[l.id])) prog.completedAt = now;
+      save('lms_hub_progress', load('lms_hub_progress', []).map(x => x.id === prog.id ? prog : x));
+      return Object.assign({ progress: prog }, result);
+    },
+    hubSaveNote: (courseId, lessonId, studentId, text) => {
+      const actor = sessionActor();
+      if (!actor || actor.id !== studentId) throw new Error('Catatan hanya milik pemilik akun.');
+      const prog = DB.getHubProgress(courseId, studentId);
+      if (!prog) throw new Error('Daftar course terlebih dahulu.');
+      prog.notes = Object.assign({}, prog.notes, { [lessonId]: String(text || '').slice(0, 4000) });
+      prog.lastLessonId = lessonId;
+      save('lms_hub_progress', load('lms_hub_progress', []).map(x => x.id === prog.id ? prog : x));
+      return prog;
+    },
+    hubPercent: (course, progress) => {
+      if (!progress) return 0;
+      const visible = DB.hubLessons(course).filter(l => DB.hubLessonVisible(course, l, progress));
+      if (!visible.length) return 0;
+      return Math.round(visible.filter(l => (progress.completed || {})[l.id]).length / visible.length * 100);
+    },
+
+    /* ---------- Mesin Waktu: penyimpanan ciphertext milik pemilik saja ----------
+     * Lapisan ini TIDAK PERNAH menyimpan isi surat dalam bentuk teks biasa.
+     * Semua fungsi baca/tulis isi memeriksa bahwa sesi aktif = pemilik akun,
+     * sehingga panel admin/tutor tidak memiliki jalur untuk mengambilnya. */
+    capsuleOwnerGuard: (userId) => {
+      const actor = sessionActor();
+      if (!actor || actor.id !== userId || actor.role !== 'siswa') throw new Error('Mesin Waktu hanya dapat diakses pemilik akun.');
+      return actor;
+    },
+    getCapsuleVault: (userId) => {
+      DB.capsuleOwnerGuard(userId);
+      return load('lms_capsule_vaults', []).find(v => v.userId === userId) || null;
+    },
+    saveCapsuleVault: (userId, vault) => {
+      DB.capsuleOwnerGuard(userId);
+      const allowed = ['salt', 'iter', 'wrapF2', 'wrapRec', 'recSalt', 'version', 'fails', 'lockUntil', 'lockLevel', 'createdAt', 'updatedAt', 'recoveryConfirmed'];
+      const clean = { userId };
+      allowed.forEach(k => { if (vault[k] !== undefined) clean[k] = vault[k]; });
+      if (!clean.salt || !clean.wrapF2 || !clean.wrapF2.ct) throw new Error('Data brankas tidak lengkap.');
+      const list = load('lms_capsule_vaults', []).filter(v => v.userId !== userId);
+      list.push(clean); save('lms_capsule_vaults', list);
+      return clean;
+    },
+    /** Hapus brankas + seluruh kapsul (reset tanpa recovery key). */
+    destroyCapsuleVault: (userId) => {
+      DB.capsuleOwnerGuard(userId);
+      save('lms_capsule_vaults', load('lms_capsule_vaults', []).filter(v => v.userId !== userId));
+      save('lms_capsules', load('lms_capsules', []).filter(c => c.userId !== userId));
+      DB.logActivity('capsule.reset', 'Mereset kode F2 tanpa recovery key (isi Mesin Waktu dihapus permanen)', userId);
+    },
+    getCapsules: (userId) => {
+      DB.capsuleOwnerGuard(userId);
+      return load('lms_capsules', []).filter(c => c.userId === userId).sort((a, b) => a.openAt - b.openAt);
+    },
+    addCapsule: (userId, rec) => {
+      DB.capsuleOwnerGuard(userId);
+      const st = DB.getSettings();
+      if (st.capsuleEnabled === false) throw new Error('Mesin Waktu sedang dinonaktifkan admin.');
+      const mine = load('lms_capsules', []).filter(c => c.userId === userId);
+      if (mine.length >= (Number(st.capsuleMaxPerUser) || 20)) throw new Error(`Maksimal ${st.capsuleMaxPerUser || 20} kapsul per akun.`);
+      const openAt = Number(rec.openAt);
+      const now = Date.now();
+      if (!Number.isFinite(openAt) || openAt < now + 10 * 60000) throw new Error('Waktu pembukaan minimal 10 menit dari sekarang.');
+      if (openAt > now + 50 * 365 * 86400000) throw new Error('Waktu pembukaan maksimal 50 tahun.');
+      if (!rec.encTitle || !rec.encTitle.ct || !rec.encBody || !rec.encBody.ct) throw new Error('Isi kapsul harus terenkripsi.');
+      if (JSON.stringify(rec.encBody).length > 2500000) throw new Error('Isi surat terlalu besar (maks. ±1,8 MB).');
+      const out = { id: uid('cap'), userId, createdAt: now, openAt, encTitle: rec.encTitle, encBody: rec.encBody,
+        attachments: (rec.attachments || []).slice(0, 4).map(a => ({ id: String(a.id), size: Number(a.size) || 0, kind: a.kind === 'pdf' ? 'pdf' : 'image' })),
+        theme: ['sunset', 'ocean', 'forest', 'night', 'rose'].includes(rec.theme) ? rec.theme : 'sunset',
+        openedAt: null, notifiedAt: null, extendedCount: 0 };
+      const all = load('lms_capsules', []); all.push(out); save('lms_capsules', all);
+      return out;
+    },
+    updateCapsule: (userId, id, patch) => {
+      DB.capsuleOwnerGuard(userId);
+      const all = load('lms_capsules', []);
+      const i = all.findIndex(c => c.id === id && c.userId === userId);
+      if (i < 0) throw new Error('Kapsul tidak ditemukan.');
+      const cur = all[i];
+      const next = Object.assign({}, cur);
+      if (patch.openAt != null) {
+        const v = Number(patch.openAt);
+        if (cur.openAt <= Date.now()) throw new Error('Kapsul yang sudah terbuka tidak dapat dikunci ulang.');
+        if (!(v > cur.openAt)) throw new Error('Tanggal pembukaan hanya dapat diundur, tidak dimajukan.');
+        next.openAt = v; next.extendedCount = (cur.extendedCount || 0) + 1;
+      }
+      if (patch.openedAt) {
+        if (cur.openAt > Date.now()) throw new Error('Kapsul belum waktunya dibuka.');
+        next.openedAt = cur.openedAt || Date.now();
+      }
+      if (patch.notifiedAt) next.notifiedAt = cur.notifiedAt || Date.now();
+      all[i] = next; save('lms_capsules', all);
+      return next;
+    },
+    deleteCapsule: (userId, id) => {
+      DB.capsuleOwnerGuard(userId);
+      save('lms_capsules', load('lms_capsules', []).filter(c => !(c.id === id && c.userId === userId)));
+    },
+    /** Ringkasan operasional untuk admin: TANPA judul/isi/ciphertext. */
+    capsuleStats: (actor) => {
+      if (!actor || actor.role !== 'admin') throw new Error('Hanya admin.');
+      const now = Date.now();
+      const caps = load('lms_capsules', []);
+      const vaults = load('lms_capsule_vaults', []);
+      return getAll(KEYS.users).filter(u => u.role === 'siswa').map(u => {
+        const mine = caps.filter(c => c.userId === u.id);
+        const v = vaults.find(x => x.userId === u.id);
+        return { userId: u.id, name: u.name, kelas: u.kelas || '', hasVault: !!v,
+          lockedOut: !!(v && v.lockUntil && v.lockUntil > now),
+          total: mine.length, locked: mine.filter(c => c.openAt > now).length,
+          ready: mine.filter(c => c.openAt <= now && !c.openedAt).length, opened: mine.filter(c => c.openedAt).length,
+          nextOpen: mine.filter(c => c.openAt > now).map(c => c.openAt).sort((a, b) => a - b)[0] || null,
+          approxBytes: mine.reduce((n, c) => n + JSON.stringify(c.encBody).length, 0) };
+      });
+    },
+    /** Dipanggil saat dashboard dibuka: notifikasi surat yang sudah dapat dibaca. */
+    notifyReadyCapsules: (userId) => {
+      const actor = sessionActor();
+      if (!actor || actor.id !== userId) return 0;
+      const now = Date.now();
+      const all = load('lms_capsules', []);
+      let n = 0;
+      all.forEach(c => {
+        if (c.userId === userId && c.openAt <= now && !c.notifiedAt) {
+          c.notifiedAt = now; n++;
+          DB.addNotification({ userId, icon: '💌', title: 'Surat masa depanmu sudah dapat dibuka',
+            body: `Kapsul yang kamu tulis pada ${new Date(c.createdAt).toLocaleDateString('id-ID')} kini dapat dibaca di Mesin Waktu.`, link: 'mesin-waktu' });
+        }
+      });
+      if (n) save('lms_capsules', all);
+      return n;
+    },
+
+    /* ---------- Musik latar (metadata; berkas audio di IndexedDB) ---------- */
+    MUSIC_MOODS: [
+      { key: 'fokus', label: 'Fokus', icon: '🎯' }, { key: 'santai', label: 'Santai', icon: '🌿' },
+      { key: 'semangat', label: 'Semangat', icon: '🔥' }, { key: 'tenang', label: 'Tenang', icon: '🌙' }
+    ],
+    getMusicTracks: () => load('lms_music_tracks', []).slice().sort((a, b) => (a.order || 0) - (b.order || 0)),
+    saveMusicTrack: (rec, actor) => {
+      if (!actor || actor.role !== 'admin') throw new Error('Hanya admin yang dapat mengelola musik.');
+      const title = String(rec.title || '').trim();
+      if (title.length < 1 || title.length > 120) throw new Error('Judul lagu 1–120 karakter.');
+      const artist = String(rec.artist || '').trim();
+      if (artist.length < 1 || artist.length > 120) throw new Error('Nama artis/pencipta wajib diisi.');
+      if (!rec.rights || !rec.rights.confirmed || String(rec.rights.license || '').trim().length < 3) {
+        throw new Error('Konfirmasi hak penggunaan dan isi jenis lisensi.');
+      }
+      if (!DB.MUSIC_MOODS.some(m => m.key === rec.mood)) throw new Error('Pilih suasana musik.');
+      const list = load('lms_music_tracks', []);
+      const clean = { title, artist, mood: rec.mood, cover: String(rec.cover || ''), mime: String(rec.mime || ''),
+        size: Number(rec.size) || 0, duration: Number(rec.duration) || 0, fileName: String(rec.fileName || '').slice(0, 160),
+        rights: { confirmed: true, license: String(rec.rights.license).trim().slice(0, 120), source: String(rec.rights.source || '').trim().slice(0, 300) },
+        active: rec.active !== false, updatedAt: Date.now(), blobKey: String(rec.blobKey || '') };
+      if (!clean.blobKey) throw new Error('Berkas audio belum diunggah.');
+      let out;
+      const i = rec.id ? list.findIndex(t => t.id === rec.id) : -1;
+      if (i >= 0) out = list[i] = Object.assign({}, list[i], clean);
+      else { out = Object.assign({ id: uid('trk'), createdAt: Date.now(), createdBy: actor.id, order: list.length }, clean); list.push(out); }
+      save('lms_music_tracks', list);
+      DB.logActivity('music.save', `Menyimpan musik "${title}" (${clean.rights.license})`, out.id);
+      return out;
+    },
+    deleteMusicTrack: (id, actor) => {
+      if (!actor || actor.role !== 'admin') throw new Error('Hanya admin yang dapat mengelola musik.');
+      const t = load('lms_music_tracks', []).find(x => x.id === id);
+      save('lms_music_tracks', load('lms_music_tracks', []).filter(x => x.id !== id));
+      if (DB.getSettings().musicMainTrackId === id) DB.setSetting('musicMainTrackId', '');
+      DB.logActivity('music.delete', `Menghapus musik "${t ? t.title : id}"`, id);
+      return t;
+    },
+    moveMusicTrack: (id, dir, actor) => {
+      if (!actor || actor.role !== 'admin') throw new Error('Hanya admin yang dapat mengelola musik.');
+      const list = DB.getMusicTracks();
+      const i = list.findIndex(t => t.id === id);
+      const j = i + (dir < 0 ? -1 : 1);
+      if (i < 0 || j < 0 || j >= list.length) return;
+      [list[i], list[j]] = [list[j], list[i]];
+      list.forEach((t, k) => { t.order = k; });
+      save('lms_music_tracks', list);
+    },
+
     resetAll: () => {
       Object.values(KEYS).forEach(k => localStorage.removeItem(k));
       ['lms_seeded_v1', 'lms_seeded_v2'].forEach(k => localStorage.removeItem(k));
@@ -2129,9 +3023,11 @@
       // Draft tugas memakai key per siswa+tugas, jadi bersihkan berdasarkan prefix.
       for (let i = localStorage.length - 1; i >= 0; i--) {
         const k = localStorage.key(i);
-        if (k && (k.startsWith('lms_assignment_draft:') || k.startsWith('lms_wb_pref:'))) localStorage.removeItem(k);
+        if (k && /^lms_(assignment_draft|wb_pref|music_pref|streak_reminded|arena_state):/.test(k)) localStorage.removeItem(k);
       }
       seedIfNeeded();
+      runMigrations();
+      if (global.BlobStore) BlobStore.clearAll().catch(() => {});
     }
   };
 

@@ -474,14 +474,15 @@ html[data-theme="dark"] .table-wrap.has-overflow::after {
    11. CHAT
    ========================================================================= */
 @media (max-width: 860px) {
-  .chat-layout { grid-template-columns: 1fr; height: auto; min-height: 0; }
-  /* min-height:0 + overflow sendiri agar daftar kontak tetap bisa digeser
-   * dengan sentuhan di ponsel, bukan terpotong. */
-  .chat-sidebar {
-    max-height: 210px; min-height: 0; overflow: hidden;
-    border-right: none; border-bottom: 1px solid var(--gray-200);
-  }
-  .chat-messages { min-height: 220px; max-height: 52dvh; }
+  /* Satu panel: daftar kontak ATAU percakapan, mengisi tinggi layar.
+   * Dulu kedua panel ditumpuk (kontak 210px + pesan ≥220px) sehingga kotak
+   * ketik terdorong ke bawah layar dan baru terlihat setelah zoom out. */
+  .chat-layout { grid-template-columns: 1fr; grid-template-rows: minmax(0, 1fr); }
+  .chat-sidebar { border-right: none; min-height: 0; }
+  .chat-layout.show-conv .chat-sidebar { display: none; }
+  .chat-layout:not(.show-conv) .chat-main { display: none; }
+  .chat-back { display: inline-grid; place-items: center; }
+  .chat-messages { min-height: 0; max-height: none; }
   .chat-bubble { max-width: 86%; }
   .chat-input-box { padding: 10px 12px calc(10px + var(--sa-b)); }
   .chat-input-box input { font-size: 16px; }
@@ -553,7 +554,6 @@ html[data-theme="dark"] .table-wrap.has-overflow::after {
   .cbt-timer { position: static; }
   .sidebar { padding-top: 10px; }
   .sidebar .brand { padding-bottom: 10px; }
-  .chat-messages { max-height: 40dvh; min-height: 160px; }
 }
 
 /* =========================================================================

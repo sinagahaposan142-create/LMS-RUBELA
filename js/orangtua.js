@@ -53,6 +53,8 @@
     else if (section === 'anak-perkembangan') renderPerkembangan(body, child);
     else if (section === 'anak-jadwal') Jadwal.renderPlanTable(body, user, { studentId: child.id, showChildName: true });
     else if (section === 'keuangan') renderKeuangan(body, child);
+    else if (section === 'anak-streak') StreakAPI.renderPage(body, child, { readOnly: true, viewer: user });
+    else if (section === 'anak-course') CourseHub.renderParent(body, child);
     else body.innerHTML = emptyState('Halaman tidak dikenali.');
 
     if (global.Effects) Effects.enhance(container);
@@ -106,7 +108,7 @@
   /* ================= OVERVIEW ================= */
   function renderOverview(el, user, child) {
     const st = Shared.studentStats(child.id);
-    const courses = DB.getEnrollmentsByStudent(child.id).map(e => DB.getCourse(e.courseId)).filter(Boolean);
+    const courses = DB.visibleCoursesForStudent(child.id);
     const payments = DB.getPaymentsByStudent(child.id);
     const unpaid = payments.filter(p => p.status !== 'lunas').reduce((s, p) => s + (p.amount || 0), 0);
     const late = st.pendingAsg.filter(a => Date.now() > a.dueDate);
@@ -143,6 +145,7 @@
         </div>
       </section>
 
+      ${StreakAPI.widgetHtml(child, { child: true, link: 'anak-streak' })}
       ${Shared.motivationHtml('orangtua')}
 
       ${flags.length ? `
@@ -199,6 +202,7 @@
       </div>
     `;
 
+    StreakAPI.bindWidget(el);
     renderTimeline(document.getElementById('ortuTimeline'), child);
   }
 
@@ -321,8 +325,8 @@
 
   /* ================= TUGAS ================= */
   function renderTugas(el, child) {
-    const enrolled = DB.getEnrollmentsByStudent(child.id).map(e => e.courseId);
-    const all = DB.getAssignments().filter(a => enrolled.includes(a.courseId))
+    // Orang tua melihat tugas yang sama dengan yang terlihat oleh anaknya.
+    const all = DB.studentContent('assignment', child.id)
       .slice().sort((a, b) => a.dueDate - b.dueDate);
     const subs = DB.getSubmissionsByStudent(child.id);
     const byAsg = new Map(subs.map(s => [s.assignmentId, s]));
@@ -387,7 +391,7 @@
   /* ================= KELAS & GURU ================= */
   function renderKelas(el, child) {
     const enrollments = DB.getEnrollmentsByStudent(child.id);
-    const courses = enrollments.map(e => ({ e, c: DB.getCourse(e.courseId) })).filter(x => x.c);
+    const courses = enrollments.map(e => ({ e, c: DB.getCourse(e.courseId) })).filter(x => x.c && x.c.active !== false);
 
     el.innerHTML = `
       <div class="card">
@@ -408,7 +412,7 @@
                 <div class="mt-1">${UI.progressHtml(pct, 'Kehadiran di kelas ini', 'auto')}</div>
               </div>
               <div class="course-footer">
-                <span>${DB.getMaterialsByCourse(c.id).length} materi • ${DB.getAssignmentsByCourse(c.id).length} tugas</span>
+                <span>${DB.studentContent('material', child.id, c.id).length} materi • ${DB.studentContent('assignment', child.id, c.id).length} tugas</span>
                 <div class="flex-gap">
                   <button class="btn btn-sm btn-primary" data-parent-wb="${c.id}">🖍️ Whiteboard</button>
                   ${t ? `<button class="btn btn-sm btn-secondary" data-chat-teacher="${t.id}">💭 Hubungi</button>` : ''}
@@ -635,6 +639,7 @@
         relation: fd.get('relation')
       };
       patch.birthDate = birthDate;
+      patch.religion = ProfileFields.religionOf(fd);
       patch.photo = photoField.value();
       const pw = fd.get('password');
       if (pw) patch.password = pw;

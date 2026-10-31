@@ -833,7 +833,7 @@
       });
 
       container.innerHTML = `
-        <div class="chat-layout">
+        <div class="chat-layout ${activeChatUserId ? 'show-conv' : ''}" id="chatLayout">
           <div class="chat-sidebar">
             <div class="chat-search">
               <input id="chatSearch" placeholder="Cari kontak..." />
@@ -877,7 +877,40 @@
       });
 
       if (activeChatUserId) renderConversation();
+      fitChat();
     }
+
+    /* Tinggi panel chat = tinggi area pandang yang benar-benar terlihat
+     * (visualViewport ikut mengecil saat keyboard ponsel muncul), sehingga
+     * kotak ketik selalu tampil tanpa perlu zoom out. */
+    function fitChat() {
+      const layout = document.getElementById('chatLayout');
+      if (!layout) return;
+      const vv = global.visualViewport;
+      const viewH = vv ? vv.height : global.innerHeight;
+      const top = layout.getBoundingClientRect().top + (global.scrollY || 0);
+      const bottomPad = global.innerWidth <= 560 ? 8 : 20;
+      const h = Math.max(320, Math.round(viewH - Math.min(top, viewH * 0.45) - bottomPad));
+      layout.style.setProperty('--chat-h', h + 'px');
+    }
+    if (global.__chatFit) {
+      global.removeEventListener('resize', global.__chatFit);
+      if (global.visualViewport) global.visualViewport.removeEventListener('resize', global.__chatFit);
+    }
+    global.__chatFit = () => {
+      if (!document.getElementById('chatLayout')) {
+        global.removeEventListener('resize', global.__chatFit);
+        if (global.visualViewport) global.visualViewport.removeEventListener('resize', global.__chatFit);
+        global.__chatFit = null;
+        return;
+      }
+      fitChat();
+      const box = document.getElementById('chatMessages');
+      if (box) box.scrollTop = box.scrollHeight;
+    };
+    global.addEventListener('resize', global.__chatFit);
+    if (global.visualViewport) global.visualViewport.addEventListener('resize', global.__chatFit);
+    setTimeout(fitChat, 60);
 
     function getLastMessage(uid1, uid2) {
       const conv = DB.getConversation(uid1, uid2);
@@ -892,6 +925,7 @@
 
       chatMain.innerHTML = `
         <div class="chat-header">
+          <button type="button" class="chat-back" id="chatBack" aria-label="Kembali ke daftar kontak">←</button>
           <div class="avatar" style="width:32px;height:32px;font-size:12px;">${UI.initials(partner.name)}</div>
           <div>
             <strong>${UI.esc(partner.name)}</strong>
@@ -906,11 +940,15 @@
                 <div class="chat-time">${formatChatTime(m.createdAt)}</div>
               </div>`).join('')}
         </div>
-        <div class="chat-input-box">
-          <input id="chatInput" placeholder="Ketik pesan..." autocomplete="off" />
-          <button class="btn btn-primary btn-sm" id="chatSendBtn">Kirim</button>
-        </div>
+        <form class="chat-input-box" id="chatForm">
+          <input id="chatInput" placeholder="Ketik pesan..." autocomplete="off" maxlength="2000" aria-label="Ketik pesan" enterkeyhint="send" />
+          <button type="submit" class="btn btn-primary btn-sm" id="chatSendBtn">Kirim</button>
+        </form>
       `;
+      document.getElementById('chatBack').addEventListener('click', () => {
+        activeChatUserId = null;
+        renderLayout();
+      });
 
       // Scroll to bottom
       const msgBox = document.getElementById('chatMessages');
@@ -924,9 +962,13 @@
         DB.addMessage({ senderId: user.id, receiverId: activeChatUserId, text });
         input.value = '';
         renderConversation();
+        const again = document.getElementById('chatInput');
+        if (again) again.focus({ preventScroll: true });
       };
-      document.getElementById('chatSendBtn').addEventListener('click', send);
-      document.getElementById('chatInput').addEventListener('keydown', (e) => { if (e.key === 'Enter') send(); });
+      document.getElementById('chatForm').addEventListener('submit', (e) => { e.preventDefault(); send(); });
+      const input = document.getElementById('chatInput');
+      // Fokus otomatis hanya di layar lebar agar keyboard ponsel tidak langsung muncul.
+      if (global.innerWidth > 860) input.focus({ preventScroll: true });
     }
 
     function formatChatTime(ts) {
@@ -1665,6 +1707,7 @@
       counts.hadir * 5
       + (counts.terlambat || 0) * 3
       + DB.birthdayBonusPoints(studentId)
+      + (global.StreakAPI ? StreakAPI.bonusPoints(studentId) : 0)
       + subs.length * 10
       + graded.reduce((a, s) => a + s.grade, 0) / 10
       + attempts.length * 15
@@ -1676,8 +1719,8 @@
     const levelProgress = Math.min(100, Math.round(((points - (level - 1) * 120) / 120) * 100));
 
     // Tugas yang belum dikumpulkan dari kelas yang diikuti
-    const courseIds = enrolled.map(e => e.courseId);
-    const allAsg = DB.getAssignments().filter(a => courseIds.includes(a.courseId));
+    // Hanya tugas yang terlihat oleh siswa (aktif & sesuai kebijakan siswa baru).
+    const allAsg = DB.studentContent('assignment', studentId);
     const submittedIds = new Set(subs.map(s => s.assignmentId));
     const pendingAsg = allAsg.filter(a => !submittedIds.has(a.id));
 

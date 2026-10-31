@@ -548,7 +548,7 @@
 
         <div class="rte-group">
           ${ins('image', '🖼 Gambar', 'Sisipkan gambar')}
-          ${ins('audio', '🔊 Audio', 'Sisipkan audio')}
+          ${o.noAudio ? '' : ins('audio', '🔊 Audio', 'Sisipkan audio')}
           ${ins('link', '🔗 Tautan', 'Sisipkan tautan')}
         </div>
 
@@ -558,9 +558,9 @@
           ${btn('removeFormat', '⌫', 'Hapus format')}
         </div>
 
-        <div class="rte-group">
+        ${o.noAi ? '' : `<div class="rte-group">
           ${ins('ai', '🤖 AI', 'Tulis atau rapikan isi dengan bantuan AI')}
-        </div>
+        </div>`}
       </div>`;
   }
 
