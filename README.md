@@ -185,6 +185,20 @@ Hasil audit lengkap 23 poin permintaan beserta buktinya ada di
 - **Pemasukan** dibedakan per jenis: pembayaran SPP **dan denda siswa** (mis. pelanggaran atau keluar kelas) dengan daftar alasan denda siap pakai.
 - **Pengaturan → Branding**: unggah **logo Rubela** dan atur nama lembaga; logo langsung dipakai di halaman login, topbar dashboard, judul halaman, dan favicon.
 
+### Fitur Ronde 7 (detail: `docs/AUDIT-FITUR-RONDE-7.md`)
+- **Whiteboard profesional**: layar penuh, minimalkan, ukuran papan (16:9, 4:3, persegi, A4) + perluas ke bawah/kanan,
+  zoom/geser/muat ke layar, toolbar dapat dipindah/ditempel; 10 alat (pena, pena halus, kuas, spidol, stabilo,
+  kaligrafi, pensil, penghapus goresan/objek, laser pointer, bentuk) + teks, gambar, tabel, pilih/pindah/ubah ukuran;
+  warna, palet kustom, ketebalan, opasitas, tekanan stylus, garis solid/putus/titik, bold; template kotak/titik/garis/milimeter,
+  garis bantu; undo/redo semua objek; ekspor PNG/PDF; autosave, riwayat versi, simpan & buka papan.
+- **Pencarian global** di semua daftar besar: pencarian isi & atribut (parsial, tanpa beda huruf besar/kecil & aksen),
+  filter, rentang tanggal, urutan, tombol hapus, debounce 220 ms, dan pagination atas hasil pencarian.
+- **Persentase kehadiran**: rumus tunggal (hadir + terlambat) ÷ sesi terlaksana × 100%; sesi dibatalkan tidak dihitung;
+  kebijakan izin/sakit & ambang standar diatur admin; ring, bar, grafik bulanan/semester, statistik per kelas, peringatan.
+- **Ulang tahun**: deteksi otomatis, banner + confetti, Birthday Wall, kartu ucapan/stiker/templat, Birthday Badge,
+  bingkai foto, poin hadiah (diatur admin), animasi membuka kado, moderasi & laporan pesan.
+- **Admin & Staff**, **Notifikasi & Riwayat Aktivitas**, tanggal lahir & foto profil di semua form akun.
+
 ## Arsitektur Data (semua tersinkronisasi)
 
 Semua entitas direlasikan via ID, jadi update/hapus satu entitas otomatis konsisten di seluruh panel:
@@ -198,7 +212,7 @@ users ─── guru ───▶ courses ───▶ materials
   │        │          │   │       └─ questionIds[] ──▶ questions (bank soal)
   │        │          │   ├───▶ enrollments ◀── siswa
   │        │          │   ├───▶ attendance ◀── siswa & guru
-  │        │          │   ├───▶ whiteboards (vector strokes per kelas)
+  │        │          │   ├───▶ whiteboards (objek vektor v2 per kelas) + whiteboard_boards (versi & papan tersimpan)
   │        │          │   └───▶ payments ◀── siswa
   │        └─▶ salaries (gaji guru)
   │        └─▶ attendance (kehadiran guru)
@@ -207,6 +221,8 @@ users ─── guru ───▶ courses ───▶ materials
   └── orangtua ──childIds[]──▶ siswa (pemantauan hanya-baca)
 admin ── kelola semua + expenses (pengeluaran operasional)
 notifications ──userId──▶ users (dikirim otomatis oleh aksi lintas peran)
+birthday_wishes ──recipientId/authorId──▶ users   birthday_rewards (buku besar poin, 1×/tahun)
+activity_log (audit ringan: akun, pengaturan, moderasi)   schema_version (migrasi aman bertahap)
 ```
 
 Contoh sinkronisasi otomatis:
@@ -230,8 +246,8 @@ Tekan *Export Excel* untuk mengunduh template berisi kolom lengkap (termasuk dat
 
 | Data | Kolom |
 |------|-------|
-| Guru | Nama, Username, **Password**, Email, WhatsApp, Subtest, Tarif Gaji, Status |
-| Siswa | Nama, Username, **Password**, Email, Telepon, Kelas, Universitas Tujuan, Jurusan Tujuan, Status |
+| Guru | Nama, Username, **Password**, Email, WhatsApp, Subtest, Tarif Gaji, Tanggal Lahir, Status |
+| Siswa | Nama, Username, **Password**, Email, Telepon, Kelas, Universitas Tujuan, Jurusan Tujuan, Tanggal Lahir, Status |
 | Orang Tua | Nama, Username, **Password**, Email, Telepon, Hubungan, **Username Anak** (pisahkan koma), Status |
 | Kelas | Judul Kelas, Subtest, Kelas Utama, Username Guru (boleh beberapa), Hari, Jam Mulai, Jam Selesai, Tanggal Mulai, Jumlah Pertemuan, Tautan Kelas, Kategori, Deskripsi, Biaya, Password |
 | Bank Soal | Subtest, Format, Tingkat, Pertanyaan, A, B, C, D, E, Kunci, Pembahasan |
@@ -314,12 +330,15 @@ LMS-RUBELA/
     ├── exam.js          # Runner ujian peserta: autosave jawaban/deadline, keamanan, hasil
     ├── scoring.js       # Raw 1/0, kesulitan empiris, bobot cohort, Rasch-like 200–800
     ├── autograder.js    # Saran nilai esai Gemini, batch apply, confidence & audit trail
-    ├── whiteboard.js    # Canvas vector per kelas, autosave, conflict merge, role guards
+    ├── whiteboard.js    # Whiteboard pro: 10 alat, objek, zoom/pan, versi, ekspor, sinkron & role guards
+    ├── data-search.js   # Pencarian/filter/sort/pagination bersama untuk semua daftar
+    ├── attendance-insights.js # Ring, grafik, rekap & riwayat persentase kehadiran
+    ├── birthday.js      # Banner ulang tahun, Birthday Wall, hadiah, moderasi
     ├── dashboard.js     # Router role-based + sidebar + pusat notifikasi + tema + drawer mobile
-    ├── admin.js         # Panel Admin (24 menu, termasuk Online, Agent Web & Integrasi AI)
-    ├── guru.js          # Panel Guru (19 menu, termasuk Online & pemeriksa esai AI)
-    ├── siswa.js         # Panel Siswa (18 menu)
-    └── orangtua.js      # Panel Orang Tua (13 menu pemantauan)
+    ├── admin.js         # Panel Admin (27 menu, termasuk Admin & Staff, Ulang Tahun, Notifikasi & Aktivitas)
+    ├── guru.js          # Panel Guru (21 menu)
+    ├── siswa.js         # Panel Siswa (20 menu)
+    └── orangtua.js      # Panel Orang Tua (15 menu pemantauan)
 ```
 
 ## Tips

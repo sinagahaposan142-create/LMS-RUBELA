@@ -113,7 +113,7 @@
 
     // Indikator sederhana kondisi belajar anak
     const flags = [];
-    if (st.attendanceTotal >= 3 && st.attendancePct < 75) flags.push(`Kehadiran baru ${st.attendancePct}% (di bawah 75%)`);
+    if (st.attendanceSessions >= 3 && st.attendancePct < DB.attendanceThreshold()) flags.push(`Kehadiran baru ${st.attendancePct}% (di bawah standar ${DB.attendanceThreshold()}%)`);
     if (late.length > 0) flags.push(`${late.length} tugas melewati deadline`);
     if (st.avgAsg != null && st.avgAsg < 60) flags.push(`Rata-rata nilai tugas rendah (${st.avgAsg})`);
     if (st.avgCbtScaled != null && st.avgCbtScaled < 450) flags.push(`Rata-rata skor CBT cohort rendah (${st.avgCbtScaled}/800)`);
@@ -315,64 +315,8 @@
 
   /* ================= KEHADIRAN ================= */
   function renderAbsensi(el, child) {
-    const att = DB.getAttendanceByUser(child.id).filter(a => a.role === 'siswa')
-      .slice().sort((a, b) => b.date.localeCompare(a.date));
-    const counts = { hadir: 0, izin: 0, sakit: 0, alfa: 0 };
-    att.forEach(a => { counts[a.status] = (counts[a.status] || 0) + 1; });
-    const pct = att.length ? Math.round(counts.hadir / att.length * 100) : 0;
-
-    const courses = DB.getEnrollmentsByStudent(child.id).map(e => DB.getCourse(e.courseId)).filter(Boolean);
-    const perCourse = courses.map(c => {
-      const list = att.filter(a => a.courseId === c.id);
-      const local = { hadir: 0, izin: 0, sakit: 0, alfa: 0 };
-      list.forEach(a => { local[a.status] = (local[a.status] || 0) + 1; });
-      return { c, local, total: list.length, pct: list.length ? Math.round(local.hadir / list.length * 100) : 0 };
-    });
-
-    el.innerHTML = `
-      <div class="stats-grid">
-        <div class="stat-card accent-success"><div class="label">Hadir</div><div class="value">${counts.hadir}</div></div>
-        <div class="stat-card accent-primary"><div class="label">Izin</div><div class="value">${counts.izin}</div></div>
-        <div class="stat-card accent-warning"><div class="label">Sakit</div><div class="value">${counts.sakit}</div></div>
-        <div class="stat-card accent-danger"><div class="label">Alfa</div><div class="value">${counts.alfa}</div></div>
-      </div>
-
-      <div class="card" style="text-align:center;">
-        ${UI.meterHtml(pct)}
-        <div class="muted">Persentase kehadiran ${UI.esc(child.name)} dari ${att.length} sesi tercatat</div>
-      </div>
-
-      <div class="card">
-        <div class="card-header">${UI.secHead('📊', 'Kehadiran per Kelas', 'Perbandingan antar kelas yang diikuti')}</div>
-        ${perCourse.length === 0 ? emptyState('Belum ada kelas.') : `
-        <div class="table-wrap"><table class="table">
-          <thead><tr><th>Kelas</th><th>Hadir</th><th>Izin</th><th>Sakit</th><th>Alfa</th><th>Total</th><th>Kehadiran</th></tr></thead>
-          <tbody>${perCourse.map(r => `<tr>
-            <td><strong>${UI.esc(r.c.title)}</strong></td>
-            <td>${r.local.hadir}</td><td>${r.local.izin}</td><td>${r.local.sakit}</td><td>${r.local.alfa}</td>
-            <td>${r.total}</td>
-            <td style="min-width:150px;">${UI.progressHtml(r.pct, '', 'auto')}</td>
-          </tr>`).join('')}</tbody>
-        </table></div>`}
-      </div>
-
-      <div class="card">
-        <div class="card-header">${UI.secHead('📋', 'Riwayat Kehadiran', 'Diperbarui otomatis setiap guru mengisi presensi')}</div>
-        ${att.length === 0 ? emptyState('Belum ada data kehadiran.') : `
-        <div class="table-wrap"><table class="table">
-          <thead><tr><th>Tanggal</th><th>Kelas</th><th>Status</th><th>Catatan</th></tr></thead>
-          <tbody>${att.map(a => {
-            const c = DB.getCourse(a.courseId);
-            return `<tr>
-              <td>${UI.fmtYMD(a.date)}</td>
-              <td>${UI.esc(c ? c.title : '-')}</td>
-              <td><span class="status-${a.status}">${a.status.toUpperCase()}</span></td>
-              <td class="muted small">${UI.esc(a.note || '-')}</td>
-            </tr>`;
-          }).join('')}</tbody>
-        </table></div>`}
-      </div>
-    `;
+    // Tampilan & rumus identik dengan panel siswa (hanya-baca untuk orang tua).
+    AttendanceInsights.renderPersonal({ container: el, user: child, role: 'siswa', title: `Persentase Kehadiran ${child.name}` });
   }
 
   /* ================= TUGAS ================= */
@@ -397,28 +341,47 @@
         <div class="card-header">${UI.secHead('📝', 'Daftar Tugas', `Progres pengumpulan ${UI.esc(child.name)}`)}</div>
         ${UI.progressHtml(all.length ? Math.round(done / all.length * 100) : 0, 'Tugas terkumpul')}
         <div class="mt-2">
-        ${all.length === 0 ? emptyState('Belum ada tugas dari kelas yang diikuti.') : `
-        <div class="table-wrap"><table class="table">
-          <thead><tr><th>Tugas</th><th>Kelas</th><th>Deadline</th><th>Status</th><th>Nilai</th></tr></thead>
-          <tbody>${all.map(a => {
-            const c = DB.getCourse(a.courseId);
-            const s = byAsg.get(a.id);
-            let status = '<span class="badge badge-info">Belum Dikerjakan</span>';
-            if (s && s.grade != null) status = '<span class="badge badge-success">Selesai & Dinilai</span>';
-            else if (s) status = '<span class="badge badge-warning">Menunggu Penilaian</span>';
-            else if (Date.now() > a.dueDate) status = '<span class="badge badge-warning">Terlambat</span>';
-            return `<tr>
-              <td><strong>${UI.esc(a.title)}</strong><div class="muted small">${UI.esc(a.description || '')}</div></td>
-              <td>${UI.esc(c ? c.title : '-')}</td>
-              <td>${UI.fmtDate(a.dueDate)}</td>
-              <td>${status}</td>
-              <td>${s && s.grade != null ? `<strong>${s.grade}</strong>` : '-'}</td>
-            </tr>`;
-          }).join('')}</tbody>
-        </table></div>`}
+        <div id="ortuAsgSearch"></div>
         </div>
       </div>
     `;
+    const stateOf = (a) => { const x = byAsg.get(a.id);
+      return x && x.grade != null ? 'graded' : (x ? 'waiting' : (Date.now() > a.dueDate ? 'late' : 'todo')); };
+    DataSearch.mount({
+      container: el.querySelector('#ortuAsgSearch'),
+      items: all,
+      stateKey: 'ortu-asg-' + child.id,
+      placeholder: 'Cari judul tugas, deskripsi, atau kelas…',
+      fields: a => { const c = DB.getCourse(a.courseId); return [a.title, DataSearch.plain(a.description || ''), c ? DB.courseTitle(c) : '']; },
+      filters: [{ key: 'state', label: 'Semua status', get: stateOf, options: [
+        { value: 'todo', label: 'Belum dikerjakan' }, { value: 'late', label: 'Terlambat' },
+        { value: 'waiting', label: 'Menunggu penilaian' }, { value: 'graded', label: 'Selesai & dinilai' }] }],
+      dateRange: a => DB.ymdOf(a.dueDate),
+      sorts: [
+        { key: 'due', label: 'Deadline terdekat', cmp: (a, b) => a.dueDate - b.dueDate },
+        { key: 'due-desc', label: 'Deadline terjauh', cmp: (a, b) => b.dueDate - a.dueDate }
+      ],
+      pageSize: 15,
+      empty: 'Belum ada tugas dari kelas yang diikuti.',
+      render: (rows, ctx) => `<div class="table-wrap"><table class="table">
+          <thead><tr><th>Tugas</th><th>Kelas</th><th>Deadline</th><th>Status</th><th>Nilai</th></tr></thead>
+          <tbody>${rows.map(a => {
+            const c = DB.getCourse(a.courseId);
+            const x = byAsg.get(a.id);
+            let status = '<span class="badge badge-info">Belum Dikerjakan</span>';
+            if (x && x.grade != null) status = '<span class="badge badge-success">Selesai & Dinilai</span>';
+            else if (x) status = '<span class="badge badge-warning">Menunggu Penilaian</span>';
+            else if (Date.now() > a.dueDate) status = '<span class="badge badge-warning">Terlambat</span>';
+            return `<tr>
+              <td><strong>${ctx.highlight(a.title)}</strong><div class="muted small">${UI.esc(DataSearch.plain(a.description || '').slice(0, 140))}</div></td>
+              <td>${ctx.highlight(c ? DB.courseTitle(c) : '-')}</td>
+              <td>${UI.fmtDate(a.dueDate)}</td>
+              <td>${status}</td>
+              <td>${x && x.grade != null ? `<strong>${x.grade}</strong>` : '-'}</td>
+            </tr>`;
+          }).join('')}</tbody>
+        </table></div>`
+    });
   }
 
   /* ================= KELAS & GURU ================= */
@@ -434,7 +397,7 @@
           ${courses.map(({ e, c }, i) => {
             const t = DB.getUser(c.teacherId);
             const att = DB.getAttendanceByCourse(c.id).filter(a => a.userId === child.id);
-            const pct = att.length ? Math.round(att.filter(a => a.status === 'hadir').length / att.length * 100) : 0;
+            const pct = DB.attendanceSummary(att).pct;
             return `<div class="course-card">
               <div class="course-banner ${UI.bannerClass(i)}">${UI.esc((c.title || '?').slice(0, 1).toUpperCase())}</div>
               <div class="course-body">
@@ -635,6 +598,7 @@
                 `<option value="${r}" ${(user.relation || 'Wali') === r ? 'selected' : ''}>${r}</option>`).join('')}
             </select>
           </div>
+          ${ProfileFields.profileExtraFields(DB.getUser(user.id))}
           <div class="form-group"><label>Password Baru (kosongkan jika tidak diubah)</label>
             <input name="password" type="password" minlength="6" /></div>
           <button class="btn btn-primary" type="submit">Simpan Perubahan</button>
@@ -657,15 +621,21 @@
       </div>
     `;
 
+    const photoField = ProfileFields.bindPhotoField(document.getElementById('ortuProfileForm'), DB.getUser(user.id));
     document.getElementById('ortuProfileForm').addEventListener('submit', (e) => {
       e.preventDefault();
       const fd = new FormData(e.target);
+      const birthDate = String(fd.get('birthDate') || '');
+      const bdErr = ProfileFields.validateBirthDate(birthDate);
+      if (bdErr) { UI.toast(bdErr, 'error'); return; }
       const patch = {
         name: fd.get('name').trim(),
         email: (fd.get('email') || '').trim(),
         phone: (fd.get('phone') || '').trim(),
         relation: fd.get('relation')
       };
+      patch.birthDate = birthDate;
+      patch.photo = photoField.value();
       const pw = fd.get('password');
       if (pw) patch.password = pw;
       DB.updateUser(user.id, patch);

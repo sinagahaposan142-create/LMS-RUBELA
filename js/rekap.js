@@ -49,8 +49,8 @@
   }
   function statusBadge(status) {
     const map = {
-      hadir: ['badge-success', 'Hadir'], izin: ['badge-warning', 'Izin'],
-      sakit: ['badge-info', 'Sakit'], alfa: ['badge-danger', 'Alfa']
+      hadir: ['badge-success', 'Hadir'], terlambat: ['badge-info', 'Terlambat'],
+      izin: ['badge-warning', 'Izin'], sakit: ['badge-info', 'Sakit'], alfa: ['badge-danger', 'Alfa']
     };
     const m = map[status] || ['badge-secondary', status || '-'];
     return `<span class="badge ${m[0]}">${esc(m[1])}</span>`;
@@ -120,13 +120,17 @@
       violations,
       avgAsg: average(graded.map(s => s.grade)),
       avgCbt: averageCbt(attempts),
-      sessions: new Set(att.map(a => a.date)).size,
-      attTotal: att.length,
-      hadir: att.filter(a => a.status === 'hadir').length,
-      izin: att.filter(a => a.status === 'izin').length,
-      sakit: att.filter(a => a.status === 'sakit').length,
-      alfa: att.filter(a => a.status === 'alfa').length,
-      presentPct: pctOf(att.filter(a => a.status === 'hadir').length, att.length),
+      // Sesi terlaksana = tanggal unik presensi, kecuali sesi yang dibatalkan.
+      sessions: new Set(att.filter(a => !DB.isCancelledSession(a.courseId, a.date)).map(a => a.date)).size,
+      ...(() => {
+        const s = DB.attendanceSummary(att);
+        return {
+          attTotal: s.sessions, present: s.present,
+          hadir: s.counts.hadir, terlambat: s.counts.terlambat,
+          izin: s.counts.izin, sakit: s.counts.sakit, alfa: s.counts.alfa,
+          presentPct: Math.round(s.pct)
+        };
+      })(),
       plans: plans.length,
       plansFixed: plans.filter(p => p.status === 'fixed').length,
       plansDraft: plans.filter(p => p.status === 'draft').length,
@@ -175,7 +179,7 @@
       avgAsg: average(per.map(p => p.avgAsg)),
       avgCbt: average(per.map(p => p.avgCbt)),
       sessions: sum('sessions'),
-      classPresentPct: pctOf(sum('hadir'), attTotal),
+      classPresentPct: pctOf(sum('present'), attTotal),
       plans: plans.length,
       plansFixed: plans.filter(p => p.status === 'fixed').length,
       plansDraft: plans.filter(p => p.status === 'draft').length,
@@ -183,8 +187,9 @@
       plansCancelled: plans.filter(p => p.status === 'cancelled').length,
       planList: plans,
       disciplinePct: pctOf(plans.filter(p => p.status === 'fixed').length, plans.length),
-      ownPresentPct: pctOf(ownAtt.filter(a => a.status === 'hadir').length, ownAtt.length),
-      ownAttTotal: ownAtt.length,
+      ownPresentPct: Math.round(DB.attendanceSummary(ownAtt).pct),
+      ownAttTotal: DB.attendanceSummary(ownAtt).sessions,
+      ownSummary: DB.attendanceSummary(ownAtt),
       ownAtt,
       salaries,
       salaryPaid: salaries.filter(s => s.status === 'dibayar').reduce((n, s) => n + (s.amount || 0), 0),
@@ -239,7 +244,8 @@
     const avgAsg = average(graded.map(s => s.grade));
     const avgCbt = averageCbt(attempts);
     const avgCbtPct = average(attempts.map(a => a.score));
-    const presentPct = pctOf(att.filter(a => a.status === 'hadir').length, att.length);
+    const attSum = DB.attendanceSummary(att);
+    const presentPct = Math.round(attSum.pct);
     // Indeks performa gabungan: 40% CBT, 35% tugas, 25% kehadiran
     const parts = [];
     if (avgCbtPct != null) parts.push([avgCbtPct, 0.40]);
@@ -272,11 +278,13 @@
         ? Object.entries(bySubtest).sort((a, b) => (average(a[1].scores) || 0) - (average(b[1].scores) || 0))[0][0] : null,
       bySubtest,
       att,
-      attTotal: att.length,
-      hadir: att.filter(a => a.status === 'hadir').length,
-      izin: att.filter(a => a.status === 'izin').length,
-      sakit: att.filter(a => a.status === 'sakit').length,
-      alfa: att.filter(a => a.status === 'alfa').length,
+      attTotal: attSum.sessions,
+      present: attSum.present,
+      hadir: attSum.counts.hadir,
+      terlambat: attSum.counts.terlambat,
+      izin: attSum.counts.izin,
+      sakit: attSum.counts.sakit,
+      alfa: attSum.counts.alfa,
       presentPct,
       payments,
       paid: payments.filter(p => p.status === 'lunas').reduce((n, p) => n + (p.amount || 0), 0),
@@ -368,7 +376,7 @@
     const classRows = sc.courses.map(courseStats);
 
     const totalAtt = classRows.reduce((n, r) => n + r.attTotal, 0);
-    const totalHadir = classRows.reduce((n, r) => n + r.hadir, 0);
+    const totalHadir = classRows.reduce((n, r) => n + r.present, 0);
     const totalPlans = classRows.reduce((n, r) => n + r.plans, 0);
     const totalFixed = classRows.reduce((n, r) => n + r.plansFixed, 0);
     const ungraded = classRows.reduce((n, r) => n + r.ungraded, 0);
@@ -796,8 +804,8 @@
           <thead><tr>
             <th>Siswa</th><th>Kelas Utama</th><th>Target</th><th>Kelas Subtest</th>
             <th>Indeks</th><th>Rata CBT (200–800)</th><th>CBT Selesai</th><th>Rata Tugas</th>
-            <th>Terkumpul</th><th>Nunggak</th><th>Terlambat</th>
-            <th>Hadir</th><th>Izin</th><th>Sakit</th><th>Alfa</th><th>Kehadiran</th>
+            <th>Terkumpul</th><th>Nunggak</th><th>Tugas Terlambat</th>
+            <th>Hadir</th><th>Datang Terlambat</th><th>Izin</th><th>Sakit</th><th>Alfa</th><th>Kehadiran</th>
             <th>Terkuat</th><th>Terlemah</th><th>Pelanggaran</th><th>Terbayar</th><th>Tagihan</th><th>Aksi</th>
           </tr></thead>
           <tbody>${rows.map(r => `<tr>
@@ -812,7 +820,7 @@
             <td>${r.subs}/${r.dueTotal}</td>
             <td>${r.missing ? `<span class="badge badge-danger">${r.missing}</span>` : '0'}</td>
             <td>${r.late || 0}</td>
-            <td>${r.hadir}</td><td>${r.izin}</td><td>${r.sakit}</td><td>${r.alfa}</td>
+            <td>${r.hadir}</td><td>${r.terlambat || 0}</td><td>${r.izin}</td><td>${r.sakit}</td><td>${r.alfa}</td>
             <td>${r.attTotal ? scorePill(r.presentPct, '%') : '<span class="muted">–</span>'}</td>
             <td class="muted small">${esc(r.bestSubtest || '-')}</td>
             <td class="muted small">${esc(r.weakSubtest || '-')}</td>
@@ -838,11 +846,11 @@
 
     bindCsv(document.getElementById('rkSiswaCsv'), 'rekap-siswa.csv',
       ['Siswa', 'Username', 'Kelas Utama', 'Target', 'Kelas Subtest', 'Indeks', 'Rata CBT (200–800)', 'CBT Selesai',
-        'Rata Tugas', 'Terkumpul', 'Total Tugas', 'Nunggak', 'Terlambat', 'Hadir', 'Izin', 'Sakit', 'Alfa',
+        'Rata Tugas', 'Terkumpul', 'Total Tugas', 'Nunggak', 'Tugas Terlambat', 'Hadir', 'Datang Terlambat', 'Izin', 'Sakit', 'Alfa',
         'Kehadiran %', 'Subtest Terkuat', 'Subtest Terlemah', 'Pelanggaran', 'Terbayar', 'Tagihan'],
       () => filtered().map(r => [r.user.name, r.user.username, r.user.kelas || '', r.user.target || '',
         r.classes, r.performance ?? '', r.avgCbt ?? '', r.attempts, r.avgAsg ?? '', r.subs, r.dueTotal,
-        r.missing, r.late, r.hadir, r.izin, r.sakit, r.alfa, r.presentPct,
+        r.missing, r.late, r.hadir, r.terlambat || 0, r.izin, r.sakit, r.alfa, r.presentPct,
         r.bestSubtest || '', r.weakSubtest || '', r.violations, r.paid, r.unpaid]));
   }
 
@@ -876,7 +884,7 @@
         <div class="stat-card accent-primary"><div class="label">Indeks Performa</div><div class="value">${r.performance == null ? '–' : r.performance}</div><div class="sub">40% CBT • 35% tugas • 25% hadir</div></div>
         <div class="stat-card accent-info"><div class="label">Rata-rata CBT (200–800)</div><div class="value">${r.avgCbt == null ? '–' : r.avgCbt}</div><div class="sub">${r.attempts} ujian selesai</div></div>
         <div class="stat-card accent-success"><div class="label">Rata-rata Tugas</div><div class="value">${r.avgAsg == null ? '–' : r.avgAsg}</div><div class="sub">${r.graded}/${r.subs} dinilai</div></div>
-        <div class="stat-card accent-warning"><div class="label">Kehadiran</div><div class="value">${r.attTotal ? r.presentPct + '%' : '–'}</div><div class="sub">${r.hadir}H ${r.izin}I ${r.sakit}S ${r.alfa}A</div></div>
+        <div class="stat-card accent-warning"><div class="label">Kehadiran</div><div class="value">${r.attTotal ? r.presentPct + '%' : '–'}</div><div class="sub">${r.hadir}H ${r.terlambat || 0}T ${r.izin}I ${r.sakit}S ${r.alfa}A</div></div>
         <div class="stat-card accent-primary"><div class="label">Kelas Subtest</div><div class="value">${r.classes}</div><div class="sub">${r.plans.length} rencana kelas</div></div>
         <div class="stat-card accent-danger"><div class="label">Tugas Nunggak</div><div class="value">${r.missing}</div><div class="sub">${r.late} terlambat</div></div>
         <div class="stat-card accent-danger"><div class="label">Pelanggaran Ujian</div><div class="value">${r.violations}</div><div class="sub">tercatat saat CBT</div></div>
@@ -918,7 +926,7 @@
               <td>${esc(c.subtest || '-')}</td>
               <td>${esc(DB.courseTeachers(c).map(x => x.name).join(' & ') || '-')}</td>
               <td class="muted small">${esc(DB.courseScheduleLabel(c))}</td>
-              <td>${att.length ? scorePill(pctOf(att.filter(a => a.status === 'hadir').length, att.length), '%') : '<span class="muted">–</span>'}</td>
+              <td>${(() => { const s = DB.attendanceSummary(att); return s.sessions ? scorePill(Math.round(s.pct), '%') : '<span class="muted">–</span>'; })()}</td>
               <td>${mySubs.length}/${asg.length}</td>
               <td>${nOrDash(average(myGraded.map(x => x.grade)))}</td>
               <td>${myAtt.length}/${cbtIds.length}</td>
@@ -1131,7 +1139,7 @@
         <div class="card-header">${UI.secHead('👨‍🎓', `Siswa di Kelas Ini (${students.length})`, 'performa tiap siswa pada kelas ini')}${csvBtn('rkCdSiswaCsv')}</div>
         ${students.length === 0 ? emptyState('Belum ada siswa terdaftar.', '👨‍🎓') : `
         <div class="table-wrap"><table class="table">
-          <thead><tr><th>Siswa</th><th>Kelas Utama</th><th>Hadir</th><th>Izin</th><th>Sakit</th><th>Alfa</th><th>Kehadiran</th><th>Tugas</th><th>Rata Tugas</th><th>CBT</th><th>Rata CBT (200–800)</th><th>Aksi</th></tr></thead>
+          <thead><tr><th>Siswa</th><th>Kelas Utama</th><th>Hadir</th><th>Terlambat</th><th>Izin</th><th>Sakit</th><th>Alfa</th><th>Kehadiran</th><th>Tugas</th><th>Rata Tugas</th><th>CBT</th><th>Rata CBT (200–800)</th><th>Aksi</th></tr></thead>
           <tbody>${students.map(s => {
             const att = DB.getAttendanceByUser(s.id).filter(a => a.role === 'siswa' && a.courseId === course.id);
             const asgIds = p.assignmentList.map(a => a.id);
@@ -1142,11 +1150,13 @@
             return `<tr>
               <td><strong>${esc(s.name)}</strong></td>
               <td>${esc(s.kelas || '-')}</td>
-              <td>${att.filter(a => a.status === 'hadir').length}</td>
-              <td>${att.filter(a => a.status === 'izin').length}</td>
-              <td>${att.filter(a => a.status === 'sakit').length}</td>
-              <td>${att.filter(a => a.status === 'alfa').length}</td>
-              <td>${att.length ? scorePill(pctOf(att.filter(a => a.status === 'hadir').length, att.length), '%') : '<span class="muted">–</span>'}</td>
+              ${(() => { const s = DB.attendanceSummary(att); return `
+              <td>${s.counts.hadir}</td>
+              <td>${s.counts.terlambat}</td>
+              <td>${s.counts.izin}</td>
+              <td>${s.counts.sakit}</td>
+              <td>${s.counts.alfa}</td>
+              <td>${s.sessions ? scorePill(Math.round(s.pct), '%') : '<span class="muted">–</span>'}</td>`; })()}
               <td>${subs.length}/${p.assignments}</td>
               <td>${nOrDash(average(graded.map(x => x.grade)))}</td>
               <td>${atts.length}/${p.cbts}</td>
@@ -1199,7 +1209,7 @@
         materials: sum('materials'), modules: sum('modules'), assignments: sum('assignments'),
         cbts: sum('cbts'), questions: questions.length, plans: sum('plans'), plansFixed: sum('plansFixed'),
         avg: average(scores), acc: pctOf(correct, total), correct, total,
-        presentPct: pctOf(sum('hadir'), sum('attTotal')), attTotal: sum('attTotal')
+        presentPct: pctOf(sum('present'), sum('attTotal')), attTotal: sum('attTotal')
       };
     });
 

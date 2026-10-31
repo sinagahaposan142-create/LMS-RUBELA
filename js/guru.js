@@ -346,29 +346,44 @@
         <div class="card-header">
           ${UI.secHead('📄', `Materi Pembelajaran (${materials.length})`, 'setiap materi mencatat tutor penanggung jawabnya')}
           <button class="btn btn-primary btn-sm" id="addMatBtn">+ Tambah Materi</button></div>
-        ${materials.length === 0 ? emptyState('Belum ada materi.') :
-          materials.map(m => `
-            <div class="list-item">
-              <div class="title">${UI.esc(m.title)}</div>
-              <div class="meta">${credit(m, course)} • Dibuat ${UI.fmtDate(m.createdAt)}${m.updatedAt ? ` • Diubah ${UI.fmtDate(m.updatedAt)}` : ''}</div>
-              <div class="content rt-content">${RichText.render(m.content || '')}</div>
-              ${m.link ? `<div class="mt-1"><a href="${UI.esc(m.link)}" target="_blank" rel="noopener">Buka tautan →</a></div>` : ''}
-              <div class="flex-gap mt-1">${ownerActionsHtml(user, m, course, 'data-edit-mat', 'data-del-mat')}</div>
-            </div>`).join('')}
+        <div id="matSearch"></div>
       </div>
     `;
     document.getElementById('addMatBtn').addEventListener('click', () =>
       ContentEditor.openMaterial({ user, course, onSaved: (r) => { if (r) reload(); } }));
-    el.querySelectorAll('[data-edit-mat]').forEach(b => b.addEventListener('click', () =>
-      ContentEditor.openMaterial({ user, course, editId: b.dataset.editMat, onSaved: (r) => { if (r) reload(); } })));
-    el.querySelectorAll('[data-del-mat]').forEach(b => b.addEventListener('click', () => {
-      const rec = DB.getMaterial(b.dataset.delMat);
-      if (!DB.canManageContent(user, rec, course)) { UI.toast('Hanya tutor pembuatnya yang dapat menghapus materi ini.', 'error'); return; }
-      if (!UI.confirmDialog('Hapus materi ini?')) return;
-      DB.deleteMaterial(b.dataset.delMat);
-      UI.toast('Materi dihapus.');
-      reload();
-    }));
+    DataSearch.mount({
+      container: el.querySelector('#matSearch'),
+      items: materials,
+      stateKey: 'guru-mat-' + course.id,
+      placeholder: 'Cari judul atau isi materi…',
+      fields: m => [m.title, DataSearch.plain(m.content || ''), m.link, (DB.getUser(m.authorId || m.createdBy) || {}).name, UI.fmtDate(m.createdAt)],
+      sorts: [
+        { key: 'new', label: 'Terbaru', cmp: (a, b) => (b.createdAt || 0) - (a.createdAt || 0) },
+        { key: 'title', label: 'Judul A–Z', cmp: (a, b) => a.title.localeCompare(b.title) }
+      ],
+      pageSize: 10,
+      empty: 'Belum ada materi.',
+      render: (rows, ctx) => rows.map(m => `
+            <div class="list-item">
+              <div class="title">${ctx.highlight(m.title)}</div>
+              <div class="meta">${credit(m, course)} • Dibuat ${UI.fmtDate(m.createdAt)}${m.updatedAt ? ` • Diubah ${UI.fmtDate(m.updatedAt)}` : ''}</div>
+              <div class="content rt-content">${RichText.render(m.content || '')}</div>
+              ${m.link ? `<div class="mt-1"><a href="${UI.esc(m.link)}" target="_blank" rel="noopener">Buka tautan →</a></div>` : ''}
+              <div class="flex-gap mt-1">${ownerActionsHtml(user, m, course, 'data-edit-mat', 'data-del-mat')}</div>
+            </div>`).join(''),
+      onPaint: (res) => {
+        res.querySelectorAll('[data-edit-mat]').forEach(b => b.addEventListener('click', () =>
+          ContentEditor.openMaterial({ user, course, editId: b.dataset.editMat, onSaved: (r) => { if (r) reload(); } })));
+        res.querySelectorAll('[data-del-mat]').forEach(b => b.addEventListener('click', () => {
+          const rec = DB.getMaterial(b.dataset.delMat);
+          if (!DB.canManageContent(user, rec, course)) { UI.toast('Hanya tutor pembuatnya yang dapat menghapus materi ini.', 'error'); return; }
+          if (!UI.confirmDialog('Hapus materi ini?')) return;
+          DB.deleteMaterial(b.dataset.delMat);
+          UI.toast('Materi dihapus.');
+          reload();
+        }));
+      }
+    });
   }
 
   function renderAssignmentsTab(el, course, user) {
@@ -661,31 +676,56 @@
         <div class="card-header">
           ${UI.secHead('✅', `Daftar Submission (${mySubs.length})`, 'hanya tugas yang Anda buat sendiri yang tampil di sini')}
         </div>
-        ${mySubs.length === 0 ? emptyState('Belum ada submission dari siswa.') : `
-        <div class="table-wrap"><table class="table">
+        <div id="gradeSearch"></div>
+      </div>
+    `;
+    DataSearch.mount({
+      container: container.querySelector('#gradeSearch'),
+      items: mySubs,
+      stateKey: 'guru-grading-' + user.id,
+      placeholder: 'Cari nama siswa, judul tugas, kelas, isi jawaban, atau feedback…',
+      fields: x => { const stu = DB.getUser(x.studentId); const asg = DB.getAssignment(x.assignmentId) || {};
+        const c = DB.getCourse(asg.courseId);
+        return [stu ? stu.name : '', stu ? stu.username : '', stu ? stu.kelas : '', asg.title, c ? DB.courseTitle(c) : '',
+          DataSearch.plain(x.content || x.answer || x.text || ''), x.feedback, x.grade != null ? String(x.grade) : '']; },
+      filters: [
+        { key: 'state', label: 'Semua status', get: x => x.grade != null ? 'graded' : 'pending',
+          options: [{ value: 'pending', label: 'Perlu dinilai' }, { value: 'graded', label: 'Sudah dinilai' }] },
+        { key: 'course', label: 'Semua kelas', get: x => (DB.getAssignment(x.assignmentId) || {}).courseId,
+          options: myCourses.map(c => ({ value: c.id, label: DB.courseTitle(c) })) },
+        { key: 'asg', label: 'Semua tugas', get: x => x.assignmentId, options: myAsg.map(a => ({ value: a.id, label: a.title })) }
+      ],
+      dateRange: x => DB.ymdOf(x.submittedAt),
+      sorts: [
+        { key: 'new', label: 'Terbaru', cmp: (a, b) => b.submittedAt - a.submittedAt },
+        { key: 'old', label: 'Terlama', cmp: (a, b) => a.submittedAt - b.submittedAt },
+        { key: 'grade', label: 'Nilai tertinggi', cmp: (a, b) => (b.grade ?? -1) - (a.grade ?? -1) }
+      ],
+      pageSize: 20,
+      empty: 'Belum ada submission dari siswa.',
+      render: (rows, ctx) => `<div class="table-wrap"><table class="table">
           <thead><tr><th>Siswa</th><th>Tugas</th><th>Kelas</th><th>Status</th><th>Dikirim</th><th>Nilai</th><th>Aksi</th></tr></thead>
           <tbody>
-            ${mySubs.map(s => {
-              const stu = DB.getUser(s.studentId);
-              const asg = DB.getAssignment(s.assignmentId);
+            ${rows.map(x => {
+              const stu = DB.getUser(x.studentId);
+              const asg = DB.getAssignment(x.assignmentId) || { title: '-' };
               const course = DB.getCourse(asg.courseId);
               return `<tr>
-                <td><strong>${UI.esc(stu ? stu.name : '-')}</strong></td>
-                <td>${UI.esc(asg.title)}</td>
-                <td>${UI.esc(course ? DB.courseTitle(course) : '-')}</td>
-                <td>${s.grade != null ? '<span class="badge badge-success">Dinilai</span>' : '<span class="badge badge-warning">Perlu Dinilai</span>'}</td>
-                <td>${UI.fmtDateTime(s.submittedAt)}</td>
-                <td>${s.grade != null ? s.grade : '-'}</td>
-                <td><button class="btn btn-sm btn-primary" data-grade-sub="${s.id}" data-asg="${s.assignmentId}">Nilai</button></td>
+                <td><strong>${ctx.highlight(stu ? stu.name : '-')}</strong></td>
+                <td>${ctx.highlight(asg.title)}</td>
+                <td>${ctx.highlight(course ? DB.courseTitle(course) : '-')}</td>
+                <td>${x.grade != null ? '<span class="badge badge-success">Dinilai</span>' : '<span class="badge badge-warning">Perlu Dinilai</span>'}</td>
+                <td>${UI.fmtDateTime(x.submittedAt)}</td>
+                <td>${x.grade != null ? x.grade : '-'}</td>
+                <td><button class="btn btn-sm btn-primary" data-grade-sub="${x.id}" data-asg="${x.assignmentId}">Nilai</button></td>
               </tr>`;
             }).join('')}
           </tbody>
-        </table></div>`}
-      </div>
-    `;
-    container.querySelectorAll('[data-grade-sub]').forEach(b => b.addEventListener('click', () => {
-      openGradeForm(b.dataset.gradeSub, b.dataset.asg, user);
-    }));
+        </table></div>`,
+      onPaint: (res) => res.querySelectorAll('[data-grade-sub]').forEach(b => b.addEventListener('click', () => {
+        openGradeForm(b.dataset.gradeSub, b.dataset.asg, user);
+      }))
+    });
   }
 
   function renderProfile(container, user) {
@@ -705,6 +745,7 @@
             <div class="form-group"><label>Mata Pelajaran</label>
               <input name="subject" value="${UI.esc(user.subject || '')}" /></div>
           </div>
+          ${ProfileFields.profileExtraFields(DB.getUser(user.id))}
           <div class="form-group"><label>Password Baru (kosongkan jika tidak diubah)</label>
             <input name="password" type="password" minlength="6" /></div>
           <div id="profileMsg" class="alert alert-success hidden"></div>
@@ -736,14 +777,20 @@
       DB.setSetting('aiEnabled', true);
       UI.toast('Integrasi AI perangkat tutor disimpan.', 'success');
     });
+    const photoField = ProfileFields.bindPhotoField(document.getElementById('profileForm'), DB.getUser(user.id));
     document.getElementById('profileForm').addEventListener('submit', (e) => {
       e.preventDefault();
       const fd = new FormData(e.target);
+      const birthDate = String(fd.get('birthDate') || '');
+      const bdErr = ProfileFields.validateBirthDate(birthDate);
+      if (bdErr) { UI.toast(bdErr, 'error'); return; }
       const patch = {
         name: fd.get('name').trim(),
         email: fd.get('email').trim(),
         subject: fd.get('subject').trim()
       };
+      patch.birthDate = birthDate;
+      patch.photo = photoField.value();
       const pw = fd.get('password');
       if (pw) patch.password = pw;
       DB.updateUser(user.id, patch);
@@ -1018,45 +1065,53 @@
       <div class="card">
         <div class="card-header">
           <h3>Modul di Kelas Saya</h3>
-          <select id="modCourseFilter" class="form" style="max-width:220px;">
-            <option value="">Semua Kelas</option>
-            ${courses.map(c => `<option value="${c.id}">${UI.esc(c.title)}</option>`).join('')}
-          </select>
         </div>
         <div id="modList"></div>
       </div>
     `;
-    const renderList = (cid) => {
-      const list = document.getElementById('modList');
-      let modules = DB.getModules().filter(m => courses.some(c => c.id === m.courseId));
-      if (cid) modules = modules.filter(m => m.courseId === cid);
-      if (modules.length === 0) { list.innerHTML = emptyState('Belum ada modul.'); return; }
-      list.innerHTML = modules.map(m => {
-        const c = DB.getCourse(m.courseId);
-        return `<div>
-          <div class="muted small" style="margin-bottom:4px;">${UI.esc(c ? c.title : '-')}</div>
-          ${moduleCardHtml(m, true, c, user)}
-        </div>`;
-      }).join('');
-      list.querySelectorAll('[data-edit-mod]').forEach(b => b.addEventListener('click', () => {
-        const m = DB.getModule(b.dataset.editMod);
-        const c = DB.getCourse(m.courseId);
-        ContentEditor.openModule({ user, course: c, editId: m.id,
-          onSaved: (r) => { if (r) renderList(document.getElementById('modCourseFilter').value); } });
-      }));
-      list.querySelectorAll('[data-del-mod]').forEach(b => b.addEventListener('click', () => {
-        const m = DB.getModule(b.dataset.delMod);
-        if (!DB.canManageContent(user, m, DB.getCourse(m.courseId))) {
-          UI.toast('Hanya tutor pembuatnya yang dapat menghapus modul ini.', 'error'); return;
+    const renderList = () => {
+      const modules = DB.getModules().filter(m => courses.some(c => c.id === m.courseId));
+      DataSearch.mount({
+        container: document.getElementById('modList'),
+        items: modules,
+        stateKey: 'guru-modul-' + user.id,
+        placeholder: 'Cari judul modul, isi bagian, kelas, atau subtest…',
+        fields: m => { const c = DB.getCourse(m.courseId);
+          return [m.title, c ? DB.courseTitle(c) : '', c ? c.subtest : '', (m.sections || []).map(x => x.title + ' ' + DataSearch.plain(x.content || ''))]; },
+        filters: [{ key: 'course', label: 'Semua kelas', get: m => m.courseId, options: courses.map(c => ({ value: c.id, label: DB.courseTitle(c) })) }],
+        sorts: [
+          { key: 'new', label: 'Terbaru', cmp: (a, b) => (b.createdAt || 0) - (a.createdAt || 0) },
+          { key: 'title', label: 'Judul A–Z', cmp: (a, b) => a.title.localeCompare(b.title) }
+        ],
+        pageSize: 8,
+        empty: 'Belum ada modul.',
+        render: (rows) => rows.map(m => {
+          const c = DB.getCourse(m.courseId);
+          return `<div>
+            <div class="muted small" style="margin-bottom:4px;">${UI.esc(c ? DB.courseTitle(c) : '-')}</div>
+            ${moduleCardHtml(m, true, c, user)}
+          </div>`;
+        }).join(''),
+        onPaint: (list) => {
+          list.querySelectorAll('[data-edit-mod]').forEach(b => b.addEventListener('click', () => {
+            const m = DB.getModule(b.dataset.editMod);
+            const c = DB.getCourse(m.courseId);
+            ContentEditor.openModule({ user, course: c, editId: m.id, onSaved: (r) => { if (r) renderList(); } });
+          }));
+          list.querySelectorAll('[data-del-mod]').forEach(b => b.addEventListener('click', () => {
+            const m = DB.getModule(b.dataset.delMod);
+            if (!DB.canManageContent(user, m, DB.getCourse(m.courseId))) {
+              UI.toast('Hanya tutor pembuatnya yang dapat menghapus modul ini.', 'error'); return;
+            }
+            if (!UI.confirmDialog('Hapus modul ini?')) return;
+            DB.deleteModule(b.dataset.delMod);
+            UI.toast('Modul dihapus.');
+            renderList();
+          }));
         }
-        if (!UI.confirmDialog('Hapus modul ini?')) return;
-        DB.deleteModule(b.dataset.delMod);
-        UI.toast('Modul dihapus.');
-        renderList(document.getElementById('modCourseFilter').value);
-      }));
+      });
     };
-    document.getElementById('modCourseFilter').addEventListener('change', (e) => renderList(e.target.value));
-    renderList('');
+    renderList();
   }
 
   function renderRekamanSection(container, user) {
@@ -1099,16 +1154,16 @@
   function renderAbsensiSection(container, user) {
     const courses = DB.getCoursesByTeacher(user.id);
     const myAtt = DB.getAttendanceByUser(user.id).filter(a => a.role === 'guru');
-    const present = myAtt.filter(a => a.status === 'hadir').length;
+    const mySum = DB.attendanceSummary(myAtt);
 
     let activeCourse = courses.length ? courses[0].id : '';
     let activeTab = 'ambil';
 
     container.innerHTML = `
       <div class="stats-grid">
-        <div class="stat-card accent-primary"><div class="label">Total Sesi Saya</div><div class="value">${myAtt.length}</div></div>
-        <div class="stat-card accent-success"><div class="label">Hadir</div><div class="value">${present}</div></div>
-        <div class="stat-card accent-warning"><div class="label">Kehadiran Saya</div><div class="value">${myAtt.length ? Math.round(present / myAtt.length * 100) : 0}%</div></div>
+        <div class="stat-card accent-primary"><div class="label">Total Sesi Saya</div><div class="value">${mySum.sessions}</div>${mySum.cancelled ? `<div class="sub">${mySum.cancelled} sesi dibatalkan tidak dihitung</div>` : ''}</div>
+        <div class="stat-card accent-success"><div class="label">Hadir + Terlambat</div><div class="value">${mySum.present}</div></div>
+        <div class="stat-card accent-warning"><div class="label">Kehadiran Saya</div><div class="value">${mySum.pct}%</div><div class="sub">standar ${DB.attendanceThreshold()}%</div></div>
         <div class="stat-card accent-danger"><div class="label">Kelas Diajar</div><div class="value">${courses.length}</div></div>
       </div>
 
@@ -1124,7 +1179,7 @@
       <div class="subtabs">
         <button class="subtab-btn active" data-abstab="ambil">📝 Ambil Presensi</button>
         <button class="subtab-btn" data-abstab="rekap">📈 Rekap Siswa</button>
-        <button class="subtab-btn" data-abstab="saya">👤 Riwayat Saya</button>
+        <button class="subtab-btn" data-abstab="saya">👤 Kehadiran Saya</button>
       </div>` : ''}
       <div id="absBox"></div>
     `;
@@ -1144,52 +1199,22 @@
         return;
       }
       if (activeTab === 'rekap') {
-        const enrollments = DB.getEnrollmentsByCourse(activeCourse);
-        const att = DB.getAttendanceByCourse(activeCourse).filter(a => a.role === 'siswa');
-        if (enrollments.length === 0) { box.innerHTML = emptyState('Belum ada siswa di kelas ini.'); return; }
-        const rows = enrollments.map(e => {
-          const s = DB.getUser(e.studentId);
-          const rec = att.filter(a => a.userId === e.studentId);
-          const counts = { hadir: 0, izin: 0, sakit: 0, alfa: 0 };
-          rec.forEach(r => { counts[r.status] = (counts[r.status] || 0) + 1; });
-          const total = rec.length;
-          const pct = total ? Math.round(counts.hadir / total * 100) : 0;
-          return { s, counts, total, pct };
-        }).sort((a, b) => b.pct - a.pct);
-        box.innerHTML = `<div class="card">
-          <div class="card-header">${UI.secHead('📈', 'Rekap Kehadiran Siswa', UI.esc(DB.getCourse(activeCourse)?.title || ''))}</div>
-          <div class="table-wrap"><table class="table">
-            <thead><tr><th>Siswa</th><th>Hadir</th><th>Izin</th><th>Sakit</th><th>Alfa</th><th>Total</th><th>Kehadiran</th></tr></thead>
-            <tbody>${rows.map(r => `<tr>
-              <td><strong>${UI.esc(r.s?.name || '-')}</strong></td>
-              <td>${r.counts.hadir}</td>
-              <td>${r.counts.izin}</td>
-              <td>${r.counts.sakit}</td>
-              <td>${r.counts.alfa}</td>
-              <td>${r.total}</td>
-              <td style="min-width:150px;">${UI.progressHtml(r.pct, '', 'auto')}</td>
-            </tr>`).join('')}</tbody></table></div>
-        </div>`;
-        if (window.Effects) Effects.enhance(box);
+        // Hanya siswa di kelas yang sedang dipilih (hak akses tutor).
+        const course = DB.getCourse(activeCourse);
+        const people = DB.getEnrollmentsByCourse(activeCourse).map(e => DB.getUser(e.studentId)).filter(Boolean);
+        if (people.length === 0) { box.innerHTML = emptyState('Belum ada siswa di kelas ini.'); return; }
+        AttendanceInsights.renderRoster({
+          container: box, people, role: 'siswa', courses: course ? [course] : [],
+          onOpen: (u) => {
+            if (!u) return;
+            UI.modal.open(`Kehadiran ${u.name}`, '<div id="aiPersonModal" class="ai-modal"></div>');
+            AttendanceInsights.renderPersonal({ container: document.getElementById('aiPersonModal'), user: u, role: 'siswa', courses: course ? [course] : [] });
+          }
+        });
         return;
       }
-      // Riwayat presensi guru sendiri
-      box.innerHTML = `<div class="card">
-        <div class="card-header">${UI.secHead('👤', 'Riwayat Presensi Saya', 'Seluruh kelas yang Anda ajar')}</div>
-        ${myAtt.length === 0 ? emptyState('Belum ada data presensi.') : `
-        <div class="table-wrap"><table class="table">
-          <thead><tr><th>Tanggal</th><th>Kelas</th><th>Status</th><th>Catatan</th></tr></thead>
-          <tbody>${myAtt.slice().sort((a, b) => b.date.localeCompare(a.date)).map(a => {
-            const c = DB.getCourse(a.courseId);
-            return `<tr>
-              <td>${UI.fmtYMD(a.date)}</td>
-              <td>${UI.esc(c ? c.title : '-')}</td>
-              <td><span class="status-${a.status}">${a.status.toUpperCase()}</span></td>
-              <td>${UI.esc(a.note || '-')}</td>
-            </tr>`;
-          }).join('')}</tbody>
-        </table></div>`}
-      </div>`;
+      // Persentase & riwayat kehadiran mengajar milik tutor sendiri
+      AttendanceInsights.renderPersonal({ container: box, user, role: 'guru', courses, title: 'Persentase Kehadiran Mengajar' });
       if (window.Effects) Effects.enhance(box);
     };
 

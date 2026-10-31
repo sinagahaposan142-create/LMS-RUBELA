@@ -9,6 +9,7 @@
       { key: 'guru', label: 'Kelola Guru', icon: '👨‍🏫' },
       { key: 'siswa', label: 'Kelola Siswa', icon: '👨‍🎓' },
       { key: 'orangtua', label: 'Kelola Orang Tua', icon: '👨‍👩‍👦' },
+      { key: 'staff', label: 'Admin & Staff', icon: '🛡️' },
       { key: 'courses', label: 'Semua Kelas', icon: '📚' },
       { key: 'admin-cbt', label: 'CBT / Ujian', icon: '🖥️' },
       { key: 'admin-bank-soal', label: 'Bank Soal', icon: '📝' },
@@ -21,6 +22,8 @@
       { key: 'kalender', label: 'Kalender', icon: '📅' },
       { key: 'pengumuman', label: 'Pengumuman', icon: '📢' },
       { key: 'motivasi', label: 'Kata Motivasi', icon: '💡' },
+      { key: 'birthday', label: 'Ulang Tahun', icon: '🎂' },
+      { key: 'notifikasi', label: 'Notifikasi & Aktivitas', icon: '🔔' },
       { key: 'feedback', label: 'Kritik & Saran', icon: '💬' },
       { key: 'chat', label: 'Chat', icon: '💭' },
       { key: 'online', label: 'Sedang Online', icon: '🟢' },
@@ -44,6 +47,8 @@
       { key: 'leaderboard', label: 'Papan Peringkat', icon: '🏆' },
       { key: 'kalender', label: 'Kalender', icon: '📅' },
       { key: 'pengumuman', label: 'Pengumuman', icon: '📢' },
+      { key: 'birthday', label: 'Ulang Tahun', icon: '🎂' },
+      { key: 'notifikasi', label: 'Notifikasi', icon: '🔔' },
       { key: 'feedback', label: 'Kritik & Saran', icon: '💬' },
       { key: 'chat', label: 'Chat', icon: '💭' },
       { key: 'online', label: 'Sedang Online', icon: '🟢' },
@@ -66,6 +71,8 @@
       { key: 'ai-tools', label: 'AI Tools', icon: '🤖' },
       { key: 'kalender', label: 'Kalender', icon: '📅' },
       { key: 'pengumuman', label: 'Pengumuman', icon: '📢' },
+      { key: 'birthday', label: 'Ulang Tahun', icon: '🎂' },
+      { key: 'notifikasi', label: 'Notifikasi', icon: '🔔' },
       { key: 'chat', label: 'Chat', icon: '💭' },
       { key: 'feedback', label: 'Kritik & Saran', icon: '💬' },
       { key: 'keuangan', label: 'Pembayaran', icon: '💰' },
@@ -82,6 +89,8 @@
       { key: 'keuangan', label: 'Pembayaran', icon: '💰' },
       { key: 'kalender', label: 'Kalender', icon: '📅' },
       { key: 'pengumuman', label: 'Pengumuman', icon: '📢' },
+      { key: 'birthday', label: 'Ulang Tahun Anak', icon: '🎂' },
+      { key: 'notifikasi', label: 'Notifikasi', icon: '🔔' },
       { key: 'chat', label: 'Chat Guru', icon: '💭' },
       { key: 'feedback', label: 'Kritik & Saran', icon: '💬' },
       { key: 'profile', label: 'Profil', icon: '👤' }
@@ -107,7 +116,7 @@
     document.getElementById('sideRole').textContent = ROLE_TITLES[user.role] || 'Panel';
     document.getElementById('userName').textContent = user.name;
     document.getElementById('userRole').textContent = Auth.ROLE_LABELS[user.role] || user.role;
-    document.getElementById('userAvatar').textContent = UI.initials(user.name);
+    renderAvatar();
     const badge = document.getElementById('roleBadge');
     badge.textContent = (Auth.ROLE_LABELS[user.role] || user.role).toUpperCase();
     badge.classList.add(user.role);
@@ -127,6 +136,22 @@
       nav.appendChild(a);
     });
   }
+
+  /** Avatar sidebar: foto profil bila ada, bingkai khusus saat ulang tahun. */
+  function renderAvatar() {
+    const el = document.getElementById('userAvatar');
+    const fresh = DB.getUser(user.id) || user;
+    el.classList.toggle('has-photo', !!fresh.photo);
+    el.classList.toggle('bd-frame', !!(window.Birthday && Birthday.hasFrame(fresh)));
+    if (fresh.photo) el.innerHTML = `<img src="${UI.esc(fresh.photo)}" alt="" />`;
+    else el.textContent = UI.initials(fresh.name);
+  }
+
+  /* Halaman lintas peran yang dirender langsung oleh shell. */
+  const COMMON = {
+    birthday: (c) => Birthday.renderWall(c, user),
+    notifikasi: (c) => renderNotifHistory(c)
+  };
 
   /* ================= Routing ================= */
   function navigate(key) {
@@ -150,7 +175,9 @@
       return;
     }
     try {
-      mod.render(content, key, user);
+      if (COMMON[key]) COMMON[key](content);
+      else mod.render(content, key, user);
+      if (key === 'overview' && window.Birthday) Birthday.mountBanner(content, user);
     } catch (err) {
       console.error('[LMS] gagal merender halaman', key, err);
       content.innerHTML = `<div class="card"><div class="alert alert-error">
@@ -167,6 +194,96 @@
     if (window.Responsive) Responsive.apply(content);
     if (window.Shared && Shared.bindMotivation) Shared.bindMotivation(content);
     window.scrollTo({ top: 0, behavior: 'smooth' });
+  }
+
+  /* ================= Riwayat notifikasi & aktivitas ================= */
+  let notifTab = 'notif';
+  function renderNotifHistory(container) {
+    const isAdmin = user.role === 'admin';
+    const tab = isAdmin ? notifTab : 'notif';
+    container.innerHTML = `
+      ${isAdmin ? `<div class="tabs">
+        <button type="button" class="tab-btn ${tab === 'notif' ? 'active' : ''}" data-ntab="notif">🔔 Notifikasi Saya</button>
+        <button type="button" class="tab-btn ${tab === 'log' ? 'active' : ''}" data-ntab="log">🧾 Riwayat Aktivitas</button>
+      </div>` : ''}
+      <div class="card">
+        <div class="card-header">
+          ${UI.secHead(tab === 'log' ? '🧾' : '🔔', tab === 'log' ? 'Riwayat Aktivitas' : 'Riwayat Notifikasi',
+            tab === 'log' ? 'perubahan akun, pengaturan, dan moderasi (1000 entri terbaru)' : 'semua notifikasi yang Anda terima')}
+          ${tab === 'notif' ? `<div class="flex-gap">
+            <button type="button" class="btn btn-sm btn-secondary" id="nhRead">Tandai semua dibaca</button>
+            <button type="button" class="btn btn-sm btn-danger" id="nhClear">Bersihkan</button></div>` : ''}
+        </div>
+        <div id="nhList"></div>
+      </div>`;
+    container.querySelectorAll('[data-ntab]').forEach(b => b.addEventListener('click', () => {
+      notifTab = b.dataset.ntab; renderNotifHistory(container);
+    }));
+    const box = container.querySelector('#nhList');
+    if (tab === 'log') {
+      const ROLE = Auth.ROLE_LABELS;
+      const log = DB.getActivityLog();
+      const kinds = [...new Set(log.map(l => l.action.split('.')[0]))];
+      const KIND_LABEL = { user: 'Akun', settings: 'Pengaturan', birthday: 'Ulang tahun' };
+      DataSearch.mount({
+        container: box, items: log, stateKey: 'activity-log',
+        placeholder: 'Cari pelaku, aksi, atau detail…',
+        fields: l => [l.actorName, ROLE[l.actorRole] || l.actorRole, l.action, l.detail, UI.fmtDateTime(l.at)],
+        filters: [
+          { key: 'kind', label: 'Semua jenis', get: l => l.action.split('.')[0], options: kinds.map(k => ({ value: k, label: KIND_LABEL[k] || k })) },
+          { key: 'role', label: 'Semua peran', get: l => l.actorRole, options: Object.keys(ROLE).map(k => ({ value: k, label: ROLE[k] })) }
+        ],
+        dateRange: l => DB.ymdOf(l.at),
+        sorts: [{ key: 'new', label: 'Terbaru', cmp: (a, b) => b.at - a.at }, { key: 'old', label: 'Terlama', cmp: (a, b) => a.at - b.at }],
+        pageSize: 20, empty: 'Belum ada aktivitas tercatat.',
+        render: (rows, ctx) => `<div class="table-wrap"><table class="table">
+          <thead><tr><th>Waktu</th><th>Pelaku</th><th>Aktivitas</th></tr></thead>
+          <tbody>${rows.map(l => `<tr><td>${UI.esc(UI.fmtDateTime(l.at))}</td>
+            <td><strong>${ctx.highlight(l.actorName)}</strong><div class="muted small">${UI.esc(ROLE[l.actorRole] || l.actorRole)}</div></td>
+            <td>${ctx.highlight(l.detail)}</td></tr>`).join('')}</tbody></table></div>`
+      });
+      return;
+    }
+    const list = DB.getNotifications(user.id);
+    DataSearch.mount({
+      container: box, items: list, stateKey: 'notif-history',
+      placeholder: 'Cari judul atau isi notifikasi…',
+      fields: n => [n.title, n.body, n.icon],
+      filters: [{ key: 'read', label: 'Semua', get: n => n.read ? 'read' : 'unread',
+        options: [{ value: 'unread', label: 'Belum dibaca' }, { value: 'read', label: 'Sudah dibaca' }] }],
+      dateRange: n => DB.ymdOf(n.createdAt),
+      sorts: [{ key: 'new', label: 'Terbaru', cmp: (a, b) => b.createdAt - a.createdAt }, { key: 'old', label: 'Terlama', cmp: (a, b) => a.createdAt - b.createdAt }],
+      pageSize: 20, empty: 'Belum ada notifikasi.',
+      render: (rows, ctx) => `<div class="notif-list is-page">${rows.map(n => `
+        <div class="notif-item ${n.read ? '' : 'unread'}" data-nh="${n.id}" data-link="${UI.esc(n.link || '')}" role="button" tabindex="0">
+          <div class="ni-ic">${UI.esc(n.icon || '🔔')}</div>
+          <div style="flex:1;min-width:0;">
+            <div class="ni-title">${ctx.highlight(n.title || '')}</div>
+            <div class="ni-body">${ctx.highlight(n.body || '')}</div>
+            <div class="ni-time">${UI.esc(UI.fmtDateTime(n.createdAt))} • ${UI.fmtRelative(n.createdAt)}</div>
+          </div>
+        </div>`).join('')}</div>`,
+      onPaint: (res) => res.querySelectorAll('[data-nh]').forEach(item => {
+        const open = () => {
+          DB.markNotificationRead(item.dataset.nh);
+          renderBell();
+          const link = item.dataset.link;
+          if (link && link !== 'notifikasi' && (NAVS[user.role] || []).some(n => n.key === link)) navigate(link);
+          else renderNotifHistory(container);
+        };
+        item.addEventListener('click', open);
+        item.addEventListener('keydown', (e) => { if (e.key === 'Enter') open(); });
+      })
+    });
+    container.querySelector('#nhRead').addEventListener('click', () => {
+      DB.markAllNotificationsRead(user.id); renderBell(); renderNotifHistory(container);
+      UI.toast('Semua notifikasi ditandai sudah dibaca.', 'info');
+    });
+    container.querySelector('#nhClear').addEventListener('click', () => {
+      if (!UI.confirmDialog('Hapus semua notifikasi Anda?')) return;
+      DB.clearNotifications(user.id); renderBell(); renderNotifHistory(container);
+      UI.toast('Notifikasi dibersihkan.', 'info');
+    });
   }
 
   /* ================= Notification center ================= */
@@ -201,6 +318,7 @@
           <div class="flex-gap">
             <button class="btn btn-sm btn-secondary" id="markAllRead">Tandai dibaca</button>
             ${list.length ? '<button class="btn btn-sm btn-secondary" id="clearNotif">Bersihkan</button>' : ''}
+            <button class="btn btn-sm btn-primary" id="allNotif">Lihat semua</button>
           </div>
         </div>
         <div class="notif-list">
@@ -230,6 +348,8 @@
       renderBell();
       UI.toast('Semua notifikasi ditandai sudah dibaca.', 'info');
     });
+    const all = document.getElementById('allNotif');
+    if (all) all.addEventListener('click', () => { notifOpen = false; renderBell(); navigate('notifikasi'); });
     const clear = document.getElementById('clearNotif');
     if (clear) clear.addEventListener('click', () => {
       DB.clearNotifications(user.id);
@@ -299,9 +419,12 @@
     navigate,
     currentUser: user,
     refreshNotifications: renderBell,
+    refreshAvatar: renderAvatar,
     hasSection: (key) => (NAVS[user.role] || []).some(n => n.key === key)
   };
 
+  // Notifikasi ulang tahun dikirim sebelum lonceng pertama kali digambar.
+  if (window.Birthday) { try { Birthday.ensureNotifications(); } catch (e) { console.warn('[LMS] notifikasi ulang tahun', e); } }
   renderSidebar();
   document.getElementById('clockContainer').innerHTML = UI.clockWidgetHtml();
   UI.startClock();

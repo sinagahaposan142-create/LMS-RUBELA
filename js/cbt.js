@@ -152,13 +152,43 @@
           </div>
         </div>
 
-        ${cbts.length === 0 ? emptyState('Belum ada ujian CBT. Klik "Buat Ujian Baru" untuk memulai.', '🖥️') : `
-        <div class="table-wrap"><table class="table">
+        <div id="cbtSearch"></div>
+      </div>
+    `;
+
+    const reload = () => renderCbtHome(container, user);
+    const statusOf = (c) => c.endAt < now ? 'done' : (c.startAt <= now ? 'live' : 'upcoming');
+    const cbtCourses = [...new Set(cbts.flatMap(c => (c.courseIds && c.courseIds.length) ? c.courseIds : (c.courseId ? [c.courseId] : [])))]
+      .map(id => DB.getCourse(id)).filter(Boolean);
+    DataSearch.mount({
+      container: container.querySelector('#cbtSearch'),
+      items: cbts,
+      stateKey: 'cbt-home-' + user.id,
+      placeholder: 'Cari judul ujian, deskripsi, kelas tujuan, subtest, atau pembuat…',
+      fields: c => [c.title, c.id, c.description, DB.cbtTargetLabel(c), DB.cbtSections(c).map(x => x.subtest || x.name || x.title || ''),
+        DB.contentOwnerName(c, DB.getCourse(c.courseId)), UI.fmtDateTime(c.startAt)],
+      filters: [
+        { key: 'status', label: 'Semua status', get: statusOf,
+          options: [{ value: 'live', label: 'Berlangsung' }, { value: 'upcoming', label: 'Akan datang' }, { value: 'done', label: 'Selesai' }] },
+        { key: 'mode', label: 'Semua mode', get: c => c.subtestMode || 'custom',
+          options: [{ value: 'full', label: '7 Subtest' }, { value: 'single', label: '1 Subtest' }, { value: 'custom', label: 'Custom' }] },
+        { key: 'course', label: 'Semua kelas', get: c => (c.courseIds && c.courseIds.length) ? c.courseIds : (c.courseId ? [c.courseId] : []),
+          options: cbtCourses.map(c => ({ value: c.id, label: DB.courseTitle(c) })) }
+      ],
+      dateRange: c => DB.ymdOf(c.startAt),
+      sorts: [
+        { key: 'new', label: 'Terbaru dibuat', cmp: (a, b) => b.createdAt - a.createdAt },
+        { key: 'start', label: 'Jadwal terdekat', cmp: (a, b) => a.startAt - b.startAt },
+        { key: 'title', label: 'Judul A–Z', cmp: (a, b) => a.title.localeCompare(b.title) }
+      ],
+      pageSize: 15,
+      empty: 'Belum ada ujian CBT. Klik "Buat Ujian Baru" untuk memulai.',
+      render: (rows, ctx) => `<div class="table-wrap"><table class="table">
           <thead><tr>
             <th>Ujian</th><th>Kelas Tujuan</th><th>Mode</th><th>Subtest</th>
             <th>Soal</th><th>Jadwal</th><th>Peserta</th><th>Status</th><th>Aksi</th>
           </tr></thead>
-          <tbody>${cbts.slice().sort((a, b) => b.createdAt - a.createdAt).map(c => {
+          <tbody>${rows.map(c => {
             const sections = DB.cbtSections(c);
             const qCount = DB.cbtQuestionIds(c).length;
             const attempts = DB.getCbtAttemptsByCbt(c.id);
@@ -177,7 +207,7 @@
             ].filter(Boolean).join(' ');
             return `<tr>
               <td>
-                <strong>${UI.esc(c.title)}</strong>
+                <strong>${ctx.highlight(c.title)}</strong>
                 ${c.description ? `<div class="muted small" style="max-width:260px;">${UI.esc(c.description.slice(0, 70))}${c.description.length > 70 ? '…' : ''}</div>` : ''}
                 ${secIcons ? `<div class="small" title="Pengaturan keamanan">${secIcons}</div>` : ''}
               </td>
@@ -199,11 +229,23 @@
               </td>
             </tr>`;
           }).join('')}</tbody>
-        </table></div>`}
-      </div>
-    `;
+        </table></div>`,
+      onPaint: (box) => {
+        box.querySelectorAll('[data-edit-cbt]').forEach(b => b.addEventListener('click', () =>
+          openWizard(user, b.dataset.editCbt, reload)));
+        box.querySelectorAll('[data-monitor]').forEach(b => b.addEventListener('click', () =>
+          openMonitor(b.dataset.monitor, user, reload)));
+        box.querySelectorAll('[data-results]').forEach(b => b.addEventListener('click', () =>
+          openResults(b.dataset.results, user, reload)));
+        box.querySelectorAll('[data-del-cbt]').forEach(b => b.addEventListener('click', () => {
+          if (!UI.confirmDialog('Hapus ujian ini beserta seluruh hasil pengerjaannya?')) return;
+          DB.deleteCbt(b.dataset.delCbt);
+          UI.toast('Ujian dihapus.');
+          reload();
+        }));
+      }
+    });
 
-    const reload = () => renderCbtHome(container, user);
     document.getElementById('newCbtBtn').addEventListener('click', () => openWizard(user, null, reload));
     document.getElementById('openBankBtn').addEventListener('click', () => openBankBrowser(user, reload));
     document.getElementById('kpiBank').addEventListener('click', () => openBankBrowser(user, reload));
@@ -211,18 +253,6 @@
       if (live.length) openMonitor(live[0].id, user, reload);
       else UI.toast('Tidak ada ujian yang sedang berlangsung.', 'info');
     });
-    container.querySelectorAll('[data-edit-cbt]').forEach(b => b.addEventListener('click', () =>
-      openWizard(user, b.dataset.editCbt, reload)));
-    container.querySelectorAll('[data-monitor]').forEach(b => b.addEventListener('click', () =>
-      openMonitor(b.dataset.monitor, user, reload)));
-    container.querySelectorAll('[data-results]').forEach(b => b.addEventListener('click', () =>
-      openResults(b.dataset.results, user, reload)));
-    container.querySelectorAll('[data-del-cbt]').forEach(b => b.addEventListener('click', () => {
-      if (!UI.confirmDialog('Hapus ujian ini beserta seluruh hasil pengerjaannya?')) return;
-      DB.deleteCbt(b.dataset.delCbt);
-      UI.toast('Ujian dihapus.');
-      reload();
-    }));
   }
 
   /* =====================================================================
@@ -895,6 +925,7 @@
   function openBankBrowser(user, onDone, initialSub) {
     let activeSub = (initialSub && DB.SUBTEST_NAMES.includes(initialSub)) ? initialSub : DB.SUBTESTS[0].name;
     let fType = '', fDiff = '', fQuery = '';
+    let bbPage = 1;
 
     const body = openWorkspace('Soal Tersedia — Bank Soal',
       'Telusuri soal per kategori subtest, format, dan tingkat kesulitan',
@@ -960,7 +991,8 @@
           </div>
           <div class="qb-main">
             <div class="qb-filters">
-              <input type="search" id="bbSearch" class="qf-grow" placeholder="Cari teks soal..." autocomplete="off" value="${UI.esc(fQuery)}" />
+              <input type="search" id="bbSearch" class="qf-grow" placeholder="Cari isi soal, opsi, pembahasan, kunci… (mis. bilangan)" autocomplete="off" value="${UI.esc(fQuery)}" />
+              <button type="button" class="btn btn-sm btn-secondary" id="bbClear" aria-label="Hapus pencarian">✕ Clear</button>
               <select id="bbType">
                 <option value="">Semua Format</option>
                 ${DB.QUESTION_TYPES.map(t => `<option value="${UI.esc(t)}" ${fType === t ? 'selected' : ''}>${UI.esc(t)}</option>`).join('')}
@@ -976,9 +1008,18 @@
       paintSubs();
       paintList();
 
-      document.getElementById('bbSearch').addEventListener('input', (e) => { fQuery = e.target.value.trim().toLowerCase(); paintList(); });
-      document.getElementById('bbType').addEventListener('change', (e) => { fType = e.target.value; paintList(); });
-      document.getElementById('bbDiff').addEventListener('change', (e) => { fDiff = e.target.value; paintList(); });
+      // Debounce agar pencarian tidak dijalankan pada setiap ketukan tombol.
+      let bbTimer = null;
+      const bbInput = document.getElementById('bbSearch');
+      bbInput.addEventListener('input', (e) => {
+        clearTimeout(bbTimer);
+        bbTimer = setTimeout(() => { fQuery = e.target.value.trim(); bbPage = 1; paintList(); }, 220);
+      });
+      document.getElementById('bbClear').addEventListener('click', () => {
+        clearTimeout(bbTimer); bbInput.value = ''; fQuery = ''; bbPage = 1; paintList(); bbInput.focus();
+      });
+      document.getElementById('bbType').addEventListener('change', (e) => { fType = e.target.value; bbPage = 1; paintList(); });
+      document.getElementById('bbDiff').addEventListener('change', (e) => { fDiff = e.target.value; bbPage = 1; paintList(); });
       if (global.Effects) Effects.enhance(body);
     }
 
@@ -993,29 +1034,50 @@
         </div>`;
       }).join('');
       document.getElementById('bbSubList').querySelectorAll('[data-sub]').forEach(el =>
-        el.addEventListener('click', () => { activeSub = el.dataset.sub; paintSubs(); paintList(); }));
+        el.addEventListener('click', () => { activeSub = el.dataset.sub; bbPage = 1; paintSubs(); paintList(); }));
+    }
+
+    /** Semua teks yang relevan dari satu soal: isi, opsi, kunci, pembahasan, atribut. */
+    function questionHaystack(q) {
+      const P = global.DataSearch ? DataSearch.plain : (s => String(s || ''));
+      return DataSearch.norm([
+        P(q.text), (q.options || []).map(P).join(' '), P(q.explanation || ''),
+        (q.answers || []).join(' '), (q.keywords || []).join(' '),
+        (q.statements || []).map(s => P(s.text)).join(' '),
+        (q.pairs || []).map(p => P(p.left) + ' ' + P(p.right)).join(' '),
+        (q.orderItems || []).map(P).join(' '),
+        q.subject, q.questionType, q.difficulty, q.id,
+        (DB.getUser(q.authorId) || {}).name || ''
+      ].join(' '));
     }
 
     function paintList() {
       const st = DB.subtestByName(activeSub);
-      let list = DB.getQuestions().filter(q => q.subject === activeSub);
+      // Saat ada kata kunci, cari di SELURUH bank (semua subtest) agar soal
+      // terkait tidak terlewat hanya karena berada di kategori lain.
+      let list = fQuery ? DB.getQuestions() : DB.getQuestions().filter(q => q.subject === activeSub);
       if (fType) list = list.filter(q => (q.questionType || 'Pilihan Ganda') === fType);
       if (fDiff) list = list.filter(q => (q.difficulty || 'sedang') === fDiff);
-      if (fQuery) list = list.filter(q => q.text.toLowerCase().includes(fQuery));
+      if (fQuery) list = list.filter(q => DataSearch.matches(questionHaystack(q), fQuery));
+      const totalMatches = list.length;
+      const PAGE = 20;
+      const pages = Math.max(1, Math.ceil(totalMatches / PAGE));
+      if (bbPage > pages) bbPage = pages;
+      list = list.slice((bbPage - 1) * PAGE, bbPage * PAGE);
 
       const area = document.getElementById('bbArea');
       area.innerHTML = `
         <div class="flex-between mb-2" style="flex-wrap:wrap;gap:8px;">
-          <div><strong>${st ? st.icon + ' ' + UI.esc(st.name) : UI.esc(activeSub)}</strong>
-            <div class="muted small">${list.length} soal ditampilkan • kelompok ${UI.esc(st ? st.group : '-')}</div></div>
+          <div><strong>${fQuery ? `🔎 Hasil pencarian "${UI.esc(fQuery)}" di seluruh subtest` : (st ? st.icon + ' ' + UI.esc(st.name) : UI.esc(activeSub))}</strong>
+            <div class="muted small">${totalMatches} soal cocok${fQuery ? ' (isi soal, opsi, kunci, pembahasan, atribut)' : ` • kelompok ${UI.esc(st ? st.group : '-')}`}</div></div>
         </div>
         ${list.length === 0
-          ? emptyState('Belum ada soal pada kategori ini. Klik "+ Tambah Soal" untuk menambahkan.', '📭')
-          : `<div class="q-cards">${list.map(q => `
+          ? emptyState(fQuery || fType || fDiff ? 'Tidak ada soal yang cocok dengan pencarian/filter.' : 'Belum ada soal pada kategori ini. Klik "+ Tambah Soal" untuk menambahkan.', '📭')
+          : `<div class="q-cards">${list.map(q => { const qs = DB.subtestByName(q.subject); return `
               <div class="q-card" style="padding-left:14px;cursor:default;">
                 <div class="qc-text rt-content">${RichText.render(q.text)}</div>
                 <div class="qc-tags">
-                  <span class="qc-chip sub">${st ? st.icon : '📘'} ${UI.esc(st ? st.short : activeSub)}</span>
+                  <span class="qc-chip sub">${qs ? qs.icon : '📘'} ${UI.esc(qs ? qs.short : (q.subject || '-'))}</span>
                   <span class="qc-chip type">${UI.esc(q.questionType || 'Pilihan Ganda')}</span>
                   ${difficultyChip(q.difficulty)}
                   <span class="qc-chip opt">${(q.options || []).length ? (q.options || []).length + ' opsi' : 'jawaban terbuka'}</span>
@@ -1024,8 +1086,16 @@
                   <button class="btn btn-sm btn-secondary" data-edit-q="${q.id}">Edit</button>
                   <button class="btn btn-sm btn-danger" data-del-q="${q.id}">Hapus</button>
                 </div>
-              </div>`).join('')}</div>`}
+              </div>`; }).join('')}</div>`}
+        ${pages > 1 ? `<div class="ds-pager">
+          <button type="button" class="btn btn-sm btn-secondary" data-bbpg="prev" ${bbPage <= 1 ? 'disabled' : ''}>‹ Sebelumnya</button>
+          <span class="ds-pg-info">Halaman ${bbPage} / ${pages} • ${totalMatches} soal</span>
+          <button type="button" class="btn btn-sm btn-secondary" data-bbpg="next" ${bbPage >= pages ? 'disabled' : ''}>Berikutnya ›</button>
+        </div>` : ''}
       `;
+      area.querySelectorAll('[data-bbpg]').forEach(b => b.addEventListener('click', () => {
+        bbPage += b.dataset.bbpg === 'next' ? 1 : -1; paintList();
+      }));
       area.querySelectorAll('[data-edit-q]').forEach(b => b.addEventListener('click', () =>
         openQuestionForm(user, b.dataset.editQ, paintAll, { subtest: activeSub })));
       area.querySelectorAll('[data-del-q]').forEach(b => b.addEventListener('click', () => {
@@ -1197,17 +1267,37 @@
 
       <div class="card">
         <div class="card-header">${UI.secHead('📋', 'Rincian Peserta', 'Termasuk catatan pelanggaran selama ujian')}</div>
-        ${attempts.length === 0 ? emptyState('Belum ada peserta yang menyelesaikan ujian ini.') : `
-        <div class="table-wrap"><table class="table">
+        <div id="resSearch"></div>
+      </div>`;
+    const kelasList = [...new Set(attempts.map(a => (DB.getUser(a.studentId) || {}).kelas).filter(Boolean))];
+    DataSearch.mount({
+      container: body.querySelector('#resSearch'),
+      items: attempts,
+      placeholder: 'Cari nama peserta, username, atau kelas…',
+      fields: a => { const u = DB.getUser(a.studentId) || {}; return [u.name, u.username, u.kelas, String(scoreOf(a) ?? '')]; },
+      filters: [
+        { key: 'kelas', label: 'Semua kelas', get: a => (DB.getUser(a.studentId) || {}).kelas || '', options: kelasList.map(k => ({ value: k, label: k })) },
+        { key: 'vio', label: 'Semua peserta', get: a => (a.violations || []).length ? 'yes' : 'no',
+          options: [{ value: 'yes', label: 'Ada pelanggaran' }, { value: 'no', label: 'Tanpa pelanggaran' }] }
+      ],
+      sorts: [
+        { key: 'high', label: 'Skor tertinggi', cmp: (a, b) => scoreOf(b) - scoreOf(a) },
+        { key: 'low', label: 'Skor terendah', cmp: (a, b) => scoreOf(a) - scoreOf(b) },
+        { key: 'name', label: 'Nama A–Z', cmp: (a, b) => ((DB.getUser(a.studentId) || {}).name || '').localeCompare((DB.getUser(b.studentId) || {}).name || '') },
+        { key: 'time', label: 'Selesai terbaru', cmp: (a, b) => b.submittedAt - a.submittedAt }
+      ],
+      pageSize: 25,
+      empty: 'Belum ada peserta yang menyelesaikan ujian ini.',
+      render: (rows, ctx) => `<div class="table-wrap"><table class="table">
           <thead><tr><th>Peserta</th><th>Kelas</th><th>Skor</th><th>Benar</th>
             ${sections.map(s => `<th>${UI.esc(DB.subtestByName(s.subtest)?.short || s.subtest)}</th>`).join('')}
             <th>Pelanggaran</th><th>Selesai</th></tr></thead>
-          <tbody>${attempts.slice().sort((a, b) => scoreOf(b) - scoreOf(a)).map(a => {
+          <tbody>${rows.map(a => {
             const s = DB.getUser(a.studentId);
             const vios = (a.violations || []).length;
             return `<tr>
-              <td><strong>${UI.esc(s ? s.name : '-')}</strong></td>
-              <td>${UI.esc(s ? (s.kelas || '-') : '-')}</td>
+              <td><strong>${ctx.highlight(s ? s.name : '-')}</strong></td>
+              <td>${ctx.highlight(s ? (s.kelas || '-') : '-')}</td>
               <td>${a.scoring ? Scoring.scoreHtml(a, true) : `<strong>${a.score ?? 0}</strong>`}</td>
               <td>${a.correctCount ?? 0}/${a.totalCount ?? 0}</td>
               ${sections.map(sec2 => {
@@ -1219,8 +1309,8 @@
               <td class="small">${UI.fmtDateTime(a.submittedAt)}</td>
             </tr>`;
           }).join('')}</tbody>
-        </table></div>`}
-      </div>`;
+        </table></div>`
+    });
     if (global.Effects) Effects.enhance(body);
   }
 

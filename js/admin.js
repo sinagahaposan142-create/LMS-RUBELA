@@ -10,6 +10,7 @@
     if (section === 'guru') return renderUsers(container, 'guru');
     if (section === 'siswa') return renderUsers(container, 'siswa');
     if (section === 'orangtua') return renderParents(container);
+    if (section === 'staff') return renderStaff(container, user);
     if (section === 'courses') {
       if (adminCourseId) return renderAdminCourseDetail(container, adminCourseId, user);
       return renderCourses(container);
@@ -195,25 +196,59 @@
             ${isGuru
               ? '<strong>WhatsApp</strong>, <strong>Subtest</strong>, <strong>Tarif Gaji</strong>'
               : '<strong>Telepon</strong>, <strong>Kelas</strong>, <strong>Universitas Tujuan</strong>, <strong>Jurusan Tujuan</strong>'},
+            <strong>Tanggal Lahir</strong> (format YYYY-MM-DD atau sel tanggal Excel),
             dan <strong>Status</strong>. Klik <em>Export Excel</em> untuk mendapatkan template dengan kolom lengkap.
             Bila kolom <strong>Password</strong> dikosongkan, akun dibuat dengan password <code>password123</code>.
           </p>
         </details>
-        ${list.length === 0 ? emptyState('Belum ada data.') : `
-        <div class="table-wrap"><table class="table">
+        <div id="userSearch"></div>
+      </div>
+    `;
+
+    document.getElementById('addUserBtn').addEventListener('click', () => openUserForm(role));
+    // Pencarian menyeluruh: nama, username, ID, email, telepon, kelas/subtest, kampus tujuan, status.
+    const statusOf = (u) => u.status || 'Aktif';
+    DataSearch.mount({
+      container: container.querySelector('#userSearch'),
+      items: list,
+      stateKey: 'admin-users-' + role,
+      placeholder: isGuru ? 'Cari nama, username, ID, email, WhatsApp, atau subtest…' : 'Cari nama, username, ID, email, telepon, kelas, atau kampus tujuan…',
+      fields: u => [u.name, u.username, u.id, u.email, u.phone, u.whatsapp, u.subject, u.kelas, u.targetUniv, u.targetMajor, statusOf(u), u.birthDate],
+      filters: [
+        { key: 'status', label: 'Semua status', get: statusOf,
+          options: ['Aktif', 'Nonaktif', 'Dikeluarkan', 'Alumni'].map(v => ({ value: v, label: v })) },
+        isGuru
+          ? { key: 'subject', label: 'Semua subtest', get: u => u.subject || '',
+              options: [...new Set(list.map(u => u.subject).filter(Boolean))].map(v => ({ value: v, label: v })) }
+          : { key: 'kelas', label: 'Semua kelas', get: u => u.kelas || '',
+              options: [...new Set(DB.getClassOptions().concat(list.map(u => u.kelas).filter(Boolean)))].map(v => ({ value: v, label: v })) }
+      ],
+      sorts: [
+        { key: 'name', label: 'Nama A–Z', cmp: (a, b) => a.name.localeCompare(b.name) },
+        { key: 'name-desc', label: 'Nama Z–A', cmp: (a, b) => b.name.localeCompare(a.name) },
+        { key: 'bday', label: 'Ulang tahun terdekat', cmp: (a, b) => {
+          const x = DB.birthdayInfo(a), y = DB.birthdayInfo(b);
+          return (x ? x.daysUntil : 999) - (y ? y.daysUntil : 999);
+        } }
+      ],
+      pageSize: 20,
+      empty: 'Belum ada data.',
+      render: (rows, ctx) => `<div class="table-wrap"><table class="table">
           <thead><tr>
-            <th>Nama</th><th>Username</th><th>${isGuru ? 'Subtest' : 'Kelas'}</th><th>${isGuru ? 'WhatsApp' : 'Telepon'}</th><th>Status</th><th>Aksi</th>
+            <th>Nama</th><th>Username</th><th>${isGuru ? 'Subtest' : 'Kelas'}</th><th>${isGuru ? 'WhatsApp' : 'Telepon'}</th><th>Tgl Lahir</th><th>Status</th><th>Aksi</th>
           </tr></thead>
           <tbody>
-            ${list.map(u => {
-              const statusBadge = (u.status || 'Aktif') === 'Aktif' ? 'badge-success'
+            ${rows.map(u => {
+              const statusBadge = statusOf(u) === 'Aktif' ? 'badge-success'
                 : (u.status === 'Nonaktif' ? 'badge-warning' : 'badge-gray');
+              const bd = DB.birthdayInfo(u);
               return `<tr>
-              <td><strong>${UI.esc(u.name)}</strong><div class="muted small">${UI.esc(u.email || '-')}</div></td>
-              <td>${UI.esc(u.username)}</td>
-              <td>${UI.esc(isGuru ? (u.subject || '-') : (u.kelas || '-'))}</td>
-              <td>${UI.esc(isGuru ? (u.whatsapp || '-') : (u.phone || '-'))}</td>
-              <td><span class="badge ${statusBadge}">${UI.esc(u.status || 'Aktif')}</span></td>
+              <td><div class="user-cell">${Birthday.avatarHtml(u, 34)}<div><strong>${ctx.highlight(u.name)}</strong><div class="muted small">${ctx.highlight(u.email || '-')}</div></div></div></td>
+              <td>${ctx.highlight(u.username)}</td>
+              <td>${ctx.highlight(isGuru ? (u.subject || '-') : (u.kelas || '-'))}</td>
+              <td>${ctx.highlight(isGuru ? (u.whatsapp || '-') : (u.phone || '-'))}</td>
+              <td>${u.birthDate ? `${UI.fmtYMD(u.birthDate)}${bd && bd.isToday ? ' <span class="badge badge-warning">🎂 hari ini</span>' : ''}` : '<span class="muted small">-</span>'}</td>
+              <td><span class="badge ${statusBadge}">${UI.esc(statusOf(u))}</span></td>
               <td class="actions">
                 <button class="btn btn-sm btn-secondary" data-edit="${u.id}">Edit</button>
                 <button class="btn btn-sm btn-danger" data-del="${u.id}">Hapus</button>
@@ -221,18 +256,17 @@
             </tr>`;
             }).join('')}
           </tbody>
-        </table></div>`}
-      </div>
-    `;
-
-    document.getElementById('addUserBtn').addEventListener('click', () => openUserForm(role));
-    container.querySelectorAll('[data-edit]').forEach(b => b.addEventListener('click', () => openUserForm(role, b.dataset.edit)));
-    container.querySelectorAll('[data-del]').forEach(b => b.addEventListener('click', () => {
-      if (!UI.confirmDialog('Hapus pengguna ini? Data terkait akan ikut terhapus.')) return;
-      DB.deleteUser(b.dataset.del);
-      UI.toast('Pengguna dihapus.');
-      renderUsers(container, role);
-    }));
+        </table></div>`,
+      onPaint: (box) => {
+        box.querySelectorAll('[data-edit]').forEach(b => b.addEventListener('click', () => openUserForm(role, b.dataset.edit)));
+        box.querySelectorAll('[data-del]').forEach(b => b.addEventListener('click', () => {
+          if (!UI.confirmDialog('Hapus pengguna ini? Data terkait akan ikut terhapus.')) return;
+          DB.deleteUser(b.dataset.del);
+          UI.toast('Pengguna dihapus.');
+          renderUsers(container, role);
+        }));
+      }
+    });
 
     // Export Excel
     document.getElementById('exportBtn').addEventListener('click', () => {
@@ -242,24 +276,24 @@
         rows = users.map(u => ({
           Nama: u.name, Username: u.username, Password: u.password || '', Email: u.email || '',
           WhatsApp: u.whatsapp || '', Subtest: u.subject || '',
-          'Tarif Gaji': u.salaryRate || 0, Status: u.status || 'Aktif'
+          'Tarif Gaji': u.salaryRate || 0, 'Tanggal Lahir': u.birthDate || '', Status: u.status || 'Aktif'
         }));
       } else {
         rows = users.map(u => ({
           Nama: u.name, Username: u.username, Password: u.password || '', Email: u.email || '',
           Telepon: u.phone || '', Kelas: u.kelas || '',
           'Universitas Tujuan': u.targetUniv || '', 'Jurusan Tujuan': u.targetMajor || '',
-          Status: u.status || 'Aktif'
+          'Tanggal Lahir': u.birthDate || '', Status: u.status || 'Aktif'
         }));
       }
       // Baris contoh agar kolom tetap terlihat walau data masih kosong
       if (rows.length === 0) {
         rows = [isGuru
           ? { Nama: 'Contoh Guru', Username: 'guru_baru', Password: 'password123', Email: 'guru@rubela.edu',
-              WhatsApp: '08123456789', Subtest: DB.SUBTESTS[0].name, 'Tarif Gaji': 3000000, Status: 'Aktif' }
+              WhatsApp: '08123456789', Subtest: DB.SUBTESTS[0].name, 'Tarif Gaji': 3000000, 'Tanggal Lahir': '1995-08-17', Status: 'Aktif' }
           : { Nama: 'Contoh Siswa', Username: 'siswa_baru', Password: 'password123', Email: 'siswa@rubela.edu',
               Telepon: '08123456789', Kelas: (DB.getClassOptions()[0] || 'X-A'),
-              'Universitas Tujuan': 'Universitas Indonesia', 'Jurusan Tujuan': 'Teknik Informatika', Status: 'Aktif' }];
+              'Universitas Tujuan': 'Universitas Indonesia', 'Jurusan Tujuan': 'Teknik Informatika', 'Tanggal Lahir': '2008-05-21', Status: 'Aktif' }];
       }
       if (typeof XLSX === 'undefined') { UI.toast('Library Excel belum termuat. Coba reload halaman.', 'error'); return; }
       const ws = XLSX.utils.json_to_sheet(rows);
@@ -293,6 +327,8 @@
             const password = pwRaw || 'password123';
             if (!pwRaw) defaultPw++;
             const record = { id: DB.uid('u'), role, name, username, email, password, status: (row.Status || row.status || 'Aktif') };
+            const bd = normBirthDate(row['Tanggal Lahir'] != null ? row['Tanggal Lahir'] : row.birthDate);
+            if (bd) record.birthDate = bd;
             if (isGuru) {
               record.subject = row.Subtest || row.subtest || row['Mata Pelajaran'] || '';
               record.whatsapp = String(row.WhatsApp || row.whatsapp || row.WA || '');
@@ -318,6 +354,66 @@
       e.target.value = ''; // reset input
     });
   }
+
+  /* ===== Tanggal lahir & foto profil (dipakai semua form akun) ===== */
+  function normBirthDate(v) {
+    if (v == null || v === '') return '';
+    if (typeof v === 'number' && isFinite(v)) {
+      // Nomor seri tanggal Excel (1900-based)
+      const d = new Date(Math.round((v - 25569) * 86400000));
+      return isNaN(d) ? '' : d.toISOString().slice(0, 10);
+    }
+    const t = String(v).trim();
+    let m = t.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
+    if (m) return `${m[1]}-${m[2].padStart(2, '0')}-${m[3].padStart(2, '0')}`;
+    m = t.match(/^(\d{1,2})[\/.-](\d{1,2})[\/.-](\d{4})$/);   // DD/MM/YYYY
+    if (m) return `${m[3]}-${m[2].padStart(2, '0')}-${m[1].padStart(2, '0')}`;
+    return '';
+  }
+  function validateBirthDate(ymd) {
+    if (!ymd) return '';
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(ymd) || isNaN(new Date(ymd + 'T00:00:00'))) return 'Format tanggal lahir tidak valid.';
+    if (ymd > UI.todayYMD()) return 'Tanggal lahir tidak boleh di masa depan.';
+    if (ymd < '1930-01-01') return 'Tanggal lahir terlalu lampau.';
+    return '';
+  }
+  function profileExtraFields(editing) {
+    return `<div class="form-row">
+            <div class="form-group"><label>Tanggal Lahir</label>
+              <input type="date" name="birthDate" max="${UI.todayYMD()}" value="${UI.esc(editing?.birthDate || '')}" />
+              <div class="muted small">Opsional. Ulang tahun mentee dirayakan otomatis.</div></div>
+            <div class="form-group"><label>Foto Profil</label>
+              <div class="photo-field">
+                <span class="photo-prev" data-photo-prev>${editing?.photo ? `<img src="${UI.esc(editing.photo)}" alt="" />` : UI.esc(UI.initials(editing?.name || '?'))}</span>
+                <label class="btn btn-sm btn-secondary" style="cursor:pointer;">Pilih foto
+                  <input type="file" accept="image/png,image/jpeg,image/webp" data-photo-file style="display:none;" /></label>
+                <button type="button" class="btn btn-sm btn-ghost ${editing?.photo ? '' : 'hidden'}" data-photo-del>Hapus</button>
+              </div></div>
+          </div>`;
+  }
+  /** Mengikat input foto; foto dikompres lewat Editor.compressImage. */
+  function bindPhotoField(form, editing) {
+    let value = editing?.photo || '';
+    const prev = form.querySelector('[data-photo-prev]');
+    const file = form.querySelector('[data-photo-file]');
+    const del = form.querySelector('[data-photo-del]');
+    const paint = () => {
+      prev.innerHTML = value ? `<img src="${UI.esc(value)}" alt="" />` : UI.esc(UI.initials(editing?.name || '?'));
+      del.classList.toggle('hidden', !value);
+    };
+    file.addEventListener('change', async () => {
+      const f = file.files[0];
+      if (!f) return;
+      if (!/^image\/(png|jpe?g|webp)$/i.test(f.type)) { UI.toast('Gunakan gambar PNG, JPG, atau WEBP.', 'error'); return; }
+      prev.innerHTML = '<span class="spinner"></span>';
+      try { value = await Editor.compressImage(f); } catch (e) { UI.toast(e.message || 'Gagal membaca gambar.', 'error'); }
+      paint();
+      file.value = '';
+    });
+    del.addEventListener('click', () => { value = ''; paint(); });
+    return { value: () => value };
+  }
+  global.ProfileFields = { profileExtraFields, bindPhotoField, validateBirthDate };
 
   function openUserForm(role, editId) {
     const isGuru = role === 'guru';
@@ -373,6 +469,7 @@
           </div>
           <div class="form-group"><label>Tarif Gaji per Bulan (Rp)</label>
             <input name="salaryRate" type="number" min="0" value="${editing?.salaryRate || 0}" /></div>
+          ${profileExtraFields(editing)}
           <div class="form-group"><label>Password ${editing ? '(kosongkan jika tidak diubah)' : ''}</label>
             <input type="password" name="password" ${editing ? '' : 'required minlength="6"'} /></div>
           <div id="userFormError" class="alert alert-error hidden"></div>
@@ -413,6 +510,7 @@
           </div>
           <div class="form-group"><label>Jurusan Tujuan</label>
             <input name="targetMajor" value="${UI.esc(editing?.targetMajor || '')}" placeholder="Jurusan yang dituju" /></div>
+          ${profileExtraFields(editing)}
           <div class="form-group"><label>Password ${editing ? '(kosongkan jika tidak diubah)' : ''}</label>
             <input type="password" name="password" ${editing ? '' : 'required minlength="6"'} /></div>
           <div id="userFormError" class="alert alert-error hidden"></div>
@@ -425,6 +523,7 @@
 
     UI.modal.open(title, body);
     document.getElementById('cancelBtn').addEventListener('click', () => UI.modal.close());
+    const photo = bindPhotoField(document.getElementById('userForm'), editing);
 
     /* Opsi "Lainnya" pada subtest tutor: tampilkan kolom manual bila dipilih.
      * Pola yang sama dipakai pada form kelas agar konsisten. */
@@ -453,6 +552,9 @@
       const status = fd.get('status');
       const err = document.getElementById('userFormError');
       err.classList.add('hidden');
+      const birthDate = String(fd.get('birthDate') || '');
+      const bdErr = validateBirthDate(birthDate);
+      if (bdErr) { err.textContent = bdErr; err.classList.remove('hidden'); return; }
 
       if (!editing) {
         if (DB.findUserByUsername(username)) {
@@ -465,7 +567,7 @@
           err.classList.remove('hidden');
           return;
         }
-        const record = { id: DB.uid('u'), role, name, username, email, password, status };
+        const record = { id: DB.uid('u'), role, name, username, email, password, status, birthDate, photo: photo.value() };
         if (isGuru) {
           record.subject = currentSubject();
           record.whatsapp = fd.get('whatsapp').trim();
@@ -484,7 +586,7 @@
           err.classList.remove('hidden');
           return;
         }
-        const patch = { name, email, status };
+        const patch = { name, email, status, birthDate, photo: photo.value() };
         if (isGuru) {
           patch.subject = currentSubject();
           patch.whatsapp = fd.get('whatsapp').trim();
@@ -532,17 +634,62 @@
             Siswa pada kelas utama yang dicantumkan otomatis terdaftar. Kelas dengan judul yang sama akan dilewati.
           </p>
         </details>
-        ${courses.length === 0 ? emptyState('Belum ada kelas.') : `
-        <div class="table-wrap"><table class="table">
+        <div id="courseSearch"></div>
+      </div>
+    `;
+
+    const bindRows = (box) => {
+      box.querySelectorAll('[data-set-pw]').forEach(b => b.addEventListener('click', () => {
+        Shared.openCoursePasswordForm(b.dataset.setPw, () => renderCourses(container, currentUser));
+      }));
+      // Buka isi kelas seperti tampilan dashboard tutor
+      box.querySelectorAll('[data-open-course]').forEach(b => b.addEventListener('click', () => {
+        adminCourseId = b.dataset.openCourse;
+        renderAdminCourseDetail(container, adminCourseId, currentUser);
+      }));
+      box.querySelectorAll('[data-edit-course]').forEach(b => b.addEventListener('click', () => openAdminCourseForm(container, b.dataset.editCourse)));
+      box.querySelectorAll('[data-del]').forEach(b => b.addEventListener('click', () => {
+        if (!UI.confirmDialog('Hapus kelas dan semua data terkait (materi, tugas, submission)?')) return;
+        DB.deleteCourse(b.dataset.del);
+        UI.toast('Kelas dihapus.');
+        renderCourses(container);
+      }));
+      box.querySelectorAll('[data-manage-students]').forEach(b => b.addEventListener('click', () => {
+        openBulkEnrollModal(b.dataset.manageStudents, container);
+      }));
+    };
+    DataSearch.mount({
+      container: container.querySelector('#courseSearch'),
+      items: courses,
+      stateKey: 'admin-courses',
+      placeholder: 'Cari judul kelas, subtest, tutor, kelas utama, jadwal, atau deskripsi…',
+      fields: c => [DB.courseTitle(c), c.id, c.subtest, c.category, (c.mainClasses || []), DB.courseTeachers(c).map(t => t.name),
+        DB.courseTeachers(c).map(t => t.username), DB.courseScheduleLabel(c), DataSearch.plain(c.description)],
+      filters: [
+        { key: 'subtest', label: 'Semua subtest', get: c => c.subtest || '', options: DB.SUBTEST_NAMES.map(n => ({ value: n, label: n })) },
+        { key: 'main', label: 'Semua kelas utama', get: c => c.mainClasses || [], options: DB.getMainClasses().map(k => ({ value: k, label: k })) },
+        { key: 'tutor', label: 'Semua tutor', get: c => DB.courseTeacherIds(c),
+          options: DB.getUsers().filter(u => u.role === 'guru').map(u => ({ value: u.id, label: u.name })) },
+        { key: 'lock', label: 'Semua akses', get: c => DB.hasCoursePassword(c.id) ? 'locked' : 'open',
+          options: [{ value: 'locked', label: '🔒 Berpassword' }, { value: 'open', label: 'Terbuka' }] }
+      ],
+      sorts: [
+        { key: 'title', label: 'Judul A–Z', cmp: (a, b) => DB.courseTitle(a).localeCompare(DB.courseTitle(b)) },
+        { key: 'students', label: 'Siswa terbanyak', cmp: (a, b) => DB.getEnrollmentsByCourse(b.id).length - DB.getEnrollmentsByCourse(a.id).length },
+        { key: 'new', label: 'Terbaru', cmp: (a, b) => (b.createdAt || 0) - (a.createdAt || 0) }
+      ],
+      pageSize: 15,
+      empty: 'Belum ada kelas.',
+      render: (rows, ctx) => `<div class="table-wrap"><table class="table">
           <thead><tr><th>Kelas</th><th>Subtest</th><th>Kelas Utama</th><th>Tutor</th><th>Jadwal</th><th>Password</th><th>Siswa</th><th>Aksi</th></tr></thead>
           <tbody>
-            ${courses.map(c => {
+            ${rows.map(c => {
               const tutors = DB.courseTeachers(c);
               const enrollCount = DB.getEnrollmentsByCourse(c.id).length;
               const locked = DB.hasCoursePassword(c.id);
               const st = DB.subtestByName(c.subtest);
               return `<tr>
-                <td><strong>${UI.esc(DB.courseTitle(c))}</strong>
+                <td><strong>${ctx.highlight(DB.courseTitle(c))}</strong>
                   <div class="small muted">${UI.esc(RichText ? RichText.plain(c.description, 70) : (c.description || ''))}</div></td>
                 <td>${st ? `<span class="badge badge-info">${st.icon} ${UI.esc(st.short)}</span>`
                           : `<span class="badge badge-gray">${UI.esc(c.subtest || c.category || '-')}</span>`}</td>
@@ -550,7 +697,7 @@
                   ? (c.mainClasses).map(k => `<span class="badge badge-gray" style="margin:1px;">${UI.esc(k)}</span>`).join('')
                   : '<span class="muted small">-</span>'}</td>
                 <td>${tutors.length
-                  ? tutors.map(t => `<div class="small">${UI.esc(t.name)}</div>`).join('')
+                  ? tutors.map(t => `<div class="small">${ctx.highlight(t.name)}</div>`).join('')
                   : '<span class="muted small">-</span>'}</td>
                 <td class="small">${UI.esc(DB.courseScheduleLabel(c))}</td>
                 <td>${locked
@@ -568,18 +715,9 @@
               </tr>`;
             }).join('')}
           </tbody>
-        </table></div>`}
-      </div>
-    `;
-
-    container.querySelectorAll('[data-set-pw]').forEach(b => b.addEventListener('click', () => {
-      Shared.openCoursePasswordForm(b.dataset.setPw, () => renderCourses(container, currentUser));
-    }));
-    // Buka isi kelas seperti tampilan dashboard tutor
-    container.querySelectorAll('[data-open-course]').forEach(b => b.addEventListener('click', () => {
-      adminCourseId = b.dataset.openCourse;
-      renderAdminCourseDetail(container, adminCourseId, currentUser);
-    }));
+        </table></div>`,
+      onPaint: bindRows
+    });
 
     /* ---- Export Excel kelas ---- */
     document.getElementById('exportCourseBtn').addEventListener('click', () => {
@@ -695,19 +833,6 @@
 
     // Add course
     document.getElementById('adminAddCourseBtn').addEventListener('click', () => openAdminCourseForm(container));
-    // Edit course
-    container.querySelectorAll('[data-edit-course]').forEach(b => b.addEventListener('click', () => openAdminCourseForm(container, b.dataset.editCourse)));
-    // Delete course
-    container.querySelectorAll('[data-del]').forEach(b => b.addEventListener('click', () => {
-      if (!UI.confirmDialog('Hapus kelas dan semua data terkait (materi, tugas, submission)?')) return;
-      DB.deleteCourse(b.dataset.del);
-      UI.toast('Kelas dihapus.');
-      renderCourses(container);
-    }));
-    // Manage students
-    container.querySelectorAll('[data-manage-students]').forEach(b => b.addEventListener('click', () => {
-      openBulkEnrollModal(b.dataset.manageStudents, container);
-    }));
   }
 
   /* ========== FORM KELAS SUBTEST ==========
@@ -1894,6 +2019,45 @@
         </div>
       </div>
 
+      ${(() => { const st = DB.getSettings(); return `
+      <div class="card">
+        <div class="card-header">${UI.secHead('📋', 'Kebijakan Kehadiran', 'dipakai di semua panel: admin, tutor, siswa, dan orang tua')}</div>
+        <form id="attPolicyForm" class="form">
+          <div class="form-row">
+            <div class="form-group"><label for="attThreshold">Standar minimal kehadiran (%)</label>
+              <input type="number" id="attThreshold" min="0" max="100" step="1" required value="${DB.attendanceThreshold()}" />
+              <div class="muted small">Di bawah angka ini, siswa/tutor diberi peringatan.</div></div>
+            <div class="form-group"><label for="attExcused">Izin & sakit</label>
+              <select id="attExcused">
+                <option value="count" ${st.attendanceExcusedPolicy !== 'exclude' ? 'selected' : ''}>Tetap dihitung sebagai sesi (tidak hadir)</option>
+                <option value="exclude" ${st.attendanceExcusedPolicy === 'exclude' ? 'selected' : ''}>Tidak dihitung dalam total sesi</option>
+              </select></div>
+          </div>
+          <p class="muted small">Rumus: (hadir + terlambat) ÷ total sesi terlaksana × 100%. Sesi yang rencananya dibatalkan di Jadwal Kelas tidak dihitung.</p>
+          <div class="flex-gap" style="justify-content:flex-end;"><button type="submit" class="btn btn-primary btn-sm">Simpan Kebijakan</button></div>
+        </form>
+      </div>
+
+      <div class="card">
+        <div class="card-header">${UI.secHead('🎂', 'Ulang Tahun & Birthday Wall', 'notifikasi otomatis, ucapan, dan hadiah poin')}</div>
+        <form id="bdPolicyForm" class="form">
+          <label class="check-row"><input type="checkbox" id="bdEnabled" ${st.birthdayEnabled !== false ? 'checked' : ''} /> Aktifkan fitur ulang tahun</label>
+          <div class="form-row">
+            <div class="form-group"><label for="bdPoints">Poin hadiah ulang tahun</label>
+              <input type="number" id="bdPoints" min="0" max="1000" step="1" required value="${Math.max(0, Number(st.birthdayPoints) || 0)}" />
+              <div class="muted small">0–1000 poin, diberikan sekali per tahun saat kado dibuka.</div></div>
+            <div class="form-group"><label for="bdModeration">Moderasi ucapan</label>
+              <select id="bdModeration">
+                <option value="post" ${st.birthdayModeration !== 'pre' ? 'selected' : ''}>Langsung tampil (admin meninjau laporan)</option>
+                <option value="pre" ${st.birthdayModeration === 'pre' ? 'selected' : ''}>Tunggu persetujuan admin</option>
+              </select></div>
+          </div>
+          <div class="form-group"><label for="bdMessage">Pesan khusus saat kado dibuka</label>
+            <textarea id="bdMessage" rows="2" maxlength="300">${UI.esc(st.birthdayMessage || '')}</textarea></div>
+          <div class="flex-gap" style="justify-content:flex-end;"><button type="submit" class="btn btn-primary btn-sm">Simpan Pengaturan Ulang Tahun</button></div>
+        </form>
+      </div>`; })()}
+
       <div class="card">
         <div class="card-header">
           ${UI.secHead('🤖', 'Integrasi AI', 'Gemini untuk asisten belajar & analisis, Agent API untuk menarik data dari halaman web')}
@@ -2092,6 +2256,25 @@
       }
     });
 
+    document.getElementById('attPolicyForm').addEventListener('submit', (e) => {
+      e.preventDefault();
+      const t = Number(document.getElementById('attThreshold').value);
+      if (!Number.isFinite(t) || t < 0 || t > 100) { UI.toast('Standar kehadiran harus 0–100.', 'error'); return; }
+      DB.setSetting('attendanceThreshold', Math.round(t));
+      DB.setSetting('attendanceExcusedPolicy', document.getElementById('attExcused').value === 'exclude' ? 'exclude' : 'count');
+      UI.toast('Kebijakan kehadiran disimpan.', 'success');
+    });
+    document.getElementById('bdPolicyForm').addEventListener('submit', (e) => {
+      e.preventDefault();
+      const pts = Number(document.getElementById('bdPoints').value);
+      if (!Number.isFinite(pts) || pts < 0 || pts > 1000) { UI.toast('Poin hadiah harus 0–1000.', 'error'); return; }
+      DB.setSetting('birthdayEnabled', document.getElementById('bdEnabled').checked);
+      DB.setSetting('birthdayPoints', Math.round(pts));
+      DB.setSetting('birthdayModeration', document.getElementById('bdModeration').value === 'pre' ? 'pre' : 'post');
+      DB.setSetting('birthdayMessage', document.getElementById('bdMessage').value.trim().slice(0, 300));
+      UI.toast('Pengaturan ulang tahun disimpan.', 'success');
+    });
+
     document.getElementById('resetBtn').addEventListener('click', () => {
       if (!UI.confirmDialog('Reset SEMUA data? Akun dan kelas akan kembali ke default.')) return;
       DB.resetAll();
@@ -2235,17 +2418,16 @@
   function renderAttendance(container, user) {
     const courses = DB.getCourses();
     const allAtt = DB.getAttendance();
-    const studentAtt = allAtt.filter(a => a.role === 'siswa');
-    const guruAtt = allAtt.filter(a => a.role === 'guru');
-    const presentS = studentAtt.filter(a => a.status === 'hadir').length;
-    const presentG = guruAtt.filter(a => a.status === 'hadir').length;
+    const sumS = DB.attendanceSummary(allAtt.filter(a => a.role === 'siswa'));
+    const sumG = DB.attendanceSummary(allAtt.filter(a => a.role === 'guru'));
     const todayCount = allAtt.filter(a => a.date === UI.todayYMD()).length;
+    const threshold = DB.attendanceThreshold();
 
     container.innerHTML = `
       <div class="stats-grid">
-        <div class="stat-card accent-success"><div class="label">Kehadiran Siswa</div><div class="value">${studentAtt.length ? Math.round(presentS / studentAtt.length * 100) : 0}%</div><div class="sub">${presentS}/${studentAtt.length} sesi</div></div>
-        <div class="stat-card accent-primary"><div class="label">Kehadiran Guru</div><div class="value">${guruAtt.length ? Math.round(presentG / guruAtt.length * 100) : 0}%</div><div class="sub">${presentG}/${guruAtt.length} sesi</div></div>
-        <div class="stat-card accent-warning"><div class="label">Total Record</div><div class="value">${allAtt.length}</div></div>
+        <div class="stat-card accent-success"><div class="label">Kehadiran Siswa</div><div class="value">${sumS.pct}%</div><div class="sub">${sumS.present}/${sumS.sessions} sesi • standar ${threshold}%</div></div>
+        <div class="stat-card accent-primary"><div class="label">Kehadiran Guru</div><div class="value">${sumG.pct}%</div><div class="sub">${sumG.present}/${sumG.sessions} sesi</div></div>
+        <div class="stat-card accent-warning"><div class="label">Total Record</div><div class="value">${allAtt.length}</div><div class="sub">${sumS.cancelled + sumG.cancelled} pada sesi dibatalkan</div></div>
         <div class="stat-card accent-danger"><div class="label">Tercatat Hari Ini</div><div class="value">${todayCount}</div><div class="sub">${UI.fmtYMD(UI.todayYMD())}</div></div>
       </div>
 
@@ -2256,40 +2438,19 @@
         <button class="subtab-btn" data-stab="log">Log Presensi</button>
       </div>
 
-      <div id="attFilters" class="filter-bar hidden">
-        <label>Kelas:</label>
-        <select id="attCourseFilter">
-          <option value="">Semua Kelas</option>
-          ${courses.map(c => `<option value="${c.id}">${UI.esc(c.title)}</option>`).join('')}
-        </select>
-        <label style="margin-left:12px;">Peran:</label>
-        <select id="attRoleFilter">
-          <option value="">Semua</option>
-          <option value="siswa">Siswa</option>
-          <option value="guru">Guru</option>
-        </select>
-        <label style="margin-left:12px;">Status:</label>
-        <select id="attStatusFilter">
-          <option value="">Semua</option>
-          <option value="hadir">Hadir</option>
-          <option value="izin">Izin</option>
-          <option value="sakit">Sakit</option>
-          <option value="alfa">Alfa</option>
-        </select>
-      </div>
-
       <div id="attBox"></div>
     `;
     let currentTab = 'ambil';
-    let currentCourse = '';
-    let currentRole = '';
-    let currentStatus = '';
     let takeCourseId = courses.length ? courses[0].id : '';
+
+    const openPerson = (u, role) => {
+      if (!u) return;
+      UI.modal.open(`Kehadiran ${u.name}`, '<div id="aiPersonModal" class="ai-modal"></div>');
+      AttendanceInsights.renderPersonal({ container: document.getElementById('aiPersonModal'), user: u, role, title: `Persentase Kehadiran ${role === 'guru' ? 'Mengajar' : ''}`.trim() });
+    };
 
     const render = () => {
       const box = document.getElementById('attBox');
-      const filters = document.getElementById('attFilters');
-      filters.classList.toggle('hidden', currentTab === 'ambil');
 
       // --- Ambil presensi langsung dari panel admin ---
       if (currentTab === 'ambil') {
@@ -2310,57 +2471,57 @@
         return;
       }
 
-      let att = DB.getAttendance();
-      if (currentCourse) att = att.filter(a => a.courseId === currentCourse);
-      if (currentTab === 'log' && currentRole) att = att.filter(a => a.role === currentRole);
-      if (currentTab === 'log' && currentStatus) att = att.filter(a => a.status === currentStatus);
-
       if (currentTab === 'log') {
-        const log = att.slice().sort((a, b) => b.date.localeCompare(a.date)).slice(0, 200);
-        if (log.length === 0) { box.innerHTML = emptyState('Belum ada log.'); return; }
-        box.innerHTML = `<div class="card"><div class="table-wrap"><table class="table">
-          <thead><tr><th>Tanggal</th><th>Peran</th><th>Nama</th><th>Kelas</th><th>Status</th><th>Catatan</th></tr></thead>
-          <tbody>${log.map(a => {
-            const u = DB.getUser(a.userId);
-            const c = DB.getCourse(a.courseId);
-            return `<tr>
-              <td>${UI.fmtYMD(a.date)}</td>
-              <td><span class="badge ${a.role === 'guru' ? 'badge-info' : 'badge-gray'}">${a.role.toUpperCase()}</span></td>
-              <td><strong>${UI.esc(u ? u.name : '-')}</strong></td>
-              <td>${UI.esc(c ? c.title : '-')}</td>
-              <td><span class="status-${a.status}">${a.status.toUpperCase()}</span></td>
-              <td class="muted small">${UI.esc(a.note || '-')}</td>
-            </tr>`;
-          }).join('')}</tbody>
-        </table></div></div>`;
+        // Log lengkap (tanpa batas 200) dengan pencarian, filter, rentang tanggal, dan pagination.
+        const log = DB.getAttendance().slice().sort((a, b) => b.date.localeCompare(a.date));
+        box.innerHTML = '<div class="card" id="attLog"></div>';
+        DataSearch.mount({
+          container: box.querySelector('#attLog'),
+          items: log,
+          stateKey: 'admin-att-log',
+          placeholder: 'Cari nama, username, kelas, status, atau catatan…',
+          fields: a => { const u = DB.getUser(a.userId); const c = DB.getCourse(a.courseId);
+            return [u ? u.name : '', u ? u.username : '', c ? DB.courseTitle(c) : '', DB.attStatusMeta(a.status).label, a.note, a.date, UI.fmtYMD(a.date), a.role]; },
+          filters: [
+            { key: 'course', label: 'Semua kelas', get: a => a.courseId, options: courses.map(c => ({ value: c.id, label: DB.courseTitle(c) })) },
+            { key: 'role', label: 'Semua peran', get: a => a.role, options: [{ value: 'siswa', label: 'Siswa' }, { value: 'guru', label: 'Guru' }] },
+            { key: 'status', label: 'Semua status', get: a => a.status, options: DB.ATT_STATUSES.map(st => ({ value: st.key, label: st.label })) }
+          ],
+          dateRange: a => a.date,
+          sorts: [
+            { key: 'new', label: 'Terbaru', cmp: (a, b) => b.date.localeCompare(a.date) },
+            { key: 'old', label: 'Terlama', cmp: (a, b) => a.date.localeCompare(b.date) }
+          ],
+          pageSize: 25,
+          empty: 'Belum ada log.',
+          render: (rows, ctx) => `<div class="table-wrap"><table class="table">
+            <thead><tr><th>Tanggal</th><th>Peran</th><th>Nama</th><th>Kelas</th><th>Status</th><th>Catatan</th></tr></thead>
+            <tbody>${rows.map(a => {
+              const u = DB.getUser(a.userId);
+              const c = DB.getCourse(a.courseId);
+              return `<tr>
+                <td>${UI.fmtYMD(a.date)}${DB.isCancelledSession(a.courseId, a.date) ? ' <span class="badge badge-gray">dibatalkan</span>' : ''}</td>
+                <td><span class="badge ${a.role === 'guru' ? 'badge-info' : 'badge-gray'}">${UI.esc(a.role.toUpperCase())}</span></td>
+                <td><strong>${ctx.highlight(u ? u.name : '-')}</strong></td>
+                <td>${ctx.highlight(c ? DB.courseTitle(c) : '-')}</td>
+                <td>${AttendanceInsights.statusBadge(a.status)}</td>
+                <td class="muted small">${ctx.highlight(a.note || '-')}</td>
+              </tr>`;
+            }).join('')}</tbody>
+          </table></div>`
+        });
         return;
       }
 
-      // Rekap per user
+      // Rekap per orang: rumus tunggal DB.attendanceSummary + grafik & peringatan ambang.
       const role = currentTab; // 'siswa' | 'guru'
-      const users = DB.getUsers().filter(u => u.role === role);
-      const rows = users.map(u => {
-        const rec = att.filter(a => a.userId === u.id && a.role === role);
-        const counts = { hadir: 0, izin: 0, sakit: 0, alfa: 0 };
-        rec.forEach(r => { counts[r.status] = (counts[r.status] || 0) + 1; });
-        const total = rec.length;
-        const pct = total ? Math.round(counts.hadir / total * 100) : 0;
-        return { u, counts, total, pct };
-      }).filter(r => r.total > 0 || !currentCourse);
-
-      box.innerHTML = `<div class="card">
-        <div class="card-header"><h3>Rekap Kehadiran ${role === 'siswa' ? 'Siswa' : 'Guru'}</h3></div>
-        ${rows.length === 0 ? emptyState('Tidak ada data.') : `
-        <div class="table-wrap"><table class="table">
-          <thead><tr><th>Nama</th><th>Hadir</th><th>Izin</th><th>Sakit</th><th>Alfa</th><th>Total</th><th>%</th></tr></thead>
-          <tbody>${rows.map(r => `<tr>
-            <td><strong>${UI.esc(r.u.name)}</strong></td>
-            <td>${r.counts.hadir}</td><td>${r.counts.izin}</td><td>${r.counts.sakit}</td><td>${r.counts.alfa}</td>
-            <td>${r.total}</td>
-            <td><strong>${r.pct}%</strong></td>
-          </tr>`).join('')}</tbody>
-        </table></div>`}
-      </div>`;
+      AttendanceInsights.renderRoster({
+        container: box,
+        people: DB.getUsers().filter(u => u.role === role),
+        role,
+        courses,
+        onOpen: (u) => openPerson(u, role)
+      });
     };
 
     const paintSheet = () => {
@@ -2381,15 +2542,133 @@
       currentTab = b.dataset.stab;
       render();
     }));
-    document.getElementById('attCourseFilter').addEventListener('change', (e) => { currentCourse = e.target.value; render(); });
-    document.getElementById('attRoleFilter').addEventListener('change', (e) => { currentRole = e.target.value; render(); });
-    document.getElementById('attStatusFilter').addEventListener('change', (e) => { currentStatus = e.target.value; render(); });
     render();
   }
 
   /* ========== KELOLA ORANG TUA / WALI ==========
    * Akun orang tua dibuat admin dan dihubungkan ke satu atau lebih siswa.
    */
+  /* ===== Admin & Staff =====
+   * Akun peran admin. Pengaman: tidak bisa menghapus diri sendiri maupun
+   * admin aktif terakhir agar sistem tidak kehilangan pengelola. */
+  function renderStaff(container, me) {
+    const list = DB.getUsers().filter(u => u.role === 'admin');
+    container.innerHTML = `
+      <div class="card">
+        <div class="card-header">
+          ${UI.secHead('🛡️', `Admin & Staff (${list.length})`, 'akun dengan akses penuh ke panel admin')}
+          <button class="btn btn-primary btn-sm" id="addStaffBtn">+ Tambah Admin/Staff</button>
+        </div>
+        <div id="staffSearch"></div>
+      </div>`;
+    document.getElementById('addStaffBtn').addEventListener('click', () => openStaffForm(container, me));
+    DataSearch.mount({
+      container: container.querySelector('#staffSearch'),
+      items: list,
+      stateKey: 'admin-staff',
+      placeholder: 'Cari nama, username, ID, email, jabatan, atau telepon…',
+      fields: u => [u.name, u.username, u.id, u.email, u.phone, u.position, u.status || 'Aktif'],
+      filters: [{ key: 'status', label: 'Semua status', get: u => u.status || 'Aktif',
+        options: ['Aktif', 'Nonaktif'].map(v => ({ value: v, label: v })) }],
+      sorts: [{ key: 'name', label: 'Nama A–Z', cmp: (a, b) => a.name.localeCompare(b.name) }],
+      pageSize: 20,
+      render: (rows, ctx) => `<div class="table-wrap"><table class="table">
+        <thead><tr><th>Nama</th><th>Username</th><th>Jabatan</th><th>Kontak</th><th>Status</th><th>Aksi</th></tr></thead>
+        <tbody>${rows.map(u => `<tr>
+          <td><div class="user-cell">${Birthday.avatarHtml(u, 34)}<div><strong>${ctx.highlight(u.name)}</strong>${u.id === me.id ? ' <span class="badge badge-info">Anda</span>' : ''}
+            <div class="muted small">${ctx.highlight(u.email || '-')}</div></div></div></td>
+          <td>${ctx.highlight(u.username)}</td>
+          <td>${ctx.highlight(u.position || 'Administrator')}</td>
+          <td class="muted small">${ctx.highlight(u.phone || '-')}</td>
+          <td><span class="badge ${(u.status || 'Aktif') === 'Aktif' ? 'badge-success' : 'badge-warning'}">${UI.esc(u.status || 'Aktif')}</span></td>
+          <td class="actions">
+            <button class="btn btn-sm btn-secondary" data-edit-staff="${u.id}">Edit</button>
+            ${u.id === me.id ? '' : `<button class="btn btn-sm btn-danger" data-del-staff="${u.id}">Hapus</button>`}
+          </td></tr>`).join('')}</tbody></table></div>`,
+      onPaint: (box) => {
+        box.querySelectorAll('[data-edit-staff]').forEach(b => b.addEventListener('click', () => openStaffForm(container, me, b.dataset.editStaff)));
+        box.querySelectorAll('[data-del-staff]').forEach(b => b.addEventListener('click', () => {
+          const activeAdmins = DB.getUsers().filter(u => u.role === 'admin' && (u.status || 'Aktif') === 'Aktif');
+          const victim = DB.getUser(b.dataset.delStaff);
+          if (victim && (victim.status || 'Aktif') === 'Aktif' && activeAdmins.length <= 1) {
+            UI.toast('Tidak dapat menghapus admin aktif terakhir.', 'error'); return;
+          }
+          if (!UI.confirmDialog('Hapus akun admin/staff ini?')) return;
+          DB.deleteUser(b.dataset.delStaff);
+          UI.toast('Akun dihapus.');
+          renderStaff(container, me);
+        }));
+      }
+    });
+  }
+
+  function openStaffForm(container, me, editId) {
+    const editing = editId ? DB.getUser(editId) : null;
+    UI.modal.open(editing ? 'Edit Admin/Staff' : 'Tambah Admin/Staff', `
+      <form id="userForm" class="form">
+        <div class="form-group"><label>Nama Lengkap</label><input name="name" required value="${UI.esc(editing?.name || '')}" /></div>
+        <div class="form-row">
+          <div class="form-group"><label>Username</label><input name="username" required value="${UI.esc(editing?.username || '')}" ${editing ? 'readonly' : ''} /></div>
+          <div class="form-group"><label>Email</label><input type="email" name="email" value="${UI.esc(editing?.email || '')}" /></div>
+        </div>
+        <div class="form-row">
+          <div class="form-group"><label>Jabatan</label><input name="position" placeholder="mis. Staf Akademik" value="${UI.esc(editing?.position || '')}" /></div>
+          <div class="form-group"><label>Telepon</label><input name="phone" type="tel" value="${UI.esc(editing?.phone || '')}" /></div>
+        </div>
+        <div class="form-group"><label>Status</label>
+          <select name="status" ${editing && editing.id === me.id ? 'disabled' : ''}>
+            ${['Aktif', 'Nonaktif'].map(v => `<option ${(editing?.status || 'Aktif') === v ? 'selected' : ''}>${v}</option>`).join('')}
+          </select></div>
+        ${profileExtraFields(editing)}
+        <div class="form-group"><label>Password ${editing ? '(kosongkan jika tidak diubah)' : ''}</label>
+          <input type="password" name="password" ${editing ? '' : 'required minlength="6"'} /></div>
+        <div id="userFormError" class="alert alert-error hidden"></div>
+        <div class="flex-gap" style="justify-content:flex-end;">
+          <button type="button" class="btn btn-secondary" id="cancelBtn">Batal</button>
+          <button type="submit" class="btn btn-primary">Simpan</button>
+        </div>
+      </form>`);
+    const form = document.getElementById('userForm');
+    document.getElementById('cancelBtn').addEventListener('click', () => UI.modal.close());
+    const photo = bindPhotoField(form, editing);
+    form.addEventListener('submit', (e) => {
+      e.preventDefault();
+      const fd = new FormData(form);
+      const err = document.getElementById('userFormError');
+      const fail = (m) => { err.textContent = m; err.classList.remove('hidden'); };
+      err.classList.add('hidden');
+      const birthDate = String(fd.get('birthDate') || '');
+      const bdErr = validateBirthDate(birthDate);
+      if (bdErr) return fail(bdErr);
+      const password = String(fd.get('password') || '');
+      if (password && password.length < 6) return fail('Password minimal 6 karakter.');
+      const data = {
+        name: String(fd.get('name')).trim(), email: String(fd.get('email') || '').trim(),
+        position: String(fd.get('position') || '').trim(), phone: String(fd.get('phone') || '').trim(),
+        birthDate, photo: photo.value()
+      };
+      if (!data.name) return fail('Nama wajib diisi.');
+      if (!(editing && editing.id === me.id)) data.status = fd.get('status') || 'Aktif';
+      if (editing) {
+        if (data.status === 'Nonaktif' && (editing.status || 'Aktif') === 'Aktif'
+          && DB.getUsers().filter(u => u.role === 'admin' && (u.status || 'Aktif') === 'Aktif').length <= 1) {
+          return fail('Tidak dapat menonaktifkan admin aktif terakhir.');
+        }
+        if (password) data.password = password;
+        DB.updateUser(editing.id, data);
+      } else {
+        const username = String(fd.get('username')).trim();
+        if (!/^[a-zA-Z0-9._-]{3,32}$/.test(username)) return fail('Username 3–32 karakter: huruf, angka, titik, garis bawah, atau strip.');
+        if (DB.findUserByUsername(username)) return fail('Username sudah dipakai.');
+        DB.addUser(Object.assign({ id: DB.uid('u'), role: 'admin', username, password }, data));
+      }
+      UI.modal.close();
+      UI.toast('Data admin/staff disimpan.');
+      if (editing && editing.id === me.id && global.Dashboard) Dashboard.refreshAvatar();
+      renderStaff(container, me);
+    });
+  }
+
   function renderParents(container) {
     const parents = DB.getParents();
     const students = DB.getUsers().filter(u => u.role === 'siswa');
@@ -2423,29 +2702,7 @@
             Baris dengan username yang sudah ada akan dilewati. Bila Password kosong, dipakai <code>password123</code>.
           </p>
         </details>
-        ${parents.length === 0 ? emptyState('Belum ada akun orang tua.') : `
-        <div class="table-wrap"><table class="table">
-          <thead><tr><th>Nama</th><th>Username</th><th>Hubungan</th><th>Kontak</th><th>Anak Dipantau</th><th>Aksi</th></tr></thead>
-          <tbody>
-            ${parents.map(p => {
-              const kids = DB.getChildren(p.id);
-              return `<tr>
-                <td><strong>${UI.esc(p.name)}</strong><div class="muted small">${UI.esc(p.email || '-')}</div></td>
-                <td>${UI.esc(p.username)}</td>
-                <td><span class="badge badge-info">${UI.esc(p.relation || 'Wali')}</span></td>
-                <td class="muted small">${UI.esc(p.phone || '-')}</td>
-                <td>${kids.length === 0
-                  ? '<span class="badge badge-warning">Belum terhubung</span>'
-                  : kids.map(k => `<span class="badge badge-success" style="margin:2px;">${UI.esc(k.name)}</span>`).join(' ')}</td>
-                <td class="actions">
-                  <button class="btn btn-sm btn-primary" data-link-child="${p.id}">Hubungkan Anak</button>
-                  <button class="btn btn-sm btn-secondary" data-edit-parent="${p.id}">Edit</button>
-                  <button class="btn btn-sm btn-danger" data-del-parent="${p.id}">Hapus</button>
-                </td>
-              </tr>`;
-            }).join('')}
-          </tbody>
-        </table></div>`}
+        <div id="parentSearch"></div>
       </div>
 
       ${unlinked.length ? `
@@ -2458,14 +2715,57 @@
     `;
 
     document.getElementById('addParentBtn').addEventListener('click', () => openParentForm(container));
-    container.querySelectorAll('[data-edit-parent]').forEach(b => b.addEventListener('click', () => openParentForm(container, b.dataset.editParent)));
-    container.querySelectorAll('[data-link-child]').forEach(b => b.addEventListener('click', () => openLinkChildModal(container, b.dataset.linkChild)));
-    container.querySelectorAll('[data-del-parent]').forEach(b => b.addEventListener('click', () => {
-      if (!UI.confirmDialog('Hapus akun orang tua ini? Data siswa tidak akan terhapus.')) return;
-      DB.deleteUser(b.dataset.delParent);
-      UI.toast('Akun orang tua dihapus.');
-      renderParents(container);
-    }));
+    DataSearch.mount({
+      container: container.querySelector('#parentSearch'),
+      items: parents,
+      stateKey: 'admin-parents',
+      placeholder: 'Cari nama, username, email, telepon, atau nama/username anak…',
+      fields: p => { const kids = DB.getChildren(p.id);
+        return [p.name, p.username, p.id, p.email, p.phone, p.relation, kids.map(k => k.name), kids.map(k => k.username), kids.map(k => k.kelas)]; },
+      filters: [
+        { key: 'rel', label: 'Semua hubungan', get: p => p.relation || 'Wali', options: ['Ayah', 'Ibu', 'Wali'].map(v => ({ value: v, label: v })) },
+        { key: 'link', label: 'Semua status anak', get: p => DB.getChildren(p.id).length ? 'yes' : 'no',
+          options: [{ value: 'yes', label: 'Sudah terhubung' }, { value: 'no', label: 'Belum terhubung' }] }
+      ],
+      sorts: [
+        { key: 'name', label: 'Nama A–Z', cmp: (x, y) => x.name.localeCompare(y.name) },
+        { key: 'name-desc', label: 'Nama Z–A', cmp: (x, y) => y.name.localeCompare(x.name) }
+      ],
+      pageSize: 20,
+      empty: 'Belum ada akun orang tua.',
+      render: (rows, ctx) => `<div class="table-wrap"><table class="table">
+          <thead><tr><th>Nama</th><th>Username</th><th>Hubungan</th><th>Kontak</th><th>Anak Dipantau</th><th>Aksi</th></tr></thead>
+          <tbody>
+            ${rows.map(p => {
+              const kids = DB.getChildren(p.id);
+              return `<tr>
+                <td><div class="user-cell">${Birthday.avatarHtml(p, 34)}<div><strong>${ctx.highlight(p.name)}</strong><div class="muted small">${ctx.highlight(p.email || '-')}</div></div></div></td>
+                <td>${ctx.highlight(p.username)}</td>
+                <td><span class="badge badge-info">${UI.esc(p.relation || 'Wali')}</span></td>
+                <td class="muted small">${ctx.highlight(p.phone || '-')}</td>
+                <td>${kids.length === 0
+                  ? '<span class="badge badge-warning">Belum terhubung</span>'
+                  : kids.map(k => `<span class="badge badge-success" style="margin:2px;">${ctx.highlight(k.name)}</span>`).join(' ')}</td>
+                <td class="actions">
+                  <button class="btn btn-sm btn-primary" data-link-child="${p.id}">Hubungkan Anak</button>
+                  <button class="btn btn-sm btn-secondary" data-edit-parent="${p.id}">Edit</button>
+                  <button class="btn btn-sm btn-danger" data-del-parent="${p.id}">Hapus</button>
+                </td>
+              </tr>`;
+            }).join('')}
+          </tbody>
+        </table></div>`,
+      onPaint: (box) => {
+        box.querySelectorAll('[data-edit-parent]').forEach(b => b.addEventListener('click', () => openParentForm(container, b.dataset.editParent)));
+        box.querySelectorAll('[data-link-child]').forEach(b => b.addEventListener('click', () => openLinkChildModal(container, b.dataset.linkChild)));
+        box.querySelectorAll('[data-del-parent]').forEach(b => b.addEventListener('click', () => {
+          if (!UI.confirmDialog('Hapus akun orang tua ini? Data siswa tidak akan terhapus.')) return;
+          DB.deleteUser(b.dataset.delParent);
+          UI.toast('Akun orang tua dihapus.');
+          renderParents(container);
+        }));
+      }
+    });
 
     /* ---- Export Excel orang tua ---- */
     document.getElementById('exportParentBtn').addEventListener('click', () => {
@@ -2779,7 +3079,6 @@
 
   /* ========== KEUANGAN ========== */
   /* Penyaring jenis pemasukan pada halaman Keuangan */
-  let incomeKindFilter = '';
 
   function renderKeuangan(container) {
     const renderAll = () => {
@@ -2849,59 +3148,73 @@
     };
 
     const renderIncome = (box) => {
-      let payments = DB.getPayments().slice().sort((a, b) => (b.paidAt || b.createdAt) - (a.paidAt || a.createdAt));
-      if (incomeKindFilter) payments = payments.filter(p => DB.paymentKind(p) === incomeKindFilter);
+      const payments = DB.getPayments().slice().sort((a, b) => (b.paidAt || b.createdAt) - (a.paidAt || a.createdAt));
       box.innerHTML = `
         <div class="card">
           <div class="card-header">
             ${UI.secHead('💵', `Pemasukan (${payments.length})`, 'SPP, pendaftaran, denda siswa, dan pemasukan lain')}
-            <div class="flex-gap">
-              <select id="payKindFilter" class="input" style="max-width:190px;">
-                <option value="">Semua jenis</option>
-                ${DB.PAYMENT_KINDS.map(k => `<option value="${k.key}" ${incomeKindFilter === k.key ? 'selected' : ''}>${k.icon} ${UI.esc(k.label)}</option>`).join('')}
-              </select>
-              <button class="btn btn-primary btn-sm" id="addPayBtn">+ Tambah Pemasukan</button>
-            </div>
+            <button class="btn btn-primary btn-sm" id="addPayBtn">+ Tambah Pemasukan</button>
           </div>
-          ${payments.length === 0 ? emptyState('Belum ada pemasukan pada jenis ini.') : `
-          <div class="table-wrap"><table class="table">
+          <div id="paySearch"></div>
+        </div>
+      `;
+      document.getElementById('addPayBtn').addEventListener('click', () => openPaymentForm());
+      const courses = DB.getCourses();
+      DataSearch.mount({
+        container: box.querySelector('#paySearch'),
+        items: payments,
+        stateKey: 'admin-fin-income',
+        placeholder: 'Cari nama siswa, ID transaksi, kelas, metode, alasan denda, atau catatan…',
+        fields: p => { const st = DB.getUser(p.studentId); const c = p.courseId ? DB.getCourse(p.courseId) : null;
+          return [st ? st.name : '', st ? st.username : '', p.id, c ? DB.courseTitle(c) : 'Umum', DB.paymentKindMeta(DB.paymentKind(p)).label,
+            p.method, p.status, p.note, p.fineReason, String(p.amount || 0), UI.fmtDate(p.paidAt || p.createdAt)]; },
+        filters: [
+          { key: 'kind', label: 'Semua jenis', get: p => DB.paymentKind(p), options: DB.PAYMENT_KINDS.map(k => ({ value: k.key, label: `${k.icon} ${k.label}` })) },
+          { key: 'status', label: 'Semua status', get: p => p.status === 'lunas' ? 'lunas' : 'pending',
+            options: [{ value: 'lunas', label: 'Lunas' }, { value: 'pending', label: 'Belum lunas' }] },
+          { key: 'course', label: 'Semua kelas', get: p => p.courseId || '', options: courses.map(c => ({ value: c.id, label: DB.courseTitle(c) })) }
+        ],
+        dateRange: p => DB.ymdOf(p.paidAt || p.createdAt),
+        sorts: [
+          { key: 'new', label: 'Terbaru', cmp: (a, b) => (b.paidAt || b.createdAt) - (a.paidAt || a.createdAt) },
+          { key: 'old', label: 'Terlama', cmp: (a, b) => (a.paidAt || a.createdAt) - (b.paidAt || b.createdAt) },
+          { key: 'amount', label: 'Jumlah terbesar', cmp: (a, b) => (b.amount || 0) - (a.amount || 0) }
+        ],
+        pageSize: 20,
+        empty: 'Belum ada pemasukan.',
+        render: (rows, ctx) => `<div class="table-wrap"><table class="table">
             <thead><tr><th>Tanggal</th><th>Siswa</th><th>Jenis</th><th>Kelas</th><th>Jumlah</th><th>Metode</th><th>Status</th><th>Catatan</th><th>Aksi</th></tr></thead>
-            <tbody>${payments.map(p => {
-              const s = DB.getUser(p.studentId);
+            <tbody>${rows.map(p => {
+              const st = DB.getUser(p.studentId);
               const c = p.courseId ? DB.getCourse(p.courseId) : null;
+              const k = DB.paymentKindMeta(DB.paymentKind(p));
               return `<tr>
                 <td>${UI.fmtDate(p.paidAt || p.createdAt)}</td>
-                <td><strong>${UI.esc(s ? s.name : '-')}</strong></td>
-                <td>${(() => { const k = DB.paymentKindMeta(DB.paymentKind(p));
-                  return `<span class="badge ${k.fine ? 'badge-warning' : 'badge-info'}">${k.icon} ${UI.esc(k.label)}</span>
-                    ${p.fineReason ? `<div class="muted small">${UI.esc(p.fineReason)}</div>` : ''}`; })()}</td>
-                <td>${UI.esc(c ? DB.courseTitle(c) : 'Umum')}</td>
+                <td><strong>${ctx.highlight(st ? st.name : '-')}</strong></td>
+                <td><span class="badge ${k.fine ? 'badge-warning' : 'badge-info'}">${k.icon} ${UI.esc(k.label)}</span>
+                  ${p.fineReason ? `<div class="muted small">${ctx.highlight(p.fineReason)}</div>` : ''}</td>
+                <td>${ctx.highlight(c ? DB.courseTitle(c) : 'Umum')}</td>
                 <td>${UI.fmtRp(p.amount)}</td>
-                <td>${UI.esc(p.method || '-')}</td>
+                <td>${ctx.highlight(p.method || '-')}</td>
                 <td>${p.status === 'lunas' ? '<span class="badge badge-success">Lunas</span>' : '<span class="badge badge-warning">' + UI.esc(p.status || '-') + '</span>'}</td>
-                <td class="muted small">${UI.esc(p.note || '-')}</td>
+                <td class="muted small">${ctx.highlight(p.note || '-')}</td>
                 <td class="actions">
                   <button class="btn btn-sm btn-secondary" data-edit-pay="${p.id}">Edit</button>
                   <button class="btn btn-sm btn-danger" data-del-pay="${p.id}">Hapus</button>
                 </td>
               </tr>`;
             }).join('')}</tbody>
-          </table></div>`}
-        </div>
-      `;
-      document.getElementById('addPayBtn').addEventListener('click', () => openPaymentForm());
-      const kindSel = document.getElementById('payKindFilter');
-      if (kindSel) kindSel.addEventListener('change', () => {
-        incomeKindFilter = kindSel.value;
-        renderIncome(box);
+          </table></div>`,
+        onPaint: (res) => {
+          res.querySelectorAll('[data-edit-pay]').forEach(b => b.addEventListener('click', () => openPaymentForm(b.dataset.editPay)));
+          res.querySelectorAll('[data-del-pay]').forEach(b => b.addEventListener('click', () => {
+            if (!UI.confirmDialog('Hapus pembayaran ini?')) return;
+            DB.deletePayment(b.dataset.delPay);
+            UI.toast('Pembayaran dihapus.');
+            renderAll();
+          }));
+        }
       });
-      box.querySelectorAll('[data-edit-pay]').forEach(b => b.addEventListener('click', () => openPaymentForm(b.dataset.editPay)));
-      box.querySelectorAll('[data-del-pay]').forEach(b => b.addEventListener('click', () => {
-        if (!UI.confirmDialog('Hapus pembayaran ini?')) return;
-        DB.deletePayment(b.dataset.delPay);
-        UI.toast('Pembayaran dihapus.');
-        renderAll();
-      }));
     };
 
     const openPaymentForm = (editId) => {
@@ -3016,32 +3329,50 @@
       const expenses = DB.getExpenses().slice().sort((a, b) => (b.date || '').localeCompare(a.date || ''));
       box.innerHTML = `
         <div class="card">
-          <div class="card-header"><h3>Pengeluaran Operasional</h3>
+          <div class="card-header"><h3>Pengeluaran Operasional (${expenses.length})</h3>
             <button class="btn btn-primary btn-sm" id="addExBtn">+ Tambah Pengeluaran</button></div>
-          ${expenses.length === 0 ? emptyState('Belum ada pengeluaran.') : `
-          <div class="table-wrap"><table class="table">
+          <div id="exSearch"></div>
+        </div>
+      `;
+      document.getElementById('addExBtn').addEventListener('click', () => openExpenseForm());
+      DataSearch.mount({
+        container: box.querySelector('#exSearch'),
+        items: expenses,
+        stateKey: 'admin-fin-expense',
+        placeholder: 'Cari kategori, catatan, atau jumlah…',
+        fields: e => [e.category, e.note, e.id, String(e.amount || 0), e.date, UI.fmtYMD(e.date)],
+        filters: [{ key: 'cat', label: 'Semua kategori', get: e => e.category || '',
+          options: [...new Set(expenses.map(e => e.category).filter(Boolean))].map(v => ({ value: v, label: v })) }],
+        dateRange: e => e.date,
+        sorts: [
+          { key: 'new', label: 'Terbaru', cmp: (a, b) => (b.date || '').localeCompare(a.date || '') },
+          { key: 'amount', label: 'Jumlah terbesar', cmp: (a, b) => (b.amount || 0) - (a.amount || 0) }
+        ],
+        pageSize: 20,
+        empty: 'Belum ada pengeluaran.',
+        render: (rows, ctx) => `<div class="table-wrap"><table class="table">
             <thead><tr><th>Tanggal</th><th>Kategori</th><th>Jumlah</th><th>Catatan</th><th>Aksi</th></tr></thead>
-            <tbody>${expenses.map(e => `<tr>
+            <tbody>${rows.map(e => `<tr>
               <td>${UI.fmtYMD(e.date)}</td>
-              <td><span class="badge badge-info">${UI.esc(e.category)}</span></td>
+              <td><span class="badge badge-info">${ctx.highlight(e.category)}</span></td>
               <td>${UI.fmtRp(e.amount)}</td>
-              <td class="muted small">${UI.esc(e.note || '-')}</td>
+              <td class="muted small">${ctx.highlight(e.note || '-')}</td>
               <td class="actions">
                 <button class="btn btn-sm btn-secondary" data-edit-ex="${e.id}">Edit</button>
                 <button class="btn btn-sm btn-danger" data-del-ex="${e.id}">Hapus</button>
               </td>
             </tr>`).join('')}</tbody>
-          </table></div>`}
-        </div>
-      `;
-      document.getElementById('addExBtn').addEventListener('click', () => openExpenseForm());
-      box.querySelectorAll('[data-edit-ex]').forEach(b => b.addEventListener('click', () => openExpenseForm(b.dataset.editEx)));
-      box.querySelectorAll('[data-del-ex]').forEach(b => b.addEventListener('click', () => {
-        if (!UI.confirmDialog('Hapus pengeluaran ini?')) return;
-        DB.deleteExpense(b.dataset.delEx);
-        UI.toast('Pengeluaran dihapus.');
-        renderAll();
-      }));
+          </table></div>`,
+        onPaint: (res) => {
+          res.querySelectorAll('[data-edit-ex]').forEach(b => b.addEventListener('click', () => openExpenseForm(b.dataset.editEx)));
+          res.querySelectorAll('[data-del-ex]').forEach(b => b.addEventListener('click', () => {
+            if (!UI.confirmDialog('Hapus pengeluaran ini?')) return;
+            DB.deleteExpense(b.dataset.delEx);
+            UI.toast('Pengeluaran dihapus.');
+            renderAll();
+          }));
+        }
+      });
     };
 
     const openExpenseForm = (editId) => {
@@ -3087,37 +3418,59 @@
       const gurus = DB.getUsers().filter(u => u.role === 'guru');
       box.innerHTML = `
         <div class="card">
-          <div class="card-header"><h3>Gaji / Honor Guru</h3>
+          <div class="card-header"><h3>Gaji / Honor Guru (${salaries.length})</h3>
             <button class="btn btn-primary btn-sm" id="addSalBtn">+ Catat Gaji</button></div>
-          ${salaries.length === 0 ? emptyState('Belum ada data gaji.') : `
-          <div class="table-wrap"><table class="table">
-            <thead><tr><th>Periode</th><th>Guru</th><th>Jumlah</th><th>Status</th><th>Dibayar</th><th>Catatan</th><th>Aksi</th></tr></thead>
-            <tbody>${salaries.map(s => {
-              const g = DB.getUser(s.teacherId);
-              return `<tr>
-                <td>${UI.esc(s.period)}</td>
-                <td><strong>${UI.esc(g ? g.name : '-')}</strong></td>
-                <td>${UI.fmtRp(s.amount)}</td>
-                <td>${s.status === 'dibayar' ? '<span class="badge badge-success">Dibayar</span>' : '<span class="badge badge-warning">Pending</span>'}</td>
-                <td>${s.status === 'dibayar' ? UI.fmtDate(s.paidAt) : '-'}</td>
-                <td class="muted small">${UI.esc(s.note || '-')}</td>
-                <td class="actions">
-                  <button class="btn btn-sm btn-secondary" data-edit-sal="${s.id}">Edit</button>
-                  <button class="btn btn-sm btn-danger" data-del-sal="${s.id}">Hapus</button>
-                </td>
-              </tr>`;
-            }).join('')}</tbody>
-          </table></div>`}
+          <div id="salSearch"></div>
         </div>
       `;
       document.getElementById('addSalBtn').addEventListener('click', () => openSalaryForm());
-      box.querySelectorAll('[data-edit-sal]').forEach(b => b.addEventListener('click', () => openSalaryForm(b.dataset.editSal)));
-      box.querySelectorAll('[data-del-sal]').forEach(b => b.addEventListener('click', () => {
-        if (!UI.confirmDialog('Hapus data gaji ini?')) return;
-        DB.deleteSalary(b.dataset.delSal);
-        UI.toast('Gaji dihapus.');
-        renderAll();
-      }));
+      DataSearch.mount({
+        container: box.querySelector('#salSearch'),
+        items: salaries,
+        stateKey: 'admin-fin-salary',
+        placeholder: 'Cari nama guru, periode, atau catatan…',
+        fields: x => { const g = DB.getUser(x.teacherId); return [g ? g.name : '', g ? g.username : '', x.period, x.status, x.note, String(x.amount || 0)]; },
+        filters: [
+          { key: 'teacher', label: 'Semua guru', get: x => x.teacherId, options: gurus.map(g => ({ value: g.id, label: g.name })) },
+          { key: 'status', label: 'Semua status', get: x => x.status === 'dibayar' ? 'dibayar' : 'pending',
+            options: [{ value: 'dibayar', label: 'Dibayar' }, { value: 'pending', label: 'Pending' }] },
+          { key: 'period', label: 'Semua periode', get: x => x.period || '',
+            options: [...new Set(salaries.map(x => x.period).filter(Boolean))].map(v => ({ value: v, label: v })) }
+        ],
+        sorts: [
+          { key: 'new', label: 'Periode terbaru', cmp: (a, b) => (b.period || '').localeCompare(a.period || '') },
+          { key: 'amount', label: 'Jumlah terbesar', cmp: (a, b) => (b.amount || 0) - (a.amount || 0) }
+        ],
+        pageSize: 20,
+        empty: 'Belum ada data gaji.',
+        render: (rows, ctx) => `<div class="table-wrap"><table class="table">
+            <thead><tr><th>Periode</th><th>Guru</th><th>Jumlah</th><th>Status</th><th>Dibayar</th><th>Catatan</th><th>Aksi</th></tr></thead>
+            <tbody>${rows.map(x => {
+              const g = DB.getUser(x.teacherId);
+              return `<tr>
+                <td>${ctx.highlight(x.period)}</td>
+                <td><strong>${ctx.highlight(g ? g.name : '-')}</strong></td>
+                <td>${UI.fmtRp(x.amount)}</td>
+                <td>${x.status === 'dibayar' ? '<span class="badge badge-success">Dibayar</span>' : '<span class="badge badge-warning">Pending</span>'}</td>
+                <td>${x.status === 'dibayar' ? UI.fmtDate(x.paidAt) : '-'}</td>
+                <td class="muted small">${ctx.highlight(x.note || '-')}</td>
+                <td class="actions">
+                  <button class="btn btn-sm btn-secondary" data-edit-sal="${x.id}">Edit</button>
+                  <button class="btn btn-sm btn-danger" data-del-sal="${x.id}">Hapus</button>
+                </td>
+              </tr>`;
+            }).join('')}</tbody>
+          </table></div>`,
+        onPaint: (res) => {
+          res.querySelectorAll('[data-edit-sal]').forEach(b => b.addEventListener('click', () => openSalaryForm(b.dataset.editSal)));
+          res.querySelectorAll('[data-del-sal]').forEach(b => b.addEventListener('click', () => {
+            if (!UI.confirmDialog('Hapus data gaji ini?')) return;
+            DB.deleteSalary(b.dataset.delSal);
+            UI.toast('Gaji dihapus.');
+            renderAll();
+          }));
+        }
+      });
     };
 
     const openSalaryForm = (editId) => {

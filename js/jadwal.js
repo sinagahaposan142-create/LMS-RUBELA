@@ -663,7 +663,7 @@
     else list = plans.filter(p => p.date < todayYmd);
 
     list = list.slice().sort((a, b) => (a.date + (a.time || '')).localeCompare(b.date + (b.time || '')));
-    if (mode === 'past') list = list.reverse().slice(0, 40);
+    if (mode === 'past') list = list.reverse();
 
     const titleMap = {
       today: ['📅', 'Kelas Hari Ini', 'Kelas yang sudah divalidasi FIX menampilkan tombol masuk kelas'],
@@ -675,25 +675,63 @@
     container.innerHTML = `
       <div class="card">
         <div class="card-header">${UI.secHead(ic, `${title} (${list.length})`, sub)}</div>
-        ${list.length === 0
-          ? emptyState(mode === 'today' ? 'Tidak ada kelas hari ini.'
-            : (mode === 'upcoming' ? 'Belum ada rencana kelas ke depan.' : 'Belum ada riwayat kelas.'))
-          : `<div class="plan-list">${list.map(pl => planCardHtml(pl, { canEdit, user })).join('')}</div>`}
+        <div id="agendaSearch"></div>
       </div>`;
 
-    container.querySelectorAll('[data-confirm-plan]').forEach(b => b.addEventListener('click', () => {
-      if (!guardPlan(user, b.dataset.confirmPlan)) return;
-      const pl = DB.confirmClassPlan(b.dataset.confirmPlan);
-      UI.toast('Kelas divalidasi FIX.');
-      if (pl) notifyPlanChange(pl, 'fixed');
-      if (typeof onChange === 'function') onChange();
-    }));
-    container.querySelectorAll('[data-edit-plan]').forEach(b => b.addEventListener('click', () => {
-      if (!guardPlan(user, b.dataset.editPlan)) return;
-      openPlanForm({ user, planId: b.dataset.editPlan }, onChange);
-    }));
+    const bind = (box) => {
+      box.querySelectorAll('[data-confirm-plan]').forEach(b => b.addEventListener('click', () => {
+        if (!guardPlan(user, b.dataset.confirmPlan)) return;
+        const pl = DB.confirmClassPlan(b.dataset.confirmPlan);
+        UI.toast('Kelas divalidasi FIX.');
+        if (pl) notifyPlanChange(pl, 'fixed');
+        if (typeof onChange === 'function') onChange();
+      }));
+      box.querySelectorAll('[data-edit-plan]').forEach(b => b.addEventListener('click', () => {
+        if (!guardPlan(user, b.dataset.editPlan)) return;
+        openPlanForm({ user, planId: b.dataset.editPlan }, onChange);
+      }));
+    };
+    mountPlanSearch(container.querySelector('#agendaSearch'), list, {
+      stateKey: `agenda-${user.role}-${mode}`,
+      empty: mode === 'today' ? 'Tidak ada kelas hari ini.' : (mode === 'upcoming' ? 'Belum ada rencana kelas ke depan.' : 'Belum ada riwayat kelas.'),
+      dates: mode !== 'today',
+      newestFirst: mode === 'past',
+      render: (rows) => `<div class="plan-list">${rows.map(pl => planCardHtml(pl, { canEdit, user })).join('')}</div>`,
+      onPaint: bind
+    });
 
     if (global.Effects) Effects.enhance(container);
+  }
+
+  /** Pencarian bersama untuk daftar rencana kelas (judul, tutor, topik, catatan, tanggal). */
+  function mountPlanSearch(box, plans, o) {
+    const courseIds = [...new Set(plans.map(p => p.courseId))];
+    const tutorIds = [...new Set(plans.map(p => p.teacherId).filter(Boolean))];
+    const byDate = (a, b) => (a.date + (a.time || '')).localeCompare(b.date + (b.time || ''));
+    DataSearch.mount({
+      container: box,
+      items: plans,
+      stateKey: o.stateKey,
+      placeholder: 'Cari kelas, subtest, tutor, topik, catatan, atau tanggal…',
+      fields: pl => { const c = DB.getCourse(pl.courseId); const t = DB.getUser(pl.teacherId);
+        return [c ? DB.courseTitle(c) : '', c ? c.subtest : '', c ? (c.mainClasses || []) : [], t ? t.name : '', pl.topic, pl.note,
+          pl.date, UI.fmtYMD(pl.date), pl.time, (DB.PLAN_STATUS[pl.status] || {}).label || pl.status]; },
+      filters: [
+        { key: 'course', label: 'Semua kelas', get: pl => pl.courseId,
+          options: courseIds.map(id => DB.getCourse(id)).filter(Boolean).map(c => ({ value: c.id, label: DB.courseTitle(c) })) },
+        { key: 'status', label: 'Semua status', get: pl => pl.status,
+          options: Object.keys(DB.PLAN_STATUS).map(k => ({ value: k, label: DB.PLAN_STATUS[k].label || k })) }
+      ].concat(tutorIds.length > 1 ? [{ key: 'tutor', label: 'Semua tutor', get: pl => pl.teacherId || '',
+        options: tutorIds.map(id => DB.getUser(id)).filter(Boolean).map(u => ({ value: u.id, label: u.name })) }] : []),
+      dateRange: o.dates ? (pl => pl.date) : null,
+      sorts: o.newestFirst
+        ? [{ key: 'new', label: 'Terbaru', cmp: (a, b) => byDate(b, a) }, { key: 'old', label: 'Terlama', cmp: byDate }]
+        : [{ key: 'old', label: 'Terdekat', cmp: byDate }, { key: 'new', label: 'Terjauh', cmp: (a, b) => byDate(b, a) }],
+      pageSize: o.pageSize || 12,
+      empty: o.empty,
+      render: o.render,
+      onPaint: o.onPaint
+    });
   }
 
   /* =====================================================================
@@ -749,7 +787,7 @@
     const all = DB.getClassPlansForStudent(studentId);
     const today = all.filter(p => p.date === todayYmd);
     const upcoming = all.filter(p => p.date > todayYmd);
-    const past = all.filter(p => p.date < todayYmd).reverse().slice(0, 20);
+    const past = all.filter(p => p.date < todayYmd).reverse();
 
     const rowsHtml = (list) => list.map(pl => {
       const course = DB.getCourse(pl.courseId);
@@ -793,13 +831,19 @@
 
       <div class="card">
         <div class="card-header">${UI.secHead('🗂️', 'Rencana Kelas (Akan Datang)', 'Tabel rencana kelas yang disusun tutor')}</div>
-        ${tableFor(upcoming, 'Belum ada rencana kelas ke depan.')}
+        <div id="planUpcoming"></div>
       </div>
 
       <div class="card">
-        <div class="card-header">${UI.secHead('✅', 'Riwayat Kelas', '20 pertemuan terakhir')}</div>
-        ${tableFor(past, 'Belum ada riwayat kelas.')}
+        <div class="card-header">${UI.secHead('✅', 'Riwayat Kelas', `${past.length} pertemuan`)}</div>
+        <div id="planPast"></div>
       </div>`;
+    mountPlanSearch(container.querySelector('#planUpcoming'), upcoming, {
+      stateKey: `plan-up-${studentId}`, dates: true, empty: 'Belum ada rencana kelas ke depan.', render: (rows) => tableFor(rows, '')
+    });
+    mountPlanSearch(container.querySelector('#planPast'), past, {
+      stateKey: `plan-past-${studentId}`, dates: true, newestFirst: true, empty: 'Belum ada riwayat kelas.', render: (rows) => tableFor(rows, '')
+    });
 
     if (global.Effects) Effects.enhance(container);
     if (global.Responsive) Responsive.apply(container);

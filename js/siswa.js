@@ -377,16 +377,28 @@
     el.innerHTML = `
       <div class="card">
         <div class="card-header"><h3>Materi Pembelajaran</h3></div>
-        ${materials.length === 0 ? emptyState('Guru belum mengunggah materi.') :
-          materials.map(m => `
+        <div id="matSearch"></div>
+      </div>
+    `;
+    DataSearch.mount({
+      container: el.querySelector('#matSearch'),
+      items: materials,
+      placeholder: 'Cari judul atau isi materi…',
+      fields: m => [m.title, DataSearch.plain(m.content || ''), m.link, (DB.getUser(m.authorId || m.createdBy) || {}).name, UI.fmtDate(m.createdAt)],
+      sorts: [
+        { key: 'old', label: 'Urutan pertemuan', cmp: (a, b) => (a.createdAt || 0) - (b.createdAt || 0) },
+        { key: 'new', label: 'Terbaru', cmp: (a, b) => (b.createdAt || 0) - (a.createdAt || 0) }
+      ],
+      pageSize: 10,
+      empty: 'Guru belum mengunggah materi.',
+      render: (rows, ctx) => rows.map(m => `
             <div class="list-item">
-              <div class="title">${UI.esc(m.title)}</div>
+              <div class="title">${ctx.highlight(m.title)}</div>
               <div class="meta">${credit(m, course)} • ${UI.fmtDate(m.createdAt)}</div>
               <div class="content rt-content">${RichText.render(m.content || '')}</div>
               ${m.link ? `<div class="mt-1"><a href="${UI.esc(m.link)}" target="_blank" rel="noopener">Buka tautan →</a></div>` : ''}
-            </div>`).join('')}
-      </div>
-    `;
+            </div>`).join('')
+    });
   }
 
   function renderCourseAssignments(el, course, user) {
@@ -763,11 +775,40 @@
     container.innerHTML = `
       <div class="card">
         <div class="card-header"><h3>Semua Tugas (${allAsg.length})</h3></div>
-        ${allAsg.length === 0 ? emptyState('Belum ada tugas dari kelas yang diikuti.') : `
-        <div class="table-wrap"><table class="table">
+        <div id="asgSearch"></div>
+      </div>
+    `;
+    const stateOf = (a) => {
+      const sub = DB.getSubmissionByStudent(a.id, user.id);
+      if (sub && sub.grade != null) return 'graded';
+      if (sub) return 'waiting';
+      return Date.now() > a.dueDate ? 'late' : 'todo';
+    };
+    const courses = enrolled.map(id => DB.getCourse(id)).filter(Boolean);
+    DataSearch.mount({
+      container: container.querySelector('#asgSearch'),
+      items: allAsg,
+      stateKey: 'siswa-asg-' + user.id,
+      placeholder: 'Cari judul tugas, isi soal, kelas, atau subtest…',
+      fields: a => { const c = DB.getCourse(a.courseId); return [a.title, DataSearch.plain(a.description || a.instructions || ''), c ? DB.courseTitle(c) : '', c ? c.subtest : '', UI.fmtDate(a.dueDate)]; },
+      filters: [
+        { key: 'state', label: 'Semua status', get: stateOf, options: [
+          { value: 'todo', label: 'Belum dikerjakan' }, { value: 'late', label: 'Lewat deadline' },
+          { value: 'waiting', label: 'Menunggu nilai' }, { value: 'graded', label: 'Sudah dinilai' }] },
+        { key: 'course', label: 'Semua kelas', get: a => a.courseId, options: courses.map(c => ({ value: c.id, label: DB.courseTitle(c) })) }
+      ],
+      dateRange: a => DB.ymdOf(a.dueDate),
+      sorts: [
+        { key: 'due', label: 'Deadline terdekat', cmp: (a, b) => a.dueDate - b.dueDate },
+        { key: 'due-desc', label: 'Deadline terjauh', cmp: (a, b) => b.dueDate - a.dueDate },
+        { key: 'title', label: 'Judul A–Z', cmp: (a, b) => a.title.localeCompare(b.title) }
+      ],
+      pageSize: 15,
+      empty: 'Belum ada tugas dari kelas yang diikuti.',
+      render: (rows, ctx) => `<div class="table-wrap"><table class="table">
           <thead><tr><th>Tugas</th><th>Kelas</th><th>Deadline</th><th>Status</th><th>Aksi</th></tr></thead>
           <tbody>
-            ${allAsg.map(a => {
+            ${rows.map(a => {
               const c = DB.getCourse(a.courseId);
               const sub = DB.getSubmissionByStudent(a.id, user.id);
               const overdue = !sub && Date.now() > a.dueDate;
@@ -776,18 +817,17 @@
               else if (sub) status = '<span class="badge badge-warning">Menunggu Nilai</span>';
               else if (overdue) status = '<span class="badge badge-warning">Terlambat</span>';
               return `<tr>
-                <td><strong>${UI.esc(a.title)}</strong></td>
-                <td>${UI.esc(c ? c.title : '-')}</td>
+                <td><strong>${ctx.highlight(a.title)}</strong></td>
+                <td>${ctx.highlight(c ? DB.courseTitle(c) : '-')}</td>
                 <td>${UI.fmtDate(a.dueDate)}</td>
                 <td>${status}</td>
                 <td><button class="btn btn-sm btn-primary" data-submit="${a.id}">${sub ? 'Lihat/Ubah' : 'Kerjakan'}</button></td>
               </tr>`;
             }).join('')}
           </tbody>
-        </table></div>`}
-      </div>
-    `;
-    container.querySelectorAll('[data-submit]').forEach(b => b.addEventListener('click', () => openSubmitForm(b.dataset.submit, user)));
+        </table></div>`,
+      onPaint: (res) => res.querySelectorAll('[data-submit]').forEach(b => b.addEventListener('click', () => openSubmitForm(b.dataset.submit, user)))
+    });
   }
 
   function renderGrades(container, user) {
@@ -806,25 +846,42 @@
 
       <div class="card">
         <div class="card-header"><h3>Riwayat Nilai</h3></div>
-        ${mySubs.length === 0 ? emptyState('Belum ada submission.') : `
-        <div class="table-wrap"><table class="table">
+        <div id="gradeSearch"></div>
+      </div>
+    `;
+    DataSearch.mount({
+      container: container.querySelector('#gradeSearch'),
+      items: mySubs,
+      stateKey: 'siswa-grades-' + user.id,
+      placeholder: 'Cari judul tugas, kelas, nilai, atau feedback…',
+      fields: x => { const a = DB.getAssignment(x.assignmentId); const c = a ? DB.getCourse(a.courseId) : null;
+        return [a ? a.title : '', c ? DB.courseTitle(c) : '', x.feedback, x.grade != null ? String(x.grade) : '']; },
+      filters: [{ key: 'state', label: 'Semua status', get: x => x.grade != null ? 'graded' : 'waiting',
+        options: [{ value: 'graded', label: 'Sudah dinilai' }, { value: 'waiting', label: 'Menunggu' }] }],
+      dateRange: x => DB.ymdOf(x.submittedAt),
+      sorts: [
+        { key: 'new', label: 'Terbaru', cmp: (a, b) => b.submittedAt - a.submittedAt },
+        { key: 'grade', label: 'Nilai tertinggi', cmp: (a, b) => (b.grade ?? -1) - (a.grade ?? -1) }
+      ],
+      pageSize: 15,
+      empty: 'Belum ada submission.',
+      render: (rows, ctx) => `<div class="table-wrap"><table class="table">
           <thead><tr><th>Tugas</th><th>Kelas</th><th>Dikirim</th><th>Nilai</th><th>Feedback</th></tr></thead>
           <tbody>
-            ${mySubs.map(s => {
-              const a = DB.getAssignment(s.assignmentId);
+            ${rows.map(x => {
+              const a = DB.getAssignment(x.assignmentId);
               const c = a ? DB.getCourse(a.courseId) : null;
               return `<tr>
-                <td><strong>${UI.esc(a ? a.title : '-')}</strong></td>
-                <td>${UI.esc(c ? c.title : '-')}</td>
-                <td>${UI.fmtDateTime(s.submittedAt)}</td>
-                <td>${s.grade == null ? '<span class="badge badge-warning">Menunggu</span>' : `<strong>${s.grade}</strong>`}</td>
-                <td class="muted small">${UI.esc(s.feedback || '-')}</td>
+                <td><strong>${ctx.highlight(a ? a.title : '-')}</strong></td>
+                <td>${ctx.highlight(c ? DB.courseTitle(c) : '-')}</td>
+                <td>${UI.fmtDateTime(x.submittedAt)}</td>
+                <td>${x.grade == null ? '<span class="badge badge-warning">Menunggu</span>' : `<strong>${x.grade}</strong>`}</td>
+                <td class="muted small">${ctx.highlight(x.feedback || '-')}</td>
               </tr>`;
             }).join('')}
           </tbody>
-        </table></div>`}
-      </div>
-    `;
+        </table></div>`
+    });
   }
 
   function renderProfile(container, user) {
@@ -840,6 +897,8 @@
 
       <div class="card">
         <div class="card-header">${UI.secHead('👤', 'Profil Saya', 'Data ini dipakai untuk sambutan dashboard & rekomendasi AI')}</div>
+        <div class="profile-id">${Birthday.avatarHtml(DB.getUser(user.id), 64)}<div><strong>${UI.esc(user.name)}</strong>
+          ${Birthday.badgesHtml(DB.getUser(user.id)) || '<div class="muted small">Isi tanggal lahir agar ulang tahunmu dirayakan otomatis 🎂</div>'}</div></div>
         <form id="profileForm" class="form">
           <div class="form-row">
             <div class="form-group"><label>Nama</label>
@@ -861,6 +920,7 @@
           </div>
           <div class="form-group"><label>Jurusan Impian</label>
             <input name="targetMajor" value="${UI.esc(user.targetMajor || '')}" placeholder="mis. Teknik Informatika" /></div>
+          ${ProfileFields.profileExtraFields(DB.getUser(user.id))}
           <div class="form-group"><label>Password Baru (kosongkan jika tidak diubah)</label>
             <input name="password" type="password" minlength="6" /></div>
           <button class="btn btn-primary" type="submit">Simpan Perubahan</button>
@@ -882,9 +942,13 @@
             </div>`).join('')}
       </div>
     `;
+    const photoField = ProfileFields.bindPhotoField(document.getElementById('profileForm'), DB.getUser(user.id));
     document.getElementById('profileForm').addEventListener('submit', (e) => {
       e.preventDefault();
       const fd = new FormData(e.target);
+      const birthDate = String(fd.get('birthDate') || '');
+      const bdErr = ProfileFields.validateBirthDate(birthDate);
+      if (bdErr) { UI.toast(bdErr, 'error'); return; }
       const patch = {
         name: fd.get('name').trim(),
         email: fd.get('email').trim(),
@@ -893,6 +957,8 @@
         targetUniv: (fd.get('targetUniv') || '').trim(),
         targetMajor: (fd.get('targetMajor') || '').trim()
       };
+      patch.birthDate = birthDate;
+      patch.photo = photoField.value();
       const pw = fd.get('password');
       if (pw) patch.password = pw;
       DB.updateUser(user.id, patch);
@@ -1032,34 +1098,8 @@
   }
 
   function renderCourseAttendance(el, course, user) {
-    const att = DB.getAttendanceByCourse(course.id)
-      .filter(a => a.userId === user.id)
-      .slice().sort((a, b) => b.date.localeCompare(a.date));
-    const counts = { hadir: 0, izin: 0, sakit: 0, alfa: 0 };
-    att.forEach(a => { counts[a.status] = (counts[a.status] || 0) + 1; });
-    const total = att.length;
-    const pct = total ? Math.round(counts.hadir / total * 100) : 0;
-    el.innerHTML = `
-      <div class="stats-grid">
-        <div class="stat-card accent-success"><div class="label">Hadir</div><div class="value">${counts.hadir}</div></div>
-        <div class="stat-card accent-warning"><div class="label">Izin</div><div class="value">${counts.izin}</div></div>
-        <div class="stat-card accent-warning"><div class="label">Sakit</div><div class="value">${counts.sakit}</div></div>
-        <div class="stat-card accent-danger"><div class="label">Alfa</div><div class="value">${counts.alfa}</div></div>
-        <div class="stat-card accent-primary"><div class="label">Kehadiran</div><div class="value">${pct}%</div></div>
-      </div>
-      <div class="card">
-        <div class="card-header"><h3>Riwayat Presensi di Kelas Ini</h3></div>
-        ${total === 0 ? emptyState('Belum ada data presensi.') : `
-        <div class="table-wrap"><table class="table">
-          <thead><tr><th>Tanggal</th><th>Status</th><th>Catatan</th></tr></thead>
-          <tbody>${att.map(a => `<tr>
-            <td>${UI.fmtYMD(a.date)}</td>
-            <td><span class="status-${a.status}">${a.status.toUpperCase()}</span></td>
-            <td>${UI.esc(a.note || '-')}</td>
-          </tr>`).join('')}</tbody>
-        </table></div>`}
-      </div>
-    `;
+    // Rumus & tampilan sama dengan halaman Presensi Saya, dibatasi kelas ini.
+    AttendanceInsights.renderPersonal({ container: el, user, role: 'siswa', courses: [course], title: 'Kehadiran di Kelas Ini' });
   }
 
   /* ========== Global sections ========== */
@@ -1071,39 +1111,43 @@
       <div class="card">
         <div class="card-header">
           <h3>Modul dari Kelas Saya (${modules.length})</h3>
-          <select id="modFilter" class="form" style="max-width:220px;">
-            <option value="">Semua Kelas</option>
-            ${courses.map(c => `<option value="${c.id}">${UI.esc(c.title)}</option>`).join('')}
-          </select>
         </div>
         <div id="modList"></div>
       </div>
     `;
-    const render = (cid) => {
-      const list = document.getElementById('modList');
-      const filtered = cid ? modules.filter(m => m.courseId === cid) : modules;
-      if (filtered.length === 0) { list.innerHTML = emptyState('Belum ada modul.'); return; }
-      list.innerHTML = filtered.map(m => {
+    DataSearch.mount({
+      container: document.getElementById('modList'),
+      items: modules,
+      stateKey: 'siswa-modul-' + user.id,
+      placeholder: 'Cari judul modul, isi materi, kelas, atau subtest…',
+      fields: m => { const c = DB.getCourse(m.courseId);
+        return [m.title, c ? DB.courseTitle(c) : '', c ? c.subtest : '', (m.sections || []).map(x => x.title + ' ' + DataSearch.plain(x.content || ''))]; },
+      filters: [{ key: 'course', label: 'Semua kelas', get: m => m.courseId, options: courses.map(c => ({ value: c.id, label: DB.courseTitle(c) })) }],
+      sorts: [
+        { key: 'new', label: 'Terbaru', cmp: (a, b) => (b.createdAt || 0) - (a.createdAt || 0) },
+        { key: 'title', label: 'Judul A–Z', cmp: (a, b) => a.title.localeCompare(b.title) }
+      ],
+      pageSize: 8,
+      empty: 'Belum ada modul.',
+      render: (rows, ctx) => rows.map(m => {
         const c = DB.getCourse(m.courseId);
         return `
           <div class="module-card">
             <div class="module-head">
-              <h4>${UI.esc(m.title)}</h4>
+              <h4>${ctx.highlight(m.title)}</h4>
               <div class="meta">${UI.esc(c ? DB.courseTitle(c) : '-')} • ${credit(m, c)} • ${(m.sections || []).length} bagian</div>
             </div>
             <div class="module-body">
-              ${(m.sections || []).map(s => `
+              ${(m.sections || []).map(x => `
                 <div class="module-section">
-                  <div class="module-section-title">${UI.esc(s.title)}</div>
-                  <div class="module-section-content rt-content">${RichText.render(s.content || '')}</div>
+                  <div class="module-section-title">${ctx.highlight(x.title)}</div>
+                  <div class="module-section-content rt-content">${RichText.render(x.content || '')}</div>
                 </div>`).join('') || '<div class="module-section muted">Belum ada bagian.</div>'}
               ${m.link ? `<div class="module-section"><a href="${UI.esc(m.link)}" target="_blank" rel="noopener">Buka tautan →</a></div>` : ''}
             </div>
           </div>`;
-      }).join('');
-    };
-    document.getElementById('modFilter').addEventListener('change', (e) => render(e.target.value));
-    render('');
+      }).join('')
+    });
   }
 
   function renderRekamanSection(container, user) {
@@ -1159,70 +1203,36 @@
         <div class="stat-card accent-danger"><div class="label">Rata-rata</div><div class="value">${avg ?? '-'}</div></div>
       </div>
       <div class="card">
-        <div class="card-header"><h3>Daftar Ujian</h3></div>
-        ${cbts.length === 0 ? emptyState('Belum ada ujian tersedia.') : cbts.map(c => cbtRowHtml(c, user)).join('')}
+        <div class="card-header"><h3>Daftar Ujian & Hasil Tryout</h3></div>
+        <div id="cbtSearch"></div>
       </div>
     `;
-    bindCbtRowActions(container, user);
+    const now = Date.now();
+    const stateOf = (c) => doneIds.has(c.id) ? 'done' : (c.endAt < now ? 'missed' : (c.startAt <= now ? 'live' : 'upcoming'));
+    DataSearch.mount({
+      container: container.querySelector('#cbtSearch'),
+      items: cbts,
+      stateKey: 'siswa-cbt-' + user.id,
+      placeholder: 'Cari judul ujian, deskripsi, atau subtest…',
+      fields: c => [c.title, c.description, DB.cbtTargetLabel(c), DB.cbtSections(c).map(x => x.subtest || ''), UI.fmtDateTime(c.startAt)],
+      filters: [{ key: 'state', label: 'Semua status', get: stateOf, options: [
+        { value: 'live', label: 'Sedang dibuka' }, { value: 'upcoming', label: 'Akan datang' },
+        { value: 'done', label: 'Sudah dikerjakan' }, { value: 'missed', label: 'Terlewat' }] }],
+      dateRange: c => DB.ymdOf(c.startAt),
+      sorts: [
+        { key: 'start', label: 'Jadwal terbaru', cmp: (a, b) => b.startAt - a.startAt },
+        { key: 'start-asc', label: 'Jadwal terlama', cmp: (a, b) => a.startAt - b.startAt },
+        { key: 'title', label: 'Judul A–Z', cmp: (a, b) => a.title.localeCompare(b.title) }
+      ],
+      pageSize: 10,
+      empty: 'Belum ada ujian tersedia.',
+      render: (rows) => rows.map(c => cbtRowHtml(c, user)).join(''),
+      onPaint: (box) => bindCbtRowActions(box, user)
+    });
   }
 
   function renderAbsensiSection(container, user) {
-    const enrolled = DB.getEnrollmentsByStudent(user.id).map(e => e.courseId);
-    const courses = enrolled.map(cid => DB.getCourse(cid)).filter(Boolean);
-    const myAtt = DB.getAttendanceByUser(user.id).slice().sort((a, b) => b.date.localeCompare(a.date));
-    const counts = { hadir: 0, izin: 0, sakit: 0, alfa: 0 };
-    myAtt.forEach(a => { counts[a.status] = (counts[a.status] || 0) + 1; });
-    const total = myAtt.length;
-    const pct = total ? Math.round(counts.hadir / total * 100) : 0;
-
-    // Per-kelas summary
-    const perCourse = courses.map(c => {
-      const list = myAtt.filter(a => a.courseId === c.id);
-      const local = { hadir: 0, izin: 0, sakit: 0, alfa: 0 };
-      list.forEach(a => { local[a.status] = (local[a.status] || 0) + 1; });
-      return { c, list, local, total: list.length };
-    });
-
-    container.innerHTML = `
-      <div class="stats-grid">
-        <div class="stat-card accent-success"><div class="label">Hadir</div><div class="value">${counts.hadir}</div></div>
-        <div class="stat-card accent-warning"><div class="label">Izin</div><div class="value">${counts.izin}</div></div>
-        <div class="stat-card accent-warning"><div class="label">Sakit</div><div class="value">${counts.sakit}</div></div>
-        <div class="stat-card accent-danger"><div class="label">Alfa</div><div class="value">${counts.alfa}</div></div>
-        <div class="stat-card accent-primary"><div class="label">Kehadiran</div><div class="value">${pct}%</div></div>
-      </div>
-
-      <div class="card">
-        <div class="card-header"><h3>Rekap per Kelas</h3></div>
-        ${perCourse.length === 0 ? emptyState('Belum ada kelas.') : `
-        <div class="table-wrap"><table class="table">
-          <thead><tr><th>Kelas</th><th>Hadir</th><th>Izin</th><th>Sakit</th><th>Alfa</th><th>Total</th><th>%</th></tr></thead>
-          <tbody>${perCourse.map(r => `<tr>
-            <td><strong>${UI.esc(r.c.title)}</strong></td>
-            <td>${r.local.hadir}</td><td>${r.local.izin}</td><td>${r.local.sakit}</td><td>${r.local.alfa}</td>
-            <td>${r.total}</td>
-            <td><strong>${r.total ? Math.round(r.local.hadir / r.total * 100) : 0}%</strong></td>
-          </tr>`).join('')}</tbody>
-        </table></div>`}
-      </div>
-
-      <div class="card">
-        <div class="card-header"><h3>Riwayat Lengkap</h3></div>
-        ${total === 0 ? emptyState('Belum ada data presensi.') : `
-        <div class="table-wrap"><table class="table">
-          <thead><tr><th>Tanggal</th><th>Kelas</th><th>Status</th><th>Catatan</th></tr></thead>
-          <tbody>${myAtt.map(a => {
-            const c = DB.getCourse(a.courseId);
-            return `<tr>
-              <td>${UI.fmtYMD(a.date)}</td>
-              <td>${UI.esc(c ? c.title : '-')}</td>
-              <td><span class="status-${a.status}">${a.status.toUpperCase()}</span></td>
-              <td>${UI.esc(a.note || '-')}</td>
-            </tr>`;
-          }).join('')}</tbody>
-        </table></div>`}
-      </div>
-    `;
+    AttendanceInsights.renderPersonal({ container, user, role: 'siswa', title: 'Persentase Kehadiran Saya' });
   }
 
   function renderPaymentsSection(container, user) {
@@ -1248,23 +1258,36 @@
 
       <div class="card">
         <div class="card-header"><h3>Riwayat Pembayaran</h3></div>
-        ${payments.length === 0 ? emptyState('Belum ada pembayaran.') : `
-        <div class="table-wrap"><table class="table">
+        <div id="paySearch"></div>
+      </div>
+    `;
+    DataSearch.mount({
+      container: container.querySelector('#paySearch'),
+      items: payments,
+      placeholder: 'Cari kelas, metode, catatan, atau jumlah…',
+      fields: p => { const c = p.courseId ? DB.getCourse(p.courseId) : null;
+        return [c ? DB.courseTitle(c) : 'Umum', p.method, p.status, p.note, p.fineReason, String(p.amount || 0), DB.paymentKindMeta(DB.paymentKind(p)).label]; },
+      filters: [{ key: 'status', label: 'Semua status', get: p => p.status === 'lunas' ? 'lunas' : 'pending',
+        options: [{ value: 'lunas', label: 'Lunas' }, { value: 'pending', label: 'Belum lunas' }] }],
+      dateRange: p => DB.ymdOf(p.paidAt || p.createdAt),
+      sorts: [{ key: 'new', label: 'Terbaru', cmp: (a, b) => (b.paidAt || b.createdAt) - (a.paidAt || a.createdAt) }],
+      pageSize: 15,
+      empty: 'Belum ada pembayaran.',
+      render: (rows, ctx) => `<div class="table-wrap"><table class="table">
           <thead><tr><th>Tanggal</th><th>Kelas/Keterangan</th><th>Jumlah</th><th>Metode</th><th>Status</th><th>Catatan</th></tr></thead>
-          <tbody>${payments.map(p => {
+          <tbody>${rows.map(p => {
             const c = p.courseId ? DB.getCourse(p.courseId) : null;
             return `<tr>
               <td>${UI.fmtDate(p.paidAt || p.createdAt)}</td>
-              <td>${UI.esc(c ? c.title : 'Umum')}</td>
+              <td>${ctx.highlight(c ? DB.courseTitle(c) : 'Umum')}</td>
               <td><strong>${UI.fmtRp(p.amount)}</strong></td>
-              <td>${UI.esc(p.method || '-')}</td>
+              <td>${ctx.highlight(p.method || '-')}</td>
               <td>${p.status === 'lunas' ? '<span class="badge badge-success">Lunas</span>' : '<span class="badge badge-warning">' + UI.esc(p.status) + '</span>'}</td>
-              <td class="muted small">${UI.esc(p.note || '-')}</td>
+              <td class="muted small">${ctx.highlight(p.note || '-')}</td>
             </tr>`;
           }).join('')}</tbody>
-        </table></div>`}
-      </div>
-    `;
+        </table></div>`
+    });
   }
 
   global.SiswaPanel = { render };

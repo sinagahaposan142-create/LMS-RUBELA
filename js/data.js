@@ -50,7 +50,9 @@
    * still be cleared on reset / re-seed so everything stays in sync. */
   const EXTRA_KEYS = [
     'lms_class_options', 'lms_events', 'lms_batches', 'lms_feedbacks',
-    'lms_announcements', 'lms_messages', 'lms_presence_v1'
+    'lms_announcements', 'lms_messages', 'lms_presence_v1',
+    'lms_schema_version', 'lms_birthday_wishes', 'lms_birthday_rewards',
+    'lms_activity_log', 'lms_birthday_notified', 'lms_whiteboard_boards'
   ];
 
   /* ===== Hari & jadwal ===== */
@@ -106,6 +108,27 @@
     'Merusak fasilitas',
     'Lainnya'
   ];
+
+  /* ===== Status presensi (satu sumber kebenaran untuk semua panel) =====
+   * present: dihitung sebagai "hadir" pada rumus persentase.
+   * Rumus: (hadir + terlambat) / total sesi terlaksana × 100%.
+   * Izin & sakit ditampilkan terpisah; kebijakan admin (attendanceExcusedPolicy)
+   * menentukan apakah keduanya ikut penyebut atau dikeluarkan. */
+  const ATT_STATUSES = [
+    { key: 'hadir',     label: 'Hadir',     short: 'H', ic: '✓', present: true,  excused: false },
+    { key: 'terlambat', label: 'Terlambat', short: 'T', ic: '⏱', present: true,  excused: false },
+    { key: 'izin',      label: 'Izin',      short: 'I', ic: '✎', present: false, excused: true  },
+    { key: 'sakit',     label: 'Sakit',     short: 'S', ic: '✚', present: false, excused: true  },
+    { key: 'alfa',      label: 'Alfa',      short: 'A', ic: '✕', present: false, excused: false }
+  ];
+  const ATT_KEYS = ATT_STATUSES.map(s => s.key);
+
+  /* ===== Migrasi skema =====
+   * Versi skema TERPISAH dari penanda seed. Menaikkan penanda seed akan
+   * menghapus seluruh data pengguna, sedangkan migrasi ini hanya menambah
+   * field yang belum ada (idempoten) sehingga data lama tetap utuh. */
+  const SCHEMA_KEY = 'lms_schema_version';
+  const SCHEMA_VERSION = 2;
 
   /** Jenis konten kelas yang punya pencatatan pembuat. */
   const CONTENT_KINDS = {
@@ -787,6 +810,45 @@
   }
 
   seedIfNeeded();
+  runMigrations();
+
+  /**
+   * Migrasi berversi yang aman: setiap langkah hanya MENAMBAH field yang belum
+   * ada, tidak pernah menghapus data. Dijalankan berurutan sekali per versi.
+   */
+  function runMigrations() {
+    let current = Number(localStorage.getItem(SCHEMA_KEY) || '1') || 1;
+    if (current >= SCHEMA_VERSION) return;
+
+    // v2: profil (tanggal lahir, foto), status presensi "terlambat",
+    //     pengaturan ambang kehadiran & hadiah ulang tahun.
+    if (current < 2) {
+      const DAY_MS = 86400000;
+      const pad = n => String(n).padStart(2, '0');
+      const users = load(KEYS.users, []);
+      let changed = false;
+      users.forEach((u, i) => {
+        if (u.birthDate === undefined) {
+          // Tanggal lahir contoh hanya untuk akun demo bawaan; akun nyata
+          // dibiarkan kosong agar diisi sendiri oleh pemiliknya.
+          let demo = '';
+          if (/^u_siswa\d+$/.test(u.id)) {
+            const n = Number(u.id.replace('u_siswa', ''));
+            const d = new Date(Date.now() + (n === 1 ? 0 : n * 9) * DAY_MS);
+            const year = 2008 - (n % 3);
+            demo = `${year}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+          }
+          u.birthDate = demo;
+          changed = true;
+        }
+        if (u.photo === undefined) { u.photo = ''; changed = true; }
+        users[i] = u;
+      });
+      if (changed) save(KEYS.users, users);
+    }
+
+    localStorage.setItem(SCHEMA_KEY, String(SCHEMA_VERSION));
+  }
 
   // Generic helpers
   function getAll(key) { return load(key, []); }
@@ -834,6 +896,14 @@
       aiTimeoutMs: 30000,
       tinyfishApiKey: '',
       tinyfishEndpoint: '',
+      /* ===== Kehadiran ===== */
+      attendanceThreshold: 75,
+      attendanceExcusedPolicy: 'count',
+      /* ===== Ulang tahun ===== */
+      birthdayEnabled: true,
+      birthdayPoints: 50,
+      birthdayModeration: 'post',   // 'post' = langsung tampil, 'pre' = tunggu persetujuan
+      birthdayMessage: 'Selamat ulang tahun dari keluarga besar Rubela! Terus semangat berjuang menuju PTN impianmu. 🎓',
       examSecurityDefaults: {
         requireCamera: false, requireMic: false, fullscreen: true,
         blockTabSwitch: true, blockCopy: true, blockScreenshot: true,
@@ -844,6 +914,9 @@
       const cur = load(KEYS.settings, {});
       cur[key] = value;
       save(KEYS.settings, cur);
+      // Kunci rahasia (API key) tidak pernah ditulis ke log.
+      const secret = /key|token|secret|password/i.test(key);
+      DB.logActivity('settings', `Mengubah pengaturan "${key}"${secret || typeof value === 'object' ? '' : ` → ${String(value).slice(0, 60)}`}`);
       return cur;
     },
 
@@ -1026,9 +1099,21 @@
     getUsers: () => getAll(KEYS.users),
     getUser: (id) => findById(KEYS.users, id),
     findUserByUsername: (u) => getAll(KEYS.users).find(x => x.username.toLowerCase() === String(u).toLowerCase()) || null,
-    addUser: (u) => add(KEYS.users, u),
-    updateUser: (id, p) => update(KEYS.users, id, p),
+    addUser: (u) => {
+      const rec = add(KEYS.users, u);
+      DB.logActivity('user.add', `Menambah akun ${u.role || ''} "${u.name || u.username}"`, u.id);
+      return rec;
+    },
+    updateUser: (id, p) => {
+      const rec = update(KEYS.users, id, p);
+      // Pembaruan profil kecil (mis. lastSeen) tidak perlu dicatat.
+      const keys = Object.keys(p || {}).filter(k => !['lastSeen', 'lastLogin'].includes(k));
+      if (rec && keys.length) DB.logActivity('user.update', `Memperbarui akun "${rec.name}" (${keys.join(', ')})`, id);
+      return rec;
+    },
     deleteUser: (id) => {
+      const victim = findById(KEYS.users, id);
+      if (victim) DB.logActivity('user.delete', `Menghapus akun ${victim.role} "${victim.name}"`, id);
       const user = findById(KEYS.users, id);
       if (user && user.role === 'guru') {
         // Lepas guru dari kelas; kelas hanya dihapus bila tak ada tutor lain
@@ -1050,6 +1135,8 @@
         setAll(KEYS.cbtAttempts, getAll(KEYS.cbtAttempts).filter(a => a.studentId !== id));
         setAll(KEYS.attendance, getAll(KEYS.attendance).filter(a => a.userId !== id));
         setAll(KEYS.payments, getAll(KEYS.payments).filter(p => p.studentId !== id));
+        save('lms_birthday_rewards', DB.getBirthdayRewards().filter(r => r.studentId !== id));
+        save('lms_birthday_wishes', DB.getBirthdayWishes().filter(w => w.recipientId !== id));
         // Keep orang tua accounts consistent: drop the link to this child.
         getAll(KEYS.users)
           .filter(u => u.role === 'orangtua' && Array.isArray(u.childIds) && u.childIds.includes(id))
@@ -1057,6 +1144,7 @@
       }
       // Messages + notifications belonging to the removed account
       setAll(KEYS.notifications, getAll(KEYS.notifications).filter(n => n.userId !== id));
+      save('lms_birthday_wishes', DB.getBirthdayWishes().filter(w => w.authorId !== id));
       try {
         const msgs = JSON.parse(localStorage.getItem('lms_messages') || '[]')
           .filter(m => m.senderId !== id && m.receiverId !== id);
@@ -1064,6 +1152,166 @@
       } catch (e) { /* noop */ }
       remove(KEYS.users, id);
     },
+
+    /* ===== Ulang tahun & Birthday Wall =====
+     * Ucapan: { id, recipientId, authorId, year, template, text, sticker,
+     *           status:'visible'|'pending'|'hidden', reports:[{by,reason,at}],
+     *           createdAt }
+     * Hadiah: buku besar { id, studentId, year, points, openedAt } — satu
+     *         entri per siswa per tahun sehingga poin tidak pernah dobel. */
+    /** Tanggal ulang tahun pada tahun berjalan; null bila belum diisi. */
+    birthdayInfo: (user, refTs) => {
+      if (!user || !user.birthDate || !/^\d{4}-\d{2}-\d{2}$/.test(user.birthDate)) return null;
+      const now = new Date(refTs || Date.now());
+      const [by, bm, bd] = user.birthDate.split('-').map(Number);
+      const y = now.getFullYear();
+      // 29 Februari dirayakan 28 Februari pada tahun non-kabisat.
+      const isLeap = (yy) => (yy % 4 === 0 && yy % 100 !== 0) || yy % 400 === 0;
+      const dayFor = (yy) => (bm === 2 && bd === 29 && !isLeap(yy)) ? 28 : bd;
+      const todayYmd = DB.ymdOf(now.getTime());
+      const pad = n => String(n).padStart(2, '0');
+      let next = `${y}-${pad(bm)}-${pad(dayFor(y))}`;
+      if (next < todayYmd) next = `${y + 1}-${pad(bm)}-${pad(dayFor(y + 1))}`;
+      // Selisih dihitung terhadap tanggal referensi, bukan selalu "sekarang".
+      const daysUntil = Math.round((new Date(next + 'T00:00:00') - new Date(todayYmd + 'T00:00:00')) / 86400000);
+      return {
+        isToday: daysUntil === 0,
+        daysUntil,
+        nextDate: next,
+        age: Number(next.slice(0, 4)) - by,
+        year: Number(next.slice(0, 4))
+      };
+    },
+    /** Siswa aktif yang berulang tahun dalam `days` hari ke depan (0 = hari ini). */
+    getBirthdays: (days) => {
+      const range = Number(days) || 0;
+      return getAll(KEYS.users)
+        .filter(u => u.role === 'siswa' && (u.status || 'Aktif') !== 'Dikeluarkan')
+        .map(u => ({ user: u, info: DB.birthdayInfo(u) }))
+        .filter(x => x.info && x.info.daysUntil >= 0 && x.info.daysUntil <= range)
+        .sort((a, b) => a.info.daysUntil - b.info.daysUntil || a.user.name.localeCompare(b.user.name));
+    },
+    /**
+     * Jendela ucapan: dibuka 7 hari sebelum s.d. 7 hari sesudah ulang tahun.
+     * → { year, open, phase:'before'|'today'|'after'|'closed', date }
+     */
+    birthdayWishWindow: (user, refTs) => {
+      const info = DB.birthdayInfo(user, refTs);
+      if (!info) return null;
+      const DAYS = 7;
+      if (info.isToday) return { year: info.year, open: true, phase: 'today', date: info.nextDate };
+      if (info.daysUntil <= DAYS) return { year: info.year, open: true, phase: 'before', date: info.nextDate };
+      // Ulang tahun terakhir = tanggal yang sama setahun sebelum nextDate.
+      const prev = DB.birthdayInfo(user, (refTs || Date.now()) - (DAYS + 1) * 86400000);
+      if (prev && prev.year < info.year) {
+        const since = Math.round((new Date(DB.ymdOf(refTs || Date.now()) + 'T00:00:00') - new Date(prev.nextDate + 'T00:00:00')) / 86400000);
+        if (since >= 0 && since <= DAYS) return { year: prev.year, open: true, phase: 'after', date: prev.nextDate };
+      }
+      return { year: info.year, open: false, phase: 'closed', date: info.nextDate };
+    },
+    getBirthdayWishes: () => load('lms_birthday_wishes', []),
+    /** Ucapan yang boleh dilihat `viewer` untuk seorang penerima pada tahun itu. */
+    getWishesFor: (recipientId, year, viewer) => {
+      const isMod = viewer && viewer.role === 'admin';
+      return DB.getBirthdayWishes()
+        .filter(w => w.recipientId === recipientId && (!year || w.year === year))
+        .filter(w => w.status === 'visible' || isMod || (viewer && w.authorId === viewer.id))
+        .sort((a, b) => a.createdAt - b.createdAt);
+    },
+    /** Hanya siswa, tutor, dan admin yang boleh menulis ucapan. */
+    canSendWish: (user, recipient) => {
+      if (!user || !recipient || recipient.role !== 'siswa') return false;
+      if (user.id === recipient.id) return false;
+      return ['siswa', 'guru', 'admin'].includes(user.role);
+    },
+    addBirthdayWish: (wish, actor) => {
+      const recipient = findById(KEYS.users, wish.recipientId);
+      if (!DB.canSendWish(actor, recipient)) throw new Error('Anda tidak dapat mengirim ucapan untuk pengguna ini.');
+      const text = String(wish.text || '').trim();
+      if (text.length < 2) throw new Error('Ucapan terlalu pendek.');
+      if (text.length > 500) throw new Error('Ucapan maksimal 500 karakter.');
+      if (DB.getSettings().birthdayEnabled === false) throw new Error('Fitur ulang tahun sedang dinonaktifkan admin.');
+      const win = DB.birthdayWishWindow(recipient);
+      if (!win) throw new Error('Tanggal lahir penerima belum diisi.');
+      if (!win.open) throw new Error('Ucapan hanya dapat dikirim 7 hari sebelum hingga 7 hari sesudah ulang tahun.');
+      const list = DB.getBirthdayWishes();
+      const year = win.year;
+      // Batasi spam: satu ucapan per penulis per penerima per tahun.
+      if (list.some(w => w.recipientId === recipient.id && w.authorId === actor.id && w.year === year)) {
+        throw new Error('Anda sudah mengirim ucapan untuk teman ini tahun ini.');
+      }
+      const premod = DB.getSettings().birthdayModeration === 'pre' && actor.role !== 'admin';
+      const rec = {
+        id: uid('wish'), recipientId: recipient.id, authorId: actor.id, year,
+        template: String(wish.template || 'classic'), text,
+        sticker: String(wish.sticker || ''),
+        status: premod ? 'pending' : 'visible',
+        reports: [], createdAt: Date.now()
+      };
+      list.push(rec);
+      save('lms_birthday_wishes', list);
+      return rec;
+    },
+    updateBirthdayWish: (id, patch) => {
+      const list = DB.getBirthdayWishes();
+      const i = list.findIndex(w => w.id === id);
+      if (i < 0) return null;
+      list[i] = Object.assign({}, list[i], patch);
+      save('lms_birthday_wishes', list);
+      return list[i];
+    },
+    /** Moderasi hanya oleh admin; penulis boleh menghapus ucapannya sendiri. */
+    moderateWish: (id, status, actor) => {
+      if (!actor || actor.role !== 'admin') throw new Error('Hanya admin yang dapat memoderasi ucapan.');
+      if (!['visible', 'hidden'].includes(status)) throw new Error('Status moderasi tidak valid.');
+      const r = DB.updateBirthdayWish(id, { status, moderatedBy: actor.id, moderatedAt: Date.now() });
+      if (r) DB.logActivity('birthday.moderate', `Moderasi ucapan ulang tahun → ${status === 'visible' ? 'ditampilkan' : 'disembunyikan'}`, id);
+      return r;
+    },
+    deleteBirthdayWish: (id, actor) => {
+      const w = DB.getBirthdayWishes().find(x => x.id === id);
+      if (!w) return;
+      if (!actor || (actor.role !== 'admin' && actor.id !== w.authorId)) throw new Error('Anda tidak berhak menghapus ucapan ini.');
+      save('lms_birthday_wishes', DB.getBirthdayWishes().filter(x => x.id !== id));
+      if (actor.role === 'admin' && actor.id !== w.authorId) DB.logActivity('birthday.delete', 'Menghapus ucapan ulang tahun', id);
+    },
+    /** Laporan pesan tidak pantas; ≥3 laporan otomatis menyembunyikan ucapan. */
+    reportWish: (id, reason, actor) => {
+      const w = DB.getBirthdayWishes().find(x => x.id === id);
+      if (!w || !actor) return null;
+      if (w.authorId === actor.id) throw new Error('Tidak dapat melaporkan ucapan sendiri.');
+      const reports = (w.reports || []).slice();
+      if (reports.some(r => r.by === actor.id)) throw new Error('Anda sudah melaporkan ucapan ini.');
+      reports.push({ by: actor.id, reason: String(reason || '').slice(0, 200), at: Date.now() });
+      const patch = { reports };
+      if (reports.length >= 3 && w.status === 'visible') patch.status = 'hidden';
+      return DB.updateBirthdayWish(id, patch);
+    },
+    getBirthdayRewards: () => load('lms_birthday_rewards', []),
+    /** Bonus poin ulang tahun milik siswa (sudah dibuka). */
+    birthdayBonusPoints: (studentId) => DB.getBirthdayRewards()
+      .filter(r => r.studentId === studentId && r.openedAt)
+      .reduce((n, r) => n + (Number(r.points) || 0), 0),
+    /** Buka hadiah: hanya pada hari ulang tahun, sekali per tahun. */
+    claimBirthdayReward: (student) => {
+      const info = DB.birthdayInfo(student);
+      if (!info || !info.isToday) throw new Error('Hadiah hanya dapat dibuka pada hari ulang tahun.');
+      const st = DB.getSettings();
+      if (st.birthdayEnabled === false) throw new Error('Fitur ulang tahun sedang dinonaktifkan admin.');
+      const list = DB.getBirthdayRewards();
+      const existing = list.find(r => r.studentId === student.id && r.year === info.year);
+      if (existing) return existing;
+      const rec = {
+        id: uid('bday'), studentId: student.id, year: info.year,
+        points: Math.max(0, Math.min(1000, Number(st.birthdayPoints) || 0)),
+        openedAt: Date.now()
+      };
+      list.push(rec);
+      save('lms_birthday_rewards', list);
+      return rec;
+    },
+    birthdayRewardFor: (studentId, year) =>
+      DB.getBirthdayRewards().find(r => r.studentId === studentId && r.year === year) || null,
 
     /* ===== Orang Tua / Wali <-> Siswa linking ===== */
     getParents: () => getAll(KEYS.users).filter(u => u.role === 'orangtua'),
@@ -1134,6 +1382,8 @@
       setAll(KEYS.attendance, getAll(KEYS.attendance).filter(a => a.courseId !== id));
       setAll(KEYS.payments, getAll(KEYS.payments).filter(p => p.courseId !== id));
       setAll(KEYS.classPlans, getAll(KEYS.classPlans).filter(pl => pl.courseId !== id));
+      setAll(KEYS.whiteboards, getAll(KEYS.whiteboards).filter(w => w.courseId !== id));
+      save('lms_whiteboard_boards', load('lms_whiteboard_boards', []).filter(x => x.courseId !== id));
       remove(KEYS.courses, id);
     },
 
@@ -1510,6 +1760,42 @@
       save(KEYS.whiteboards, list);
       return rec;
     },
+    /* Riwayat versi & papan tersimpan per kelas.
+     * { id, courseId, type:'version'|'board', name, auto, createdAt, createdBy,
+     *   objects:[...], board:{w,h,bg,template} }
+     * Batas: 15 versi + 20 papan per kelas agar localStorage tidak penuh. */
+    getWhiteboardSaves: (courseId, type) => load('lms_whiteboard_boards', [])
+      .filter(x => x.courseId === courseId && (!type || x.type === type))
+      .sort((a, b) => b.createdAt - a.createdAt),
+    addWhiteboardSave: (courseId, entry, actor) => {
+      const course = findById(KEYS.courses, courseId);
+      if (!course || !DB.canEditWhiteboard(actor, course)) throw new Error('Hanya admin/tutor kelas yang dapat menyimpan papan.');
+      const type = entry.type === 'board' ? 'board' : 'version';
+      const name = String(entry.name || '').trim().slice(0, 80) || (type === 'board' ? 'Papan tanpa judul' : 'Versi otomatis');
+      const rec = {
+        id: uid('wbs'), courseId, type, name, auto: !!entry.auto,
+        createdAt: Date.now(), createdBy: actor.id,
+        objects: JSON.parse(JSON.stringify(entry.objects || [])),
+        board: Object.assign({}, entry.board || {})
+      };
+      let list = load('lms_whiteboard_boards', []);
+      list.push(rec);
+      const LIMIT = { version: 15, board: 20 };
+      const mine = list.filter(x => x.courseId === courseId && x.type === type).sort((a, b) => b.createdAt - a.createdAt);
+      if (mine.length > LIMIT[type]) {
+        const drop = new Set(mine.slice(LIMIT[type]).map(x => x.id));
+        list = list.filter(x => !drop.has(x.id));
+      }
+      save('lms_whiteboard_boards', list);
+      return rec;
+    },
+    deleteWhiteboardSave: (id, actor) => {
+      const list = load('lms_whiteboard_boards', []);
+      const rec = list.find(x => x.id === id);
+      if (!rec) return;
+      if (!DB.canEditWhiteboard(actor, findById(KEYS.courses, rec.courseId))) throw new Error('Anda tidak berhak menghapus simpanan ini.');
+      save('lms_whiteboard_boards', list.filter(x => x.id !== id));
+    },
     canViewWhiteboard: (user, course, childId) => {
       if (!user || !course) return false;
       if (user.role === 'admin') return true;
@@ -1532,11 +1818,84 @@
     getAttendanceRecord: (cid, uid, date) =>
       getAll(KEYS.attendance).find(a => a.courseId === cid && a.userId === uid && a.date === date) || null,
     upsertAttendance: (cid, uid, role, date, status, note) => {
+      // Validasi: hanya status resmi yang boleh disimpan.
+      if (!ATT_KEYS.includes(status)) throw new Error('Status presensi tidak dikenal: ' + status);
       const existing = DB.getAttendanceRecord(cid, uid, date);
       if (existing) return update(KEYS.attendance, existing.id, { role, status, note: note || '' });
       return add(KEYS.attendance, { courseId: cid, userId: uid, role, date, status, note: note || '', createdAt: Date.now() });
     },
     deleteAttendance: (id) => remove(KEYS.attendance, id),
+
+    /* ===== Persentase kehadiran (rumus tunggal untuk semua panel) =====
+     * Persentase = (hadir + terlambat) / total sesi terlaksana × 100%.
+     * - Sesi pada tanggal yang rencana kelasnya DIBATALKAN tidak dihitung.
+     * - Kebijakan izin/sakit diatur admin (attendanceExcusedPolicy):
+     *     'count'   → tetap masuk penyebut (default, paling ketat)
+     *     'exclude' → dikeluarkan dari penyebut
+     */
+    ATT_STATUSES, ATT_KEYS,
+    attStatusMeta: (key) => ATT_STATUSES.find(s => s.key === key) || { key, label: key || '-', short: '?', ic: '•', present: false, excused: false },
+    isCancelledSession: (courseId, ymd) => {
+      const pl = getAll(KEYS.classPlans).find(p => p.courseId === courseId && p.date === ymd);
+      return !!(pl && pl.status === 'cancelled');
+    },
+    /**
+     * Ringkasan kehadiran dari kumpulan record presensi.
+     * @param {Array} records record presensi (sudah difilter per user/kelas/periode)
+     * @returns {{counts, total, sessions, present, cancelled, pct}}
+     */
+    attendanceSummary: (records) => {
+      const settings = DB.getSettings();
+      const excludeExcused = settings.attendanceExcusedPolicy === 'exclude';
+      // Indeks sesi batal dibangun SEKALI, bukan dibaca ulang per record.
+      const cancelledSet = new Set(getAll(KEYS.classPlans)
+        .filter(p => p.status === 'cancelled').map(p => p.courseId + '|' + p.date));
+      const counts = {};
+      ATT_KEYS.forEach(k => { counts[k] = 0; });
+      let cancelled = 0;
+      let denominator = 0;
+      let present = 0;
+      (records || []).forEach(r => {
+        if (cancelledSet.has(r.courseId + '|' + r.date)) { cancelled++; return; }
+        counts[r.status] = (counts[r.status] || 0) + 1;
+        const meta = DB.attStatusMeta(r.status);
+        if (meta.present) present++;
+        if (excludeExcused && meta.excused) return;
+        denominator++;
+      });
+      const total = ATT_KEYS.reduce((n, k) => n + counts[k], 0);
+      return {
+        counts, total, sessions: denominator, present, cancelled,
+        pct: denominator ? Math.round(present / denominator * 1000) / 10 : 0
+      };
+    },
+    /** Agregasi bulanan: [{ month:'2026-09', ...summary }] urut naik. */
+    attendanceByMonth: (records) => {
+      const by = {};
+      (records || []).forEach(r => {
+        const m = String(r.date || '').slice(0, 7);
+        if (!m) return;
+        (by[m] = by[m] || []).push(r);
+      });
+      return Object.keys(by).sort().map(m => Object.assign({ month: m }, DB.attendanceSummary(by[m])));
+    },
+    /** Semester akademik: Jan–Jun = Genap, Jul–Des = Ganjil (tahun ajaran). */
+    attendanceBySemester: (records) => {
+      const by = {};
+      (records || []).forEach(r => {
+        const y = Number(String(r.date).slice(0, 4));
+        const mo = Number(String(r.date).slice(5, 7));
+        if (!y || !mo) return;
+        const key = mo >= 7 ? `${y}/${y + 1} Ganjil` : `${y - 1}/${y} Genap`;
+        (by[key] = by[key] || []).push(r);
+      });
+      return Object.keys(by).sort().map(k => Object.assign({ semester: k }, DB.attendanceSummary(by[k])));
+    },
+    /** Ambang batas kehadiran (persen) dari pengaturan admin. */
+    attendanceThreshold: () => {
+      const v = Number(DB.getSettings().attendanceThreshold);
+      return v >= 0 && v <= 100 ? v : 75;
+    },
 
     /* ===== Finance: Payments (pemasukan/SPP siswa) ===== */
     getPayments: () => getAll(KEYS.payments),
@@ -1712,6 +2071,24 @@
       return msg;
     },
 
+    /* ===== Riwayat aktivitas (audit ringan, maks. 1000 entri terbaru) =====
+     * Pelaku diambil dari sesi aktif; aksi sistem (seed/migrasi) tidak dicatat. */
+    logActivity: (action, detail, targetId) => {
+      let actor = null;
+      try { actor = JSON.parse(localStorage.getItem('lms_session') || 'null'); } catch (e) { actor = null; }
+      if (!actor || !actor.id) return null;
+      const list = load('lms_activity_log', []);
+      const rec = {
+        id: uid('act'), at: Date.now(), actorId: actor.id, actorName: actor.name || actor.username || '',
+        actorRole: actor.role || '', action: String(action || ''), detail: String(detail || '').slice(0, 300),
+        targetId: targetId || null
+      };
+      list.push(rec);
+      save('lms_activity_log', list.slice(-1000));
+      return rec;
+    },
+    getActivityLog: () => load('lms_activity_log', []).slice().sort((a, b) => b.at - a.at),
+
     /* ===== Notifications (pusat notifikasi lintas peran) ===== */
     getNotifications: (userId) => getAll(KEYS.notifications)
       .filter(n => n.userId === userId)
@@ -1752,7 +2129,7 @@
       // Draft tugas memakai key per siswa+tugas, jadi bersihkan berdasarkan prefix.
       for (let i = localStorage.length - 1; i >= 0; i--) {
         const k = localStorage.key(i);
-        if (k && k.startsWith('lms_assignment_draft:')) localStorage.removeItem(k);
+        if (k && (k.startsWith('lms_assignment_draft:') || k.startsWith('lms_wb_pref:'))) localStorage.removeItem(k);
       }
       seedIfNeeded();
     }

@@ -491,26 +491,47 @@
 
       <div class="card">
         <div class="card-header"><h3>Semua Kritik & Saran (${allFeedbacks.length})</h3></div>
-        ${allFeedbacks.length === 0 ? '<div class="empty"><div class="empty-icon">💬</div>Belum ada feedback.</div>' :
-          allFeedbacks.map(fb => {
-            const sender = fb.anonymous ? 'Anonim' : (DB.getUser(fb.senderId)?.name || '-');
-            return `<div class="list-item">
+        <div id="fbSearch"></div>
+      </div>
+    `;
+    const senderOf = (fb) => fb.anonymous ? 'Anonim' : (DB.getUser(fb.senderId)?.name || '-');
+    const TARGETS = { admin: 'Admin / Manajemen', kelas: 'Kelas', individu: 'Individu' };
+    DataSearch.mount({
+      container: container.querySelector('#fbSearch'),
+      items: allFeedbacks,
+      stateKey: 'feedback-' + user.id,
+      placeholder: 'Cari isi pesan, pengirim, atau penerima…',
+      fields: fb => [fb.message, senderOf(fb), fb.targetName, TARGETS[fb.target] || fb.target],
+      filters: [{ key: 'target', label: 'Semua tujuan', get: fb => fb.target || 'admin',
+        options: Object.keys(TARGETS).map(k => ({ value: k, label: TARGETS[k] })) }],
+      dateRange: fb => DB.ymdOf(fb.createdAt),
+      sorts: [
+        { key: 'new', label: 'Terbaru', cmp: (a, b) => b.createdAt - a.createdAt },
+        { key: 'old', label: 'Terlama', cmp: (a, b) => a.createdAt - b.createdAt }
+      ],
+      pageSize: 15,
+      empty: 'Belum ada feedback.',
+      render: (rows, ctx) => rows.map(fb => `<div class="list-item">
               <div class="flex-between">
                 <div>
-                  <strong>${UI.esc(sender)}</strong>
+                  <strong>${ctx.highlight(senderOf(fb))}</strong>
                   <span class="badge badge-info" style="margin-left:6px;">${UI.esc(fb.target || 'admin')}</span>
-                  ${fb.targetName ? `<span class="muted small"> → ${UI.esc(fb.targetName)}</span>` : ''}
+                  ${fb.targetName ? `<span class="muted small"> → ${ctx.highlight(fb.targetName)}</span>` : ''}
                 </div>
                 <div class="flex-gap">
                   <span class="muted small">${UI.fmtDateTime(fb.createdAt)}</span>
                   ${canDelete ? `<button class="btn btn-sm btn-danger" data-del-fb="${fb.id}">Hapus</button>` : ''}
                 </div>
               </div>
-              <div class="content mt-1">${UI.esc(fb.message)}</div>
-            </div>`;
-          }).join('')}
-      </div>
-    `;
+              <div class="content mt-1">${ctx.highlight(fb.message)}</div>
+            </div>`).join(''),
+      onPaint: (box) => box.querySelectorAll('[data-del-fb]').forEach(b => b.addEventListener('click', () => {
+        if (!UI.confirmDialog('Hapus kritik/saran ini?')) return;
+        DB.deleteFeedback(b.dataset.delFb);
+        UI.toast('Feedback dihapus.');
+        renderFeedback(container, user);
+      }))
+    });
 
     document.getElementById('feedbackForm').addEventListener('submit', (e) => {
       e.preventDefault();
@@ -525,11 +546,6 @@
       UI.toast('Feedback terkirim!');
       renderFeedback(container, user);
     });
-    container.querySelectorAll('[data-del-fb]').forEach(b => b.addEventListener('click', () => {
-      DB.deleteFeedback(b.dataset.delFb);
-      UI.toast('Feedback dihapus.');
-      renderFeedback(container, user);
-    }));
   }
 
   /* ===== Announcements / Pengumuman ===== */
@@ -1639,14 +1655,16 @@
     const scaledVals = attempts.map(a => a.scoring && a.scoring.scaled200_800).filter(v => v != null);
     const avgCbtScaled = scaledVals.length ? Math.round(scaledVals.reduce((a, v) => a + v, 0) / scaledVals.length) : null;
     const att = DB.getAttendanceByUser(studentId).filter(a => a.role === 'siswa');
-    const counts = { hadir: 0, izin: 0, sakit: 0, alfa: 0 };
-    att.forEach(a => { counts[a.status] = (counts[a.status] || 0) + 1; });
-    const attendancePct = att.length ? Math.round(counts.hadir / att.length * 100) : 0;
+    const attSum = DB.attendanceSummary(att);
+    const counts = attSum.counts;
+    const attendancePct = Math.round(attSum.pct);
     const enrolled = DB.getEnrollmentsByStudent(studentId);
 
-    // Poin: aktivitas nyata + kualitas hasil
+    // Poin: aktivitas nyata + kualitas hasil + hadiah ulang tahun yang dibuka
     const points = Math.max(0, Math.round(
       counts.hadir * 5
+      + (counts.terlambat || 0) * 3
+      + DB.birthdayBonusPoints(studentId)
       + subs.length * 10
       + graded.reduce((a, s) => a + s.grade, 0) / 10
       + attempts.length * 15
@@ -1667,7 +1685,8 @@
       studentId, points, level, nextLevelAt, levelProgress,
       submissions: subs.length, gradedCount: graded.length, avgAsg,
       cbtDone: attempts.length, avgCbt, avgCbtScaled,
-      attendanceCounts: counts, attendanceTotal: att.length, attendancePct,
+      attendanceCounts: counts, attendanceTotal: attSum.sessions, attendancePct,
+      attendanceSessions: attSum.sessions, attendanceCancelled: attSum.cancelled,
       courses: enrolled.length, assignmentsTotal: allAsg.length, pendingAsg
     };
   }
@@ -1804,12 +1823,19 @@
    * ABSENSI: lembar presensi dengan pilihan status berbentuk kotak/bulat
    * yang berbaris ke samping (tanpa dropdown) — dipakai guru & admin.
    * ===================================================================== */
-  const ATT_STATUSES = [
-    { key: 'hadir', label: 'Hadir', short: 'H', ic: '✓' },
-    { key: 'izin', label: 'Izin', short: 'I', ic: '✎' },
-    { key: 'sakit', label: 'Sakit', short: 'S', ic: '✚' },
-    { key: 'alfa', label: 'Alfa', short: 'A', ic: '✕' }
-  ];
+  // Satu sumber kebenaran: status presensi didefinisikan di DB.ATT_STATUSES.
+  const ATT_STATUSES = DB.ATT_STATUSES;
+  const ATT_COLORS = {
+    hadir: 'var(--success)', terlambat: '#0ea5e9', izin: 'var(--accent)',
+    sakit: 'var(--warning)', alfa: 'var(--danger)'
+  };
+  function attLegendHtml(c, extra) {
+    return ATT_STATUSES.map(s =>
+      `<span><i style="background:${ATT_COLORS[s.key]};"></i>${s.label} ${c[s.key] || 0}</span>`).join('') + (extra || '');
+  }
+  function attSummaryText(c) {
+    return ATT_STATUSES.map(s => `<strong>${c[s.key] || 0}</strong> ${s.label.toLowerCase()}`).join(' • ');
+  }
 
   /** Deretan kotak pemilih kelas (pengganti dropdown). */
   function classChipsHtml(courses, activeId, attrName) {
@@ -1934,7 +1960,8 @@
     }
 
     function summary() {
-      const c = { hadir: 0, izin: 0, sakit: 0, alfa: 0 };
+      const c = {};
+      ATT_STATUSES.forEach(s => { c[s.key] = 0; });
       people.forEach(p => { c[draft[p.u.id].status] = (c[draft[p.u.id].status] || 0) + 1; });
       return c;
     }
@@ -1962,11 +1989,7 @@
           </div>
 
           <div class="att-legend">
-            <span><i style="background:var(--success);"></i>Hadir ${c.hadir}</span>
-            <span><i style="background:var(--accent);"></i>Izin ${c.izin}</span>
-            <span><i style="background:var(--warning);"></i>Sakit ${c.sakit}</span>
-            <span><i style="background:var(--danger);"></i>Alfa ${c.alfa}</span>
-            <span class="muted">• ${savedCount}/${people.length} tersimpan</span>
+            ${attLegendHtml(c, `<span class="muted">• ${savedCount}/${people.length} tersimpan</span>`)}
           </div>
 
           ${people.length === 0
@@ -1978,8 +2001,7 @@
           ${people.length ? `
           <div class="att-sticky-save">
             <div class="muted small">
-              <strong>${c.hadir}</strong> hadir • <strong>${c.izin}</strong> izin •
-              <strong>${c.sakit}</strong> sakit • <strong>${c.alfa}</strong> alfa
+              ${attSummaryText(c)}
               <div>Perubahan status tersimpan otomatis saat diklik.</div>
             </div>
             <div class="flex-gap">
@@ -2101,7 +2123,7 @@
           alerted++;
         });
         const c = summary();
-        UI.toast(`Presensi tersimpan: ${c.hadir} hadir, ${c.izin} izin, ${c.sakit} sakit, ${c.alfa} alfa.` +
+        UI.toast(`Presensi tersimpan: ${ATT_STATUSES.map(s => `${c[s.key] || 0} ${s.label.toLowerCase()}`).join(', ')}.` +
           (alerted ? ` ${alerted} notifikasi alfa dikirim.` : ''));
         if (typeof opts.onSaved === 'function') opts.onSaved(date);
         paint();
@@ -2113,17 +2135,11 @@
       const savedCount = people.filter(p => draft[p.u.id].saved).length;
       const legend = container.querySelector('.att-legend');
       if (legend) {
-        legend.innerHTML = `
-          <span><i style="background:var(--success);"></i>Hadir ${c.hadir}</span>
-          <span><i style="background:var(--accent);"></i>Izin ${c.izin}</span>
-          <span><i style="background:var(--warning);"></i>Sakit ${c.sakit}</span>
-          <span><i style="background:var(--danger);"></i>Alfa ${c.alfa}</span>
-          <span class="muted">• ${savedCount}/${people.length} tersimpan</span>`;
+        legend.innerHTML = attLegendHtml(c, `<span class="muted">• ${savedCount}/${people.length} tersimpan</span>`);
       }
       const sticky = container.querySelector('.att-sticky-save .muted');
       if (sticky) {
-        sticky.innerHTML = `<strong>${c.hadir}</strong> hadir • <strong>${c.izin}</strong> izin •
-          <strong>${c.sakit}</strong> sakit • <strong>${c.alfa}</strong> alfa
+        sticky.innerHTML = `${attSummaryText(c)}
           <div>Perubahan status tersimpan otomatis saat diklik.</div>`;
       }
     }
