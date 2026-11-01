@@ -890,7 +890,10 @@
       const viewH = vv ? vv.height : global.innerHeight;
       const top = layout.getBoundingClientRect().top + (global.scrollY || 0);
       const bottomPad = global.innerWidth <= 560 ? 8 : 20;
-      const h = Math.max(320, Math.round(viewH - Math.min(top, viewH * 0.45) - bottomPad));
+      // Navigasi bawah ponsel menutupi bagian bawah layar — kurangi tingginya.
+      const bn = document.getElementById('bottomNav');
+      const bnH = bn && getComputedStyle(bn).display !== 'none' ? bn.offsetHeight : 0;
+      const h = Math.max(300, Math.round(viewH - Math.min(top, viewH * 0.45) - bottomPad - bnH));
       layout.style.setProperty('--chat-h', h + 'px');
     }
     if (global.__chatFit) {

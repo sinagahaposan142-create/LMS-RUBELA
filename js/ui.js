@@ -208,17 +208,14 @@
     if (!t) {
       t = document.createElement('div');
       t.id = 'toastBox';
-      t.style.position = 'fixed';
-      t.style.bottom = '24px';
-      t.style.right = '24px';
-      t.style.zIndex = '200';
-      t.style.display = 'flex';
-      t.style.flexDirection = 'column';
-      t.style.gap = '10px';
+      // Posisi & tampilan diatur css/design-system.css (kanan atas, di bawah topbar).
+      t.setAttribute('role', 'status');
+      t.setAttribute('aria-live', 'polite');
       document.body.appendChild(t);
     }
     const el = document.createElement('div');
     el.className = 'toast ' + kind;
+    if (kind === 'error') el.setAttribute('role', 'alert');
     el.innerHTML = `<span class="t-icon">${TOAST_ICONS[kind]}</span><span class="t-msg"></span>`;
     el.querySelector('.t-msg').textContent = msg;
     t.appendChild(el);
@@ -229,6 +226,14 @@
   }
 
   function confirmDialog(msg) { return window.confirm(msg); }
+
+  /** Status memuat pada tombol (spinner + nonaktif sementara). */
+  function setBusy(btn, busy) {
+    if (!btn) return;
+    btn.classList.toggle('is-loading', !!busy);
+    btn.disabled = !!busy;
+    if (busy) btn.setAttribute('aria-busy', 'true'); else btn.removeAttribute('aria-busy');
+  }
 
   function initials(name) {
     return (name || '?').split(' ').map(s => s[0]).slice(0, 2).join('').toUpperCase();
@@ -292,7 +297,7 @@
 
   global.UI = {
     esc, fmtDate, fmtDateTime, toDateInput, toDateTimeLocalInput, todayYMD, fmtYMD, fmtRp, fmtDuration,
-    modal, toast, confirmDialog, initials, bannerClass,
+    modal, toast, confirmDialog, setBusy, initials, bannerClass,
     progressHtml, meterHtml, secHead, fmtRelative, greeting,
     // Timezone
     TZ_OFFSETS, TZ_LABELS, getTimezone, setTimezone, nowInTz, toTzDate, fmtClock, fmtFullDateTime,

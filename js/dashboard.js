@@ -3,112 +3,138 @@
   const user = Auth.requireAuth(['admin', 'guru', 'siswa', 'orangtua']);
   if (!user) return;
 
+  /* Navigasi dikelompokkan per kategori agar sidebar mudah dipindai.
+   * Kunci (key) TIDAK berubah sehingga routing & tautan notifikasi tetap sama. */
   const NAVS = {
     admin: [
-      { key: 'overview', label: 'Overview', icon: '📊' },
-      { key: 'guru', label: 'Kelola Guru', icon: '👨‍🏫' },
-      { key: 'siswa', label: 'Kelola Siswa', icon: '👨‍🎓' },
-      { key: 'orangtua', label: 'Kelola Orang Tua', icon: '👨‍👩‍👦' },
-      { key: 'staff', label: 'Admin & Staff', icon: '🛡️' },
-      { key: 'courses', label: 'Semua Kelas', icon: '📚' },
-      { key: 'admin-cbt', label: 'CBT / Ujian', icon: '🖥️' },
-      { key: 'admin-bank-soal', label: 'Bank Soal', icon: '📝' },
-      { key: 'jadwal-kelas', label: 'Jadwal Kelas', icon: '🗓️' },
-      { key: 'batch', label: 'Tahun Akademik', icon: '🎓' },
-      { key: 'alumni', label: 'Alumni', icon: '🏛️' },
-      { key: 'attendance', label: 'Presensi', icon: '📋' },
-      { key: 'rekap', label: 'Rekapan', icon: '📈' },
-      { key: 'leaderboard', label: 'Papan Peringkat', icon: '🏆' },
-      { key: 'kalender', label: 'Kalender', icon: '📅' },
-      { key: 'pengumuman', label: 'Pengumuman', icon: '📢' },
-      { key: 'motivasi', label: 'Kata Motivasi', icon: '💡' },
-      { key: 'streak-admin', label: 'Streak & Gamifikasi', icon: '🔥' },
-      { key: 'arena-admin', label: 'Arena Belajar', icon: '🎮' },
-      { key: 'course-admin', label: 'Course Mandiri', icon: '🎓' },
-      { key: 'ayat-admin', label: 'Ayat Harian', icon: '📖' },
-      { key: 'musik', label: 'Musik Latar', icon: '🎵' },
-      { key: 'mesin-waktu-admin', label: 'Mesin Waktu', icon: '⏳' },
-      { key: 'birthday', label: 'Ulang Tahun', icon: '🎂' },
-      { key: 'notifikasi', label: 'Notifikasi & Aktivitas', icon: '🔔' },
-      { key: 'feedback', label: 'Kritik & Saran', icon: '💬' },
-      { key: 'chat', label: 'Chat', icon: '💭' },
-      { key: 'online', label: 'Sedang Online', icon: '🟢' },
-      { key: 'ai-analytics', label: 'AI Analytics', icon: '🤖' },
-      { key: 'agent-web', label: 'Agent Web', icon: '🌐' },
-      { key: 'keuangan', label: 'Keuangan', icon: '💰' },
-      { key: 'keamanan-login', label: 'Keamanan Login', icon: '🔐' },
-      { key: 'settings', label: 'Pengaturan', icon: '⚙️' }
+      { key: 'overview', label: 'Overview', icon: '📊', group: 'Utama' },
+      { key: 'notifikasi', label: 'Notifikasi & Aktivitas', icon: '🔔', group: 'Utama' },
+      { key: 'online', label: 'Sedang Online', icon: '🟢', group: 'Utama' },
+      { key: 'guru', label: 'Kelola Guru', icon: '👨‍🏫', group: 'Pengguna' },
+      { key: 'siswa', label: 'Kelola Siswa', icon: '👨‍🎓', group: 'Pengguna' },
+      { key: 'orangtua', label: 'Kelola Orang Tua', icon: '👨‍👩‍👦', group: 'Pengguna' },
+      { key: 'staff', label: 'Admin & Staff', icon: '🛡️', group: 'Pengguna' },
+      { key: 'courses', label: 'Semua Kelas', icon: '📚', group: 'Akademik' },
+      { key: 'course-admin', label: 'Course Mandiri', icon: '🎓', group: 'Akademik' },
+      { key: 'jadwal-kelas', label: 'Jadwal Kelas', icon: '🗓️', group: 'Akademik' },
+      { key: 'attendance', label: 'Presensi', icon: '📋', group: 'Akademik' },
+      { key: 'admin-cbt', label: 'CBT / Ujian', icon: '🖥️', group: 'Akademik' },
+      { key: 'admin-bank-soal', label: 'Bank Soal', icon: '📝', group: 'Akademik' },
+      { key: 'rekap', label: 'Rekapan', icon: '📈', group: 'Akademik' },
+      { key: 'batch', label: 'Tahun Akademik', icon: '🎓', group: 'Akademik' },
+      { key: 'alumni', label: 'Alumni', icon: '🏛️', group: 'Akademik' },
+      { key: 'streak-admin', label: 'Streak & Gamifikasi', icon: '🔥', group: 'Motivasi & Gamifikasi' },
+      { key: 'arena-admin', label: 'Arena Belajar', icon: '🎮', group: 'Motivasi & Gamifikasi' },
+      { key: 'leaderboard', label: 'Papan Peringkat', icon: '🏆', group: 'Motivasi & Gamifikasi' },
+      { key: 'birthday', label: 'Ulang Tahun', icon: '🎂', group: 'Motivasi & Gamifikasi' },
+      { key: 'motivasi', label: 'Kata Motivasi', icon: '💡', group: 'Motivasi & Gamifikasi' },
+      { key: 'ayat-admin', label: 'Ayat Harian', icon: '📖', group: 'Motivasi & Gamifikasi' },
+      { key: 'mesin-waktu-admin', label: 'Mesin Waktu', icon: '⏳', group: 'Motivasi & Gamifikasi' },
+      { key: 'pengumuman', label: 'Pengumuman', icon: '📢', group: 'Komunikasi' },
+      { key: 'kalender', label: 'Kalender', icon: '📅', group: 'Komunikasi' },
+      { key: 'chat', label: 'Chat', icon: '💭', group: 'Komunikasi' },
+      { key: 'feedback', label: 'Kritik & Saran', icon: '💬', group: 'Komunikasi' },
+      { key: 'keuangan', label: 'Keuangan', icon: '💰', group: 'Operasional' },
+      { key: 'musik', label: 'Musik Latar', icon: '🎵', group: 'Operasional' },
+      { key: 'ai-analytics', label: 'AI Analytics', icon: '🤖', group: 'Sistem & AI' },
+      { key: 'agent-web', label: 'Agent Web', icon: '🌐', group: 'Sistem & AI' },
+      { key: 'keamanan-login', label: 'Keamanan Login', icon: '🔐', group: 'Sistem & AI' },
+      { key: 'settings', label: 'Pengaturan', icon: '⚙️', group: 'Sistem & AI' }
     ],
     guru: [
-      { key: 'overview', label: 'Overview', icon: '📊' },
-      { key: 'courses', label: 'Kelas Saya', icon: '📚' },
-      { key: 'modul', label: 'Modul', icon: '📘' },
-      { key: 'rekaman', label: 'Rekaman Kelas', icon: '🎥' },
-      { key: 'bank-soal', label: 'Bank Soal', icon: '📝' },
-      { key: 'cbt', label: 'CBT / Ujian', icon: '🖥️' },
-      { key: 'grading', label: 'Penilaian Tugas', icon: '✅' },
-      { key: 'absensi', label: 'Presensi', icon: '📋' },
-      { key: 'jadwal-kelas', label: 'Jadwal & War Jadwal', icon: '🗓️' },
-      { key: 'rekap', label: 'Rekapan Kelas', icon: '📈' },
-      { key: 'streak-siswa', label: 'Streak Siswa', icon: '🔥' },
-      { key: 'leaderboard', label: 'Papan Peringkat', icon: '🏆' },
-      { key: 'kalender', label: 'Kalender', icon: '📅' },
-      { key: 'pengumuman', label: 'Pengumuman', icon: '📢' },
-      { key: 'birthday', label: 'Ulang Tahun', icon: '🎂' },
-      { key: 'notifikasi', label: 'Notifikasi', icon: '🔔' },
-      { key: 'feedback', label: 'Kritik & Saran', icon: '💬' },
-      { key: 'chat', label: 'Chat', icon: '💭' },
-      { key: 'online', label: 'Sedang Online', icon: '🟢' },
-      { key: 'ai-analytics', label: 'AI Analytics', icon: '🤖' },
-      { key: 'keuangan', label: 'Honor Saya', icon: '💰' },
-      { key: 'profile', label: 'Profil', icon: '👤' }
+      { key: 'overview', label: 'Overview', icon: '📊', group: 'Utama' },
+      { key: 'notifikasi', label: 'Notifikasi', icon: '🔔', group: 'Utama' },
+      { key: 'online', label: 'Sedang Online', icon: '🟢', group: 'Utama' },
+      { key: 'courses', label: 'Kelas Saya', icon: '📚', group: 'Mengajar' },
+      { key: 'jadwal-kelas', label: 'Jadwal & War Jadwal', icon: '🗓️', group: 'Mengajar' },
+      { key: 'absensi', label: 'Presensi', icon: '📋', group: 'Mengajar' },
+      { key: 'modul', label: 'Modul', icon: '📘', group: 'Mengajar' },
+      { key: 'rekaman', label: 'Rekaman Kelas', icon: '🎥', group: 'Mengajar' },
+      { key: 'bank-soal', label: 'Bank Soal', icon: '📝', group: 'Mengajar' },
+      { key: 'cbt', label: 'CBT / Ujian', icon: '🖥️', group: 'Mengajar' },
+      { key: 'grading', label: 'Penilaian Tugas', icon: '✅', group: 'Mengajar' },
+      { key: 'rekap', label: 'Rekapan Kelas', icon: '📈', group: 'Siswa & Laporan' },
+      { key: 'streak-siswa', label: 'Streak Siswa', icon: '🔥', group: 'Siswa & Laporan' },
+      { key: 'leaderboard', label: 'Papan Peringkat', icon: '🏆', group: 'Siswa & Laporan' },
+      { key: 'ai-analytics', label: 'AI Analytics', icon: '🤖', group: 'Siswa & Laporan' },
+      { key: 'pengumuman', label: 'Pengumuman', icon: '📢', group: 'Komunikasi' },
+      { key: 'kalender', label: 'Kalender', icon: '📅', group: 'Komunikasi' },
+      { key: 'chat', label: 'Chat', icon: '💭', group: 'Komunikasi' },
+      { key: 'birthday', label: 'Ulang Tahun', icon: '🎂', group: 'Komunikasi' },
+      { key: 'feedback', label: 'Kritik & Saran', icon: '💬', group: 'Komunikasi' },
+      { key: 'keuangan', label: 'Honor Saya', icon: '💰', group: 'Akun' },
+      { key: 'profile', label: 'Profil', icon: '👤', group: 'Akun' }
     ],
     siswa: [
-      { key: 'overview', label: 'Overview', icon: '📊' },
-      { key: 'streak', label: 'Streak Belajar', icon: '🔥' },
-      { key: 'arena', label: 'Arena Belajar', icon: '🎮' },
-      { key: 'my-courses', label: 'Kelas Saya', icon: '📚' },
-      { key: 'course', label: 'Course', icon: '🎓' },
-      { key: 'browse', label: 'Jelajah Kelas', icon: '🔎' },
-      { key: 'modul', label: 'Modul', icon: '📘' },
-      { key: 'rekaman', label: 'Rekaman Kelas', icon: '🎥' },
-      { key: 'cbt', label: 'CBT / Ujian', icon: '🖥️' },
-      { key: 'assignments', label: 'Tugas', icon: '📝' },
-      { key: 'grades', label: 'Nilai', icon: '🏆' },
-      { key: 'absensi', label: 'Presensi Saya', icon: '📋' },
-      { key: 'jadwal-siswa', label: 'Jadwal Kelas', icon: '🗓️' },
-      { key: 'leaderboard', label: 'Papan Peringkat', icon: '🥇' },
-      { key: 'ai-tools', label: 'AI Tools', icon: '🤖' },
-      { key: 'ayat', label: 'Ayat Harian', icon: '📖' },
-      { key: 'mesin-waktu', label: 'Mesin Waktu', icon: '⏳' },
-      { key: 'kalender', label: 'Kalender', icon: '📅' },
-      { key: 'pengumuman', label: 'Pengumuman', icon: '📢' },
-      { key: 'birthday', label: 'Ulang Tahun', icon: '🎂' },
-      { key: 'notifikasi', label: 'Notifikasi', icon: '🔔' },
-      { key: 'chat', label: 'Chat', icon: '💭' },
-      { key: 'feedback', label: 'Kritik & Saran', icon: '💬' },
-      { key: 'keuangan', label: 'Pembayaran', icon: '💰' },
-      { key: 'profile', label: 'Profil', icon: '👤' }
+      { key: 'overview', label: 'Overview', icon: '📊', group: 'Utama' },
+      { key: 'notifikasi', label: 'Notifikasi', icon: '🔔', group: 'Utama' },
+      { key: 'my-courses', label: 'Kelas Saya', icon: '📚', group: 'Belajar' },
+      { key: 'course', label: 'Course', icon: '🎓', group: 'Belajar' },
+      { key: 'browse', label: 'Jelajah Kelas', icon: '🔎', group: 'Belajar' },
+      { key: 'modul', label: 'Modul', icon: '📘', group: 'Belajar' },
+      { key: 'rekaman', label: 'Rekaman Kelas', icon: '🎥', group: 'Belajar' },
+      { key: 'assignments', label: 'Tugas', icon: '📝', group: 'Belajar' },
+      { key: 'cbt', label: 'CBT / Ujian', icon: '🖥️', group: 'Belajar' },
+      { key: 'grades', label: 'Nilai', icon: '🏆', group: 'Belajar' },
+      { key: 'streak', label: 'Streak Belajar', icon: '🔥', group: 'Gamifikasi' },
+      { key: 'arena', label: 'Arena Belajar', icon: '🎮', group: 'Gamifikasi' },
+      { key: 'leaderboard', label: 'Papan Peringkat', icon: '🥇', group: 'Gamifikasi' },
+      { key: 'jadwal-siswa', label: 'Jadwal Kelas', icon: '🗓️', group: 'Jadwal & Kehadiran' },
+      { key: 'absensi', label: 'Presensi Saya', icon: '📋', group: 'Jadwal & Kehadiran' },
+      { key: 'kalender', label: 'Kalender', icon: '📅', group: 'Jadwal & Kehadiran' },
+      { key: 'mesin-waktu', label: 'Mesin Waktu', icon: '⏳', group: 'Ruang Pribadi' },
+      { key: 'ayat', label: 'Ayat Harian', icon: '📖', group: 'Ruang Pribadi' },
+      { key: 'ai-tools', label: 'AI Tools', icon: '🤖', group: 'Ruang Pribadi' },
+      { key: 'birthday', label: 'Ulang Tahun', icon: '🎂', group: 'Ruang Pribadi' },
+      { key: 'pengumuman', label: 'Pengumuman', icon: '📢', group: 'Komunikasi' },
+      { key: 'chat', label: 'Chat', icon: '💭', group: 'Komunikasi' },
+      { key: 'feedback', label: 'Kritik & Saran', icon: '💬', group: 'Komunikasi' },
+      { key: 'keuangan', label: 'Pembayaran', icon: '💰', group: 'Akun' },
+      { key: 'profile', label: 'Profil', icon: '👤', group: 'Akun' }
     ],
     orangtua: [
-      { key: 'overview', label: 'Overview Anak', icon: '📊' },
-      { key: 'anak-nilai', label: 'Nilai & Ujian', icon: '🏆' },
-      { key: 'anak-absensi', label: 'Kehadiran', icon: '📋' },
-      { key: 'anak-tugas', label: 'Tugas', icon: '📝' },
-      { key: 'anak-kelas', label: 'Kelas & Guru', icon: '📚' },
-      { key: 'anak-perkembangan', label: 'Perkembangan', icon: '📈' },
-      { key: 'anak-streak', label: 'Streak Anak', icon: '🔥' },
-      { key: 'anak-course', label: 'Course Anak', icon: '🎓' },
-      { key: 'anak-jadwal', label: 'Jadwal Kelas', icon: '🗓️' },
-      { key: 'keuangan', label: 'Pembayaran', icon: '💰' },
-      { key: 'kalender', label: 'Kalender', icon: '📅' },
-      { key: 'pengumuman', label: 'Pengumuman', icon: '📢' },
-      { key: 'birthday', label: 'Ulang Tahun Anak', icon: '🎂' },
-      { key: 'notifikasi', label: 'Notifikasi', icon: '🔔' },
-      { key: 'chat', label: 'Chat Guru', icon: '💭' },
-      { key: 'feedback', label: 'Kritik & Saran', icon: '💬' },
-      { key: 'profile', label: 'Profil', icon: '👤' }
+      { key: 'overview', label: 'Overview Anak', icon: '📊', group: 'Utama' },
+      { key: 'notifikasi', label: 'Notifikasi', icon: '🔔', group: 'Utama' },
+      { key: 'anak-nilai', label: 'Nilai & Ujian', icon: '🏆', group: 'Pantau Anak' },
+      { key: 'anak-absensi', label: 'Kehadiran', icon: '📋', group: 'Pantau Anak' },
+      { key: 'anak-tugas', label: 'Tugas', icon: '📝', group: 'Pantau Anak' },
+      { key: 'anak-kelas', label: 'Kelas & Guru', icon: '📚', group: 'Pantau Anak' },
+      { key: 'anak-course', label: 'Course Anak', icon: '🎓', group: 'Pantau Anak' },
+      { key: 'anak-jadwal', label: 'Jadwal Kelas', icon: '🗓️', group: 'Pantau Anak' },
+      { key: 'anak-perkembangan', label: 'Perkembangan', icon: '📈', group: 'Pantau Anak' },
+      { key: 'anak-streak', label: 'Streak Anak', icon: '🔥', group: 'Pantau Anak' },
+      { key: 'birthday', label: 'Ulang Tahun Anak', icon: '🎂', group: 'Pantau Anak' },
+      { key: 'pengumuman', label: 'Pengumuman', icon: '📢', group: 'Komunikasi' },
+      { key: 'kalender', label: 'Kalender', icon: '📅', group: 'Komunikasi' },
+      { key: 'chat', label: 'Chat Guru', icon: '💭', group: 'Komunikasi' },
+      { key: 'feedback', label: 'Kritik & Saran', icon: '💬', group: 'Komunikasi' },
+      { key: 'keuangan', label: 'Pembayaran', icon: '💰', group: 'Akun' },
+      { key: 'profile', label: 'Profil', icon: '👤', group: 'Akun' }
     ]
+  };
+
+  /* Navigasi bawah ponsel: menu yang paling sering dipakai tiap peran + "Menu". */
+  const BOTTOM_NAV = {
+    admin: [['overview', 'Beranda'], ['siswa', 'Siswa'], ['courses', 'Kelas'], ['attendance', 'Presensi']],
+    guru: [['overview', 'Beranda'], ['courses', 'Kelas'], ['absensi', 'Presensi'], ['grading', 'Nilai']],
+    siswa: [['overview', 'Beranda'], ['my-courses', 'Kelas'], ['streak', 'Streak'], ['assignments', 'Tugas']],
+    orangtua: [['overview', 'Beranda'], ['anak-nilai', 'Nilai'], ['anak-absensi', 'Hadir'], ['anak-tugas', 'Tugas']]
+  };
+
+  /* Aksi cepat di Overview — hanya menu yang memang tersedia bagi peran itu. */
+  const QUICK_ACTIONS = {
+    admin: [['attendance', 'Ambil presensi', 'Isi kehadiran hari ini'], ['siswa', 'Tambah siswa', 'Kelola akun mentee'],
+      ['courses', 'Kelola kelas', 'Tutor, jadwal & siswa'], ['admin-cbt', 'Buat ujian', 'CBT & tryout'],
+      ['pengumuman', 'Pengumuman', 'Kirim info penting'], ['keuangan', 'Keuangan', 'Pemasukan & gaji']],
+    guru: [['absensi', 'Ambil presensi', 'Kelas hari ini'], ['grading', 'Nilai tugas', 'Submission menunggu'],
+      ['jadwal-kelas', 'Jadwal', 'Validasi pertemuan'], ['cbt', 'Buat ujian', 'CBT kelas'],
+      ['modul', 'Modul', 'Materi berbagian'], ['chat', 'Chat', 'Pesan siswa & admin']],
+    siswa: [['arena', 'Tantangan harian', 'Nyalakan streak'], ['assignments', 'Tugas', 'Kerjakan sebelum deadline'],
+      ['cbt', 'Tryout / CBT', 'Ujian tersedia'], ['jadwal-siswa', 'Jadwal kelas', 'Masuk Zoom/Meet'],
+      ['course', 'Course', 'Belajar mandiri'], ['mesin-waktu', 'Mesin Waktu', 'Surat untuk masa depan']],
+    orangtua: [['anak-nilai', 'Nilai & ujian', 'Hasil terbaru'], ['anak-absensi', 'Kehadiran', 'Persentase hadir'],
+      ['anak-tugas', 'Tugas', 'Status pengumpulan'], ['anak-jadwal', 'Jadwal', 'Kelas minggu ini'],
+      ['keuangan', 'Pembayaran', 'Tagihan & riwayat'], ['chat', 'Chat guru', 'Hubungi tutor']]
   };
 
   const ROLE_TITLES = {
@@ -137,18 +163,103 @@
 
     const nav = document.getElementById('sideNav');
     nav.innerHTML = '';
-    (NAVS[user.role] || []).forEach((item, i) => {
-      const a = document.createElement('a');
-      a.innerHTML = `<span class="icon">${item.icon}</span><span>${UI.esc(item.label)}</span>`;
-      a.dataset.key = item.key;
-      a.style.animation = `fadeInLeft .4s var(--ease) both`;
-      a.style.animationDelay = (0.03 + i * 0.022).toFixed(3) + 's';
-      a.addEventListener('click', () => {
-        navigate(item.key);
-        closeSidebar();
-      });
-      nav.appendChild(a);
+    // Kelompokkan menu sesuai urutan kemunculan kategori.
+    const groups = [];
+    (NAVS[user.role] || []).forEach(item => {
+      const g = item.group || 'Menu';
+      let grp = groups.find(x => x.name === g);
+      if (!grp) { grp = { name: g, items: [] }; groups.push(grp); }
+      grp.items.push(item);
     });
+    let i = 0;
+    groups.forEach(grp => {
+      const wrap = document.createElement('div');
+      wrap.className = 'side-nav-group';
+      wrap.setAttribute('role', 'group');
+      const gid = 'navg-' + grp.name.toLowerCase().replace(/[^a-z0-9]+/g, '-');
+      wrap.setAttribute('aria-labelledby', gid);
+      wrap.innerHTML = `<div class="side-nav-label" id="${gid}">${UI.esc(grp.name)}</div>`;
+      grp.items.forEach(item => {
+        const a = document.createElement('a');
+        a.href = '#';
+        a.innerHTML = `<span class="icon" aria-hidden="true">${item.icon}</span><span class="nav-label">${UI.esc(item.label)}</span>`;
+        a.dataset.key = item.key;
+        a.dataset.tip = item.label;
+        a.style.animation = `fadeInLeft .35s var(--ease) both`;
+        a.style.animationDelay = Math.min(0.5, 0.02 + i * 0.012).toFixed(3) + 's';
+        a.addEventListener('click', (e) => {
+          e.preventDefault();
+          navigate(item.key);
+          closeSidebar();
+        });
+        wrap.appendChild(a);
+        i++;
+      });
+      nav.appendChild(wrap);
+    });
+    renderBottomNav();
+  }
+
+  /* ================= Sidebar ringkas (desktop) ================= */
+  const SB_KEY = 'lms_sidebar_collapsed';
+  function applyCollapsed(on) {
+    document.body.classList.toggle('sb-collapsed', on);
+    const t = document.getElementById('sbToggle');
+    if (t) {
+      t.setAttribute('aria-expanded', String(!on));
+      t.setAttribute('aria-label', on ? 'Perluas sidebar' : 'Ciutkan sidebar');
+      t.title = on ? 'Perluas sidebar' : 'Ciutkan sidebar';
+    }
+    try { localStorage.setItem(SB_KEY, on ? '1' : '0'); } catch (e) { /* noop */ }
+  }
+  (function initCollapse() {
+    const t = document.getElementById('sbToggle');
+    let on = false;
+    try { on = localStorage.getItem(SB_KEY) === '1'; } catch (e) { on = false; }
+    applyCollapsed(on);
+    if (t) t.addEventListener('click', () => applyCollapsed(!document.body.classList.contains('sb-collapsed')));
+  })();
+
+  /* ================= Navigasi bawah (ponsel) ================= */
+  function renderBottomNav() {
+    const el = document.getElementById('bottomNav');
+    if (!el) return;
+    const navs = NAVS[user.role] || [];
+    const items = (BOTTOM_NAV[user.role] || []).filter(([k]) => navs.some(n => n.key === k));
+    el.innerHTML = items.map(([k, lbl]) => {
+      const n = navs.find(x => x.key === k);
+      return `<button type="button" data-bn="${k}" aria-label="${UI.esc(n.label)}"><span class="bn-ic" aria-hidden="true">${n.icon}</span><span class="bn-lbl">${UI.esc(lbl)}</span></button>`;
+    }).join('') + `<button type="button" data-bn="__menu" aria-label="Buka semua menu" aria-controls="sidebar"><span class="bn-ic" aria-hidden="true">☰</span><span class="bn-lbl">Menu</span></button>`;
+    el.querySelectorAll('[data-bn]').forEach(b => b.addEventListener('click', (e) => {
+      e.stopPropagation();
+      if (b.dataset.bn === '__menu') {
+        if (document.getElementById('sidebar').classList.contains('open')) closeSidebar(); else openSidebar();
+        return;
+      }
+      closeSidebar();
+      navigate(b.dataset.bn);
+    }));
+  }
+
+  /* ================= Aksi cepat di Overview ================= */
+  function mountQuickActions(content) {
+    const navs = NAVS[user.role] || [];
+    const items = (QUICK_ACTIONS[user.role] || []).filter(([k]) => navs.some(n => n.key === k));
+    if (!items.length) return;
+    const box = document.createElement('section');
+    box.className = 'quick-actions';
+    box.setAttribute('aria-label', 'Aksi cepat');
+    box.innerHTML = `<div class="qa-title"><h3>⚡ Aksi cepat</h3><span>menu yang paling sering dipakai</span></div>
+      <div class="qa-grid">${items.map(([k, lbl, sub]) => {
+        const n = navs.find(x => x.key === k);
+        return `<button type="button" class="qa-item" data-qa="${k}"><span class="qa-ic" aria-hidden="true">${n.icon}</span>
+          <span class="qa-text">${UI.esc(lbl)}<small>${UI.esc(sub)}</small></span></button>`;
+      }).join('')}</div>`;
+    // Letakkan tepat setelah hero sambutan (atau di paling atas bila tidak ada).
+    const hero = content.querySelector('.welcome-hero');
+    if (hero && hero.parentNode) hero.parentNode.insertBefore(box, hero.nextSibling);
+    else content.insertBefore(box, content.firstChild);
+    box.querySelectorAll('[data-qa]').forEach(b => b.addEventListener('click', () => navigate(b.dataset.qa)));
   }
 
   /** Avatar sidebar: foto profil bila ada, bingkai khusus saat ulang tahun. */
@@ -170,7 +281,14 @@
   /* ================= Routing ================= */
   function navigate(key) {
     document.querySelectorAll('.side-nav a').forEach(a => {
-      a.classList.toggle('active', a.dataset.key === key);
+      const on = a.dataset.key === key;
+      a.classList.toggle('active', on);
+      if (on) a.setAttribute('aria-current', 'page'); else a.removeAttribute('aria-current');
+    });
+    document.querySelectorAll('#bottomNav [data-bn]').forEach(b => {
+      const on = b.dataset.bn === key;
+      b.classList.toggle('is-active', on);
+      if (on) b.setAttribute('aria-current', 'page'); else b.removeAttribute('aria-current');
     });
     const navItem = (NAVS[user.role] || []).find(n => n.key === key);
     document.getElementById('pageTitle').textContent = navItem ? navItem.label : 'Dashboard';
@@ -195,7 +313,10 @@
     try {
       if (COMMON[key]) COMMON[key](content);
       else mod.render(content, key, user);
-      if (key === 'overview' && window.Birthday) Birthday.mountBanner(content, user);
+      if (key === 'overview') {
+        mountQuickActions(content);
+        if (window.Birthday) Birthday.mountBanner(content, user);
+      }
     } catch (err) {
       console.error('[LMS] gagal merender halaman', key, err);
       content.innerHTML = `<div class="card"><div class="alert alert-error">
@@ -396,6 +517,10 @@
   let scrim = null;
   function openSidebar() {
     document.getElementById('sidebar').classList.add('open');
+    const mb = document.getElementById('menuBtn');
+    if (mb) mb.setAttribute('aria-expanded', 'true');
+    const cur = document.querySelector('.side-nav a.active') || document.querySelector('.side-nav a');
+    if (cur) setTimeout(() => { try { cur.focus({ preventScroll: false }); } catch (e) { /* noop */ } }, 60);
     if (!scrim) {
       scrim = document.createElement('div');
       scrim.className = 'sidebar-scrim';
@@ -405,6 +530,8 @@
   }
   function closeSidebar() {
     document.getElementById('sidebar').classList.remove('open');
+    const mb = document.getElementById('menuBtn');
+    if (mb) mb.setAttribute('aria-expanded', 'false');
     if (scrim) { scrim.remove(); scrim = null; }
   }
   const menuBtn = document.getElementById('menuBtn');
@@ -431,6 +558,7 @@
   genericModal.addEventListener('click', (e) => { if (e.target === genericModal) closeGenericModal(); });
   document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape' && !genericModal.classList.contains('hidden')) closeGenericModal();
+    else if (e.key === 'Escape' && document.getElementById('sidebar').classList.contains('open')) closeSidebar();
   });
 
   // Expose SEBELUM ticker pertama dirender agar tombol papan berjalan hidup

@@ -216,6 +216,12 @@ Hasil audit lengkap 23 poin permintaan beserta buktinya ada di
   serta kebijakan "siswa baru hanya melihat konten baru" untuk kelas dan course.
 - **Chat** kini selalu menampilkan kotak ketik di semua ukuran layar (satu panel di ponsel/tablet).
 
+### Desain v4 — Modern Gen Z EdTech (detail: `docs/DESIGN-SYSTEM.md`)
+- Design system tunggal di `css/design-system.css`: token warna, tipografi (Plus Jakarta Sans), spasi, radius, bayangan, kontrol.
+- Sidebar berkelompok per kategori + mode ringkas, navigasi bawah di ponsel, aksi cepat di Overview tiap peran.
+- Tombol, input, checkbox/radio, tabel, badge, tabs, modal, toast, dan empty state seragam di keempat panel.
+- Responsif 320 px – 1920 px+, fokus keyboard jelas, skip link, dan dukungan *reduced motion*.
+
 ## Arsitektur Data (semua tersinkronisasi)
 
 Semua entitas direlasikan via ID, jadi update/hapus satu entitas otomatis konsisten di seluruh panel:
@@ -320,7 +326,8 @@ LMS-RUBELA/
 ├── dashboard.html       # Shell dashboard
 ├── css/
 │   ├── style.css        # Styling lengkap (auth, dashboard, CBT, editor, keuangan, modul, presensi)
-│   └── responsive.css   # Penyesuaian layout tablet/ponsel + area scroll (chat, sidebar, tabel)
+│   ├── responsive.css   # Penyesuaian layout tablet/ponsel + area scroll (chat, sidebar, tabel)
+│   └── design-system.css # Token & komponen inti (dimuat terakhir)
 └── js/
     ├── data.js          # Data store (localStorage) + seed + helper atribusi tutor, pertemuan, denda/branding
     ├── auth.js          # Session + login (4 peran) + register

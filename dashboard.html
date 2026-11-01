@@ -5,7 +5,11 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
   <title data-page="Dashboard">Dashboard - LMS Rubela</title>
   <link rel="stylesheet" href="css/style.css" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" />
   <link rel="stylesheet" href="css/responsive.css" />
+  <link rel="stylesheet" href="css/design-system.css" />
   <!-- Apply saved theme before first paint to avoid a flash of the wrong mode -->
   <script>
     try {
@@ -16,15 +20,17 @@
   <script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
 </head>
 <body class="dash-body">
-  <aside class="sidebar" id="sidebar">
+  <a class="skip-link" href="#content">Lewati ke konten utama</a>
+  <aside class="sidebar" id="sidebar" aria-label="Navigasi samping">
     <div class="brand">
       <div class="brand-logo">R</div>
       <div>
         <h1>LMS Rubela</h1>
         <p id="sideRole">Panel</p>
       </div>
+      <button type="button" class="sb-toggle" id="sbToggle" aria-label="Ciutkan sidebar" title="Ciutkan sidebar" aria-expanded="true">«</button>
     </div>
-    <nav class="side-nav" id="sideNav"></nav>
+    <nav class="side-nav" id="sideNav" aria-label="Menu utama"></nav>
     <div class="sidebar-footer">
       <div class="user-chip">
         <div class="avatar" id="userAvatar">?</div>
@@ -33,14 +39,14 @@
           <span id="userRole">-</span>
         </div>
       </div>
-      <button class="btn btn-secondary btn-block mt-1" id="logoutBtn" style="margin-top:10px;">Keluar</button>
+      <button class="btn btn-secondary btn-block mt-1" id="logoutBtn" style="margin-top:10px;" aria-label="Keluar" title="Keluar">Keluar</button>
     </div>
   </aside>
 
   <div class="main">
     <header class="topbar">
       <div class="topbar-left">
-        <button class="menu-btn" id="menuBtn" type="button" title="Buka menu" aria-label="Buka menu">☰</button>
+        <button class="menu-btn" id="menuBtn" type="button" title="Buka menu" aria-label="Buka menu" aria-controls="sidebar" aria-expanded="false">☰</button>
         <h2 id="pageTitle">Dashboard</h2>
       </div>
       <div class="topbar-right">
@@ -52,17 +58,19 @@
       </div>
     </header>
     <div class="ticker-bar" id="tickerBar" aria-label="Papan informasi berjalan"></div>
-    <section class="content" id="content">
+    <main class="content" id="content" tabindex="-1">
       <!-- rendered by role module -->
-    </section>
+    </main>
   </div>
 
+  <nav class="bottom-nav" id="bottomNav" aria-label="Navigasi cepat"></nav>
+
   <!-- Generic modal used by role modules -->
-  <div id="genericModal" class="modal hidden">
+  <div id="genericModal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
     <div class="modal-content">
       <header class="modal-header">
         <h3 id="modalTitle">Modal</h3>
-        <button class="icon-btn" id="modalClose" type="button">&times;</button>
+        <button class="icon-btn" id="modalClose" type="button" aria-label="Tutup dialog">&times;</button>
       </header>
       <div id="modalBody"></div>
     </div>
