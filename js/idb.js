@@ -62,5 +62,40 @@
     available: () => 'indexedDB' in global
   };
 
+  /* Mode server (js/sync.js): berkas juga disimpan di server agar dapat dibuka
+   * dari perangkat lain. IndexedDB tetap menjadi cache lokal. */
+  if (global.Sync && Sync.isServer()) {
+    const local = {
+      put: BlobStore.put, get: BlobStore.get, remove: BlobStore.remove, removePrefix: BlobStore.removePrefix
+    };
+    const inflight = new Map();
+    BlobStore.put = async (key, blob, meta) => {
+      await Sync.blobUpload(key, blob);
+      try { await local.put(key, blob, meta); } catch (e) { /* cache penuh: tetap tersimpan di server */ }
+    };
+    BlobStore.get = async (key) => {
+      let blob = null;
+      try { blob = await local.get(key); } catch (e) { blob = null; }
+      if (blob) return blob;
+      if (!inflight.has(key)) {
+        inflight.set(key, Sync.blobDownload(key).then(async (b) => {
+          if (b) { try { await local.put(key, b, { remote: true }); } catch (e) { /* cache penuh */ } }
+          return b;
+        }).catch((e) => { console.warn('[blob] gagal mengunduh', key, e && e.message); return null; })
+          .finally(() => inflight.delete(key)));
+      }
+      return inflight.get(key);
+    };
+    BlobStore.remove = async (key) => {
+      await local.remove(key).catch(() => {});
+      await Sync.blobDelete(key, false);
+    };
+    BlobStore.removePrefix = async (prefix) => {
+      await local.removePrefix(prefix).catch(() => {});
+      await Sync.blobDelete(prefix, true);
+    };
+    BlobStore.remote = true;
+  }
+
   global.BlobStore = BlobStore;
 })(window);

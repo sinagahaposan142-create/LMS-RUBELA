@@ -233,9 +233,12 @@
     const s = compute(user.id);
     const hour = DB.hourInTz(Date.now(), s.tz);
     const key = `lms_streak_reminded:${user.id}:${s.today}`;
-    if (s.atRisk && hour >= (Number(settings().streakReminderHour) || 18) && !localStorage.getItem(key)) {
+    // Id tetap per hari agar pengingat tidak dobel bila siswa memakai beberapa perangkat.
+    const remindId = 'nt_streak_' + user.id + '_' + s.today;
+    if (s.atRisk && hour >= (Number(settings().streakReminderHour) || 18) && !localStorage.getItem(key)
+      && !DB.getNotifications(user.id).some(n => n.id === remindId)) {
       localStorage.setItem(key, '1');
-      DB.addNotification({ userId: user.id, icon: '🔥', title: `Streak ${s.current} hari hampir terputus!`,
+      DB.addNotification({ id: remindId, userId: user.id, icon: '🔥', title: `Streak ${s.current} hari hampir terputus!`,
         body: `Selesaikan satu aktivitas belajar sebelum pukul 24.00 ${s.tz}${s.freezes ? ` (kamu punya ${s.freezes} Streak Freeze)` : ''}.`, link: 'streak' });
       if (global.Dashboard && Dashboard.refreshNotifications) Dashboard.refreshNotifications();
     }

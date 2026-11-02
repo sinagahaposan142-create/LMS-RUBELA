@@ -265,7 +265,7 @@ select.form, input.form, textarea.form, .att-input { width: auto; }
   box-shadow: var(--shadow-sm);
 }
 .auth-foot { text-align: center; margin-top: 18px; font-size: 14px; }
-.demo-accounts {
+.auth-guide {
   margin-top: 18px;
   background: var(--gray-50);
   border: 1px solid var(--gray-200);
@@ -273,12 +273,9 @@ select.form, input.form, textarea.form, .att-input { width: auto; }
   padding: 10px 14px;
   font-size: 13px;
 }
-.demo-accounts summary { cursor: pointer; font-weight: 500; }
-.demo-accounts table { width: 100%; margin-top: 10px; border-collapse: collapse; }
-.demo-accounts th, .demo-accounts td {
-  text-align: left; padding: 5px 8px; border-bottom: 1px solid var(--gray-200);
-}
-.demo-accounts th { font-size: 11px; color: var(--gray-500); text-transform: uppercase; }
+.auth-guide summary { cursor: pointer; font-weight: 600; }
+.auth-guide ol { margin: 10px 0 2px; padding-left: 20px; display: grid; gap: 6px; color: var(--gray-600); line-height: 1.5; }
+#authModeNote { margin: 14px 0 0; }
 
 @media (max-width: 900px) {
   .auth-wrapper { grid-template-columns: 1fr; }

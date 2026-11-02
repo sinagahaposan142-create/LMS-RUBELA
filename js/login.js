@@ -1,5 +1,7 @@
 /* ===== Login page controller ===== */
 (function () {
+  const server = () => Auth.isServer();
+
   // Redirect if already logged in
   const session = Auth.getSession();
   if (session) {
@@ -14,26 +16,47 @@
     Effects.bindThemeToggle();
   }
 
+  const modeNote = document.getElementById('authModeNote');
+  function showNote(html, kind) {
+    if (!modeNote) return;
+    modeNote.className = 'alert small ' + (kind || 'alert-info');
+    modeNote.innerHTML = html;
+    modeNote.classList.remove('hidden');
+  }
+  if (/[?&]sesi=berakhir/.test(location.search)) showNote('Sesi Anda telah berakhir. Silakan masuk kembali.', 'alert-warning');
+  if (/[?&]server=aktif/.test(location.search)) showNote('LMS kini memakai server bersama. Silakan masuk dengan akun yang diberikan admin.', 'alert-info');
+
+  // Tentukan mode (server/lokal) dan tampilkan identitas aplikasi dari server.
+  if (window.Sync && location.protocol !== 'file:') {
+    Sync.detectMode().then(h => {
+      if (!h) return;
+      if (h.branding && window.Branding) {
+        const b = h.branding;
+        const st = { appName: b.appName || 'LMS Rubela', appTagline: b.appTagline || 'Learning Management System', appLogo: b.appLogo || '' };
+        document.querySelectorAll('.brand-logo').forEach(el => Branding.fillLogo(el, st));
+        document.querySelectorAll('.brand h1').forEach(el => { el.textContent = st.appName; });
+        document.querySelectorAll('.brand p:not(#sideRole)').forEach(el => { el.textContent = st.appTagline; });
+      }
+      if (h.reachable && h.configured && h.ok === false) {
+        showNote('Server sedang tidak dapat mengakses database. Coba beberapa saat lagi atau hubungi admin.', 'alert-warning');
+      }
+    });
+  }
+  if (!server()) {
+    showNote('<strong>Mode lokal.</strong> Server belum terhubung, sehingga data hanya tersimpan di browser ini dan tidak tersinkron ke perangkat lain.', 'alert-warning');
+  }
+
   let selectedRole = 'admin';
   const tabs = document.querySelectorAll('.role-tab');
+  const HINTS = { admin: 'Username admin', guru: 'Username tutor', siswa: 'Username siswa', orangtua: 'Username orang tua' };
   tabs.forEach(tab => {
     tab.addEventListener('click', () => {
-      tabs.forEach(t => t.classList.remove('active'));
+      tabs.forEach(t => { t.classList.remove('active'); t.setAttribute('aria-selected', 'false'); });
       tab.classList.add('active');
+      tab.setAttribute('aria-selected', 'true');
       selectedRole = tab.dataset.role;
-      // Prefill username hint
       const usernameEl = document.getElementById('username');
-      const passwordEl = document.getElementById('password');
-      const presets = {
-        admin: { u: 'admin', p: 'admin123' },
-        guru: { u: 'guru1', p: 'guru123' },
-        siswa: { u: 'siswa1', p: 'siswa123' },
-        orangtua: { u: 'ortu1', p: 'ortu123' }
-      };
-      if (presets[selectedRole]) {
-        usernameEl.placeholder = 'mis. ' + presets[selectedRole].u;
-        passwordEl.placeholder = 'mis. ' + presets[selectedRole].p;
-      }
+      if (usernameEl) usernameEl.placeholder = HINTS[selectedRole] || 'Username';
     });
   });
   // Trigger default placeholder
@@ -41,6 +64,7 @@
 
   const loginForm = document.getElementById('loginForm');
   const loginError = document.getElementById('loginError');
+  const submitBtn = loginForm.querySelector('button[type="submit"]');
 
   /** Tampilkan pesan gagal pada kartu login. */
   function showError(message) {
@@ -51,36 +75,55 @@
       Effects.pop(loginError);
     }
   }
+  function busy(on, label) {
+    if (!submitBtn) return;
+    submitBtn.disabled = on;
+    submitBtn.innerHTML = on
+      ? `<span class="spinner" style="border-top-color:#fff;border-color:rgba(255,255,255,.4);"></span> ${label || 'Memeriksa...'}`
+      : 'Masuk';
+  }
+  function goDashboard() {
+    busy(true, 'Menyiapkan dashboard...');
+    setTimeout(() => { window.location.href = 'dashboard.html'; }, 300);
+  }
 
-  loginForm.addEventListener('submit', (e) => {
+  loginForm.addEventListener('submit', async (e) => {
     e.preventDefault();
     loginError.classList.add('hidden');
     const username = document.getElementById('username').value.trim();
     const password = document.getElementById('password').value;
-    const btn = loginForm.querySelector('button[type="submit"]');
 
-    // Periksa kredensial tanpa langsung membuat sesi, supaya verifikasi
-    // keamanan benar-benar menjadi syarat masuk.
+    if (server()) {
+      busy(true);
+      const r = await Auth.login(username, password, selectedRole);
+      if (!r || !r.ok) { busy(false); showError((r && r.error) || 'Gagal masuk.'); return; }
+      if (r.quiz) {
+        busy(false);
+        LoginQuiz.openServer(r.quiz, (res) => { Auth.setSession(res.user, res.token, res.expiresAt); goDashboard(); },
+          (msg) => { busy(false); showError(msg); });
+        return;
+      }
+      Auth.setSession(r.user, r.token, r.expiresAt);
+      goDashboard();
+      return;
+    }
+
+    // Mode lokal: periksa kredensial tanpa langsung membuat sesi, supaya
+    // verifikasi keamanan benar-benar menjadi syarat masuk.
     const check = Auth.verify(username, password, selectedRole);
     if (!check.ok) {
       showError(check.error);
       return;
     }
-
     const finish = () => {
       const result = Auth.login(username, password, selectedRole);
       if (!result.ok) { showError(result.error); return; }
-      if (btn) {
-        btn.disabled = true;
-        btn.innerHTML = '<span class="spinner" style="border-top-color:#fff;border-color:rgba(255,255,255,.4);"></span> Menyiapkan dashboard...';
-      }
-      setTimeout(() => { window.location.href = 'dashboard.html'; }, 420);
+      goDashboard();
     };
-
     // Gerbang soal UTBK (bisa dimatikan admin lewat menu Keamanan Login)
     if (window.LoginQuiz && LoginQuiz.isRequired(check.user)) {
       LoginQuiz.open(check.user, finish, (msg) => {
-        if (btn) { btn.disabled = false; btn.textContent = 'Masuk'; }
+        busy(false);
         showError(msg);
       });
       return;
@@ -112,11 +155,13 @@
 
   const registerForm = document.getElementById('registerForm');
   const registerError = document.getElementById('registerError');
-  registerForm.addEventListener('submit', (e) => {
+  registerForm.addEventListener('submit', async (e) => {
     e.preventDefault();
     registerError.classList.add('hidden');
+    const btn = registerForm.querySelector('button[type="submit"]');
     const fd = new FormData(registerForm);
-    const result = Auth.registerSiswa({
+    if (btn) { btn.disabled = true; btn.textContent = 'Mendaftarkan...'; }
+    const result = await Auth.registerSiswa({
       name: fd.get('name').trim(),
       email: fd.get('email').trim(),
       username: fd.get('username').trim(),
@@ -124,14 +169,16 @@
       targetUniv: fd.get('targetUniv') || '',
       targetMajor: fd.get('targetMajor') || ''
     });
-    if (!result.ok) {
-      registerError.textContent = result.error;
+    if (btn) { btn.disabled = false; btn.textContent = 'Daftar Akun Siswa'; }
+    if (!result || !result.ok) {
+      registerError.textContent = (result && result.error) || 'Pendaftaran gagal.';
       registerError.classList.remove('hidden');
       if (window.Effects) Effects.shake(registerModal.querySelector('.modal-content'));
       return;
     }
     // Auto-login
-    Auth.login(result.user.username, fd.get('password'), 'siswa');
+    if (server()) Auth.setSession(result.user, result.token, result.expiresAt);
+    else Auth.login(result.user.username, fd.get('password'), 'siswa');
     window.location.href = 'dashboard.html';
   });
 })();

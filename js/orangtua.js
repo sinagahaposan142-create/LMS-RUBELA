@@ -645,7 +645,7 @@
       if (pw) patch.password = pw;
       DB.updateUser(user.id, patch);
       UI.toast('Profil diperbarui.');
-      setTimeout(() => location.reload(), 500);
+      UI.reloadAfterSync(500);
     });
   }
 

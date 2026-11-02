@@ -5,11 +5,11 @@
  * perilaku AI identik di seluruh aplikasi.
  *
  * CATATAN KEAMANAN — PENTING
- * Aplikasi ini statis (tanpa backend), sehingga seluruh JavaScript bisa
- * dibaca siapa pun yang membuka situs. Karena itu kunci API TIDAK boleh
- * ditulis di dalam kode dan tidak boleh ikut ter-commit ke repositori.
- * Kunci diisi admin lewat menu Pengaturan, lalu hanya disimpan di
- * localStorage browser admin tersebut.
+ * Kunci API TIDAK boleh ditulis di dalam kode dan tidak boleh ikut
+ * ter-commit ke repositori. Admin mengisinya lewat menu Pengaturan.
+ * Mode server: kunci disimpan di database server dan hanya admin yang
+ * dapat melihatnya; semua panggilan AI diteruskan oleh /api/rubela.
+ * Mode lokal: kunci hanya disimpan di browser admin tersebut.
  * ===================================================================*/
 (function (global) {
   'use strict';
@@ -36,6 +36,9 @@
       tfEndpoint: String(s.tinyfishEndpoint || '').trim()
     };
   }
+
+  /** Mode server: panggilan AI diteruskan oleh /api/rubela memakai kunci di server. */
+  function viaServer() { return !!(global.Sync && Sync.isServer()); }
 
   /** Apakah Gemini siap dipakai (diaktifkan + ada kunci). */
   function ready() { const c = cfg(); return !!(c.enabled && c.key); }
@@ -76,30 +79,43 @@
     if (o.system) body.systemInstruction = { parts: [{ text: String(o.system) }] };
     if (o.json) body.generationConfig.responseMimeType = 'application/json';
 
-    // Timeout manual: fetch tidak punya timeout bawaan.
-    const ctrl = (typeof AbortController !== 'undefined') ? new AbortController() : null;
-    let timer = null;
-    if (ctrl) timer = setTimeout(() => ctrl.abort(), c.timeout);
-
     let res;
-    try {
-      res = await fetch(GEMINI_BASE + encodeURIComponent(c.model) + ':generateContent', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-goog-api-key': c.key },
-        body: JSON.stringify(body),
-        signal: ctrl ? ctrl.signal : undefined
-      });
-    } catch (e) {
-      if (timer) clearTimeout(timer);
-      if (e && e.name === 'AbortError') {
-        throw err('timeout', 'Permintaan ke AI melebihi batas waktu. Coba lagi atau perpendek pertanyaan.');
-      }
-      throw err('network', 'Tidak dapat menghubungi layanan AI. Periksa koneksi internet Anda.');
-    }
-    if (timer) clearTimeout(timer);
-
     let data = null;
-    try { data = await res.json(); } catch (e) { data = null; }
+    if (viaServer()) {
+      // Mode server: kunci API hanya ada di server; browser mengirim lewat /api/rubela.
+      try { await Sync.flush(); } catch (e) { /* tetap coba */ }
+      let out;
+      try {
+        out = await Sync.api('ai', { model: c.model, payload: body, testKey: o.testKey || '' }, { timeout: c.timeout + 10000 });
+      } catch (e) {
+        if (!e.status) throw err('network', 'Tidak dapat menghubungi server. Periksa koneksi internet Anda.');
+        throw err('server', e.message || 'Server AI sedang bermasalah. Coba lagi.');
+      }
+      if (!out.ok) throw err(out.code || 'http', out.error || 'Permintaan AI gagal.');
+      res = { ok: out.status >= 200 && out.status < 300, status: out.status };
+      data = out.data;
+    } else {
+      // Timeout manual: fetch tidak punya timeout bawaan.
+      const ctrl = (typeof AbortController !== 'undefined') ? new AbortController() : null;
+      let timer = null;
+      if (ctrl) timer = setTimeout(() => ctrl.abort(), c.timeout);
+      try {
+        res = await fetch(GEMINI_BASE + encodeURIComponent(c.model) + ':generateContent', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'X-goog-api-key': c.key },
+          body: JSON.stringify(body),
+          signal: ctrl ? ctrl.signal : undefined
+        });
+      } catch (e) {
+        if (timer) clearTimeout(timer);
+        if (e && e.name === 'AbortError') {
+          throw err('timeout', 'Permintaan ke AI melebihi batas waktu. Coba lagi atau perpendek pertanyaan.');
+        }
+        throw err('network', 'Tidak dapat menghubungi layanan AI. Periksa koneksi internet Anda.');
+      }
+      if (timer) clearTimeout(timer);
+      try { data = await res.json(); } catch (e) { data = null; }
+    }
 
     if (!res.ok) {
       const msg = (data && data.error && data.error.message) ? data.error.message : ('HTTP ' + res.status);
@@ -180,35 +196,47 @@
     if (!c.tfKey) throw err('nokey', 'Kunci Agent API belum diisi di Pengaturan → Integrasi AI.');
     if (!/^https?:\/\//i.test(url)) throw err('badurl', 'URL harus dimulai dengan http:// atau https://');
 
-    const ctrl = (typeof AbortController !== 'undefined') ? new AbortController() : null;
-    let timer = null;
-    if (ctrl) timer = setTimeout(() => ctrl.abort(), Math.max(c.timeout, 60000));
-
     let res;
-    try {
-      res = await fetch(c.tfEndpoint, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': 'Bearer ' + c.tfKey
-        },
-        body: JSON.stringify({ url: url, goal: goal }),
-        signal: ctrl ? ctrl.signal : undefined
-      });
-    } catch (e) {
-      if (timer) clearTimeout(timer);
-      if (e && e.name === 'AbortError') throw err('timeout', 'Agent API melebihi batas waktu.');
-      throw err('network', 'Tidak dapat menghubungi Agent API. Periksa endpoint dan koneksi internet.');
-    }
-    if (timer) clearTimeout(timer);
-
-    const ct = res.headers && res.headers.get ? (res.headers.get('content-type') || '') : '';
     let data = null;
     let text = '';
-    try {
-      if (/json/i.test(ct)) data = await res.json();
-      else { text = await res.text(); try { data = JSON.parse(text); } catch (e2) { data = null; } }
-    } catch (e) { data = null; }
+    if (viaServer()) {
+      try { await Sync.flush(); } catch (e) { /* tetap coba */ }
+      let out;
+      try { out = await Sync.api('agent', { url: url, goal: goal }, { timeout: 70000 }); }
+      catch (e) {
+        if (!e.status) throw err('network', 'Tidak dapat menghubungi server. Periksa koneksi internet Anda.');
+        throw err(e.status === 403 ? 'forbidden' : 'server', e.message || 'Agent API gagal.');
+      }
+      if (!out.ok) throw err(out.code || 'http', out.error || 'Agent API gagal.');
+      res = { ok: out.status >= 200 && out.status < 300, status: out.status };
+      text = out.text || '';
+      try { data = JSON.parse(text); } catch (e2) { data = null; }
+    } else {
+      const ctrl = (typeof AbortController !== 'undefined') ? new AbortController() : null;
+      let timer = null;
+      if (ctrl) timer = setTimeout(() => ctrl.abort(), Math.max(c.timeout, 60000));
+      try {
+        res = await fetch(c.tfEndpoint, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': 'Bearer ' + c.tfKey
+          },
+          body: JSON.stringify({ url: url, goal: goal }),
+          signal: ctrl ? ctrl.signal : undefined
+        });
+      } catch (e) {
+        if (timer) clearTimeout(timer);
+        if (e && e.name === 'AbortError') throw err('timeout', 'Agent API melebihi batas waktu.');
+        throw err('network', 'Tidak dapat menghubungi Agent API. Periksa endpoint dan koneksi internet.');
+      }
+      if (timer) clearTimeout(timer);
+      const ct = res.headers && res.headers.get ? (res.headers.get('content-type') || '') : '';
+      try {
+        if (/json/i.test(ct)) data = await res.json();
+        else { text = await res.text(); try { data = JSON.parse(text); } catch (e2) { data = null; } }
+      } catch (e) { data = null; }
+    }
 
     if (!res.ok) {
       const msg = (data && (data.message || (data.error && (data.error.message || data.error)))) || ('HTTP ' + res.status);

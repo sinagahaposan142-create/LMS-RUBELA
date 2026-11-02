@@ -862,8 +862,13 @@
     return `${d.getFullYear()}-${p(d.getMonth() + 1)}`;
   }
 
-  seedIfNeeded();
-  runMigrations();
+  /* Mode server (js/sync.js): data berasal dari database bersama, jadi data
+   * contoh TIDAK dibuat di browser. Migrasi dijalankan setelah data dimuat. */
+  const SERVER_MODE = !!(global.Sync && global.Sync.isServer && global.Sync.isServer());
+  if (!SERVER_MODE) {
+    seedIfNeeded();
+    runMigrations();
+  }
 
   /**
    * Migrasi berversi yang aman: setiap langkah hanya MENAMBAH field yang belum
@@ -3016,7 +3021,13 @@
       save('lms_music_tracks', list);
     },
 
+    /** Migrasi skema idempoten (mode server: dipanggil setelah data server dimuat). */
+    runMigrations: () => runMigrations(),
+    isServerMode: () => SERVER_MODE,
+
     resetAll: () => {
+      // Mode server: JANGAN menghapus data bersama. Cukup bersihkan cache perangkat ini.
+      if (SERVER_MODE) { global.Sync.resetLocalCache(); return; }
       Object.values(KEYS).forEach(k => localStorage.removeItem(k));
       ['lms_seeded_v1', 'lms_seeded_v2'].forEach(k => localStorage.removeItem(k));
       EXTRA_KEYS.forEach(k => localStorage.removeItem(k));

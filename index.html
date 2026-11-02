@@ -49,11 +49,11 @@
           <div id="authThemeSlot"></div>
         </div>
 
-        <div class="role-tabs" role="tablist">
-          <button class="role-tab active" data-role="admin" type="button">Admin</button>
-          <button class="role-tab" data-role="guru" type="button">Guru</button>
-          <button class="role-tab" data-role="siswa" type="button">Siswa</button>
-          <button class="role-tab" data-role="orangtua" type="button">Orang Tua</button>
+        <div class="role-tabs" role="tablist" aria-label="Pilih peran">
+          <button class="role-tab active" data-role="admin" type="button" role="tab" aria-selected="true">Admin</button>
+          <button class="role-tab" data-role="guru" type="button" role="tab" aria-selected="false">Guru</button>
+          <button class="role-tab" data-role="siswa" type="button" role="tab" aria-selected="false">Siswa</button>
+          <button class="role-tab" data-role="orangtua" type="button" role="tab" aria-selected="false">Orang Tua</button>
         </div>
 
         <form id="loginForm" class="form">
@@ -69,20 +69,16 @@
           <button type="submit" class="btn btn-primary btn-block">Masuk</button>
         </form>
 
-        <details class="demo-accounts">
-          <summary>Akun Demo</summary>
-          <table>
-            <thead>
-              <tr><th>Peran</th><th>Username</th><th>Password</th></tr>
-            </thead>
-            <tbody>
-              <tr><td>Admin</td><td>admin</td><td>admin123</td></tr>
-              <tr><td>Guru</td><td>guru1</td><td>guru123</td></tr>
-              <tr><td>Siswa</td><td>siswa1</td><td>siswa123</td></tr>
-              <tr><td>Orang Tua</td><td>ortu1</td><td>ortu123</td></tr>
-            </tbody>
-          </table>
-          <p class="muted small">Akun siswa juga bisa mendaftar sendiri lewat tombol di bawah. Akun orang tua dibuat oleh Admin dan dihubungkan ke anaknya.</p>
+        <div id="authModeNote" class="alert small hidden" role="status"></div>
+
+        <details class="auth-guide">
+          <summary>Cara menggunakan</summary>
+          <ol>
+            <li>Pilih peran Anda: <strong>Admin</strong>, <strong>Guru</strong>, <strong>Siswa</strong>, atau <strong>Orang Tua</strong>.</li>
+            <li>Masukkan username dan password yang diberikan admin bimbel.</li>
+            <li>Siswa baru dapat mendaftar sendiri lewat tautan <em>Daftar di sini</em>. Akun guru dan orang tua dibuat oleh admin; orang tua otomatis terhubung ke akun anaknya.</li>
+            <li>Data tersimpan di server, jadi perubahan langsung terlihat di semua perangkat. Lupa password? Hubungi admin.</li>
+          </ol>
         </details>
 
         <p class="auth-foot">
@@ -133,6 +129,9 @@
     </div>
   </div>
 
+  <script src="js/sync-config.js"></script>
+  <script src="js/sync-catalog.js"></script>
+  <script src="js/sync.js" data-page="login"></script>
   <script src="js/data.js"></script>
   <script src="js/auth.js"></script>
   <script src="js/effects.js"></script>

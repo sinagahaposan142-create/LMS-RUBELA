@@ -1,0 +1,8 @@
+# Data database tiruan untuk pengembangan lokal (scripts/dev-server.js)
+.dev/
+*.db
+*.db-shm
+*.db-wal
+node_modules/
+.vercel/
+.env*

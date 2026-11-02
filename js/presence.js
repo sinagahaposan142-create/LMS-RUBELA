@@ -1,9 +1,9 @@
 /* =====================================================================
  * js/presence.js — status online lokal, heartbeat, dan sinkronisasi tab
  * ---------------------------------------------------------------------
- * LMS Rubela saat ini tidak memiliki backend. Presence ini akurat untuk
- * tab/window pada browser profile + origin yang sama. Untuk lintas perangkat
- * perlu backend realtime (WebSocket/SSE). Tidak mengumpulkan alamat IP.
+ * Antar-tab: localStorage + BroadcastChannel. Lintas perangkat (mode server):
+ * js/sync.js mengirim localRecord() ke /api/rubela dan menulis status
+ * pengguna lain ke kunci yang sama. Tidak mengumpulkan alamat IP.
  * ===================================================================*/
 (function (global) {
   'use strict';
@@ -184,6 +184,17 @@
     heartbeat(true);
   }
 
+  /** Data presence tab ini (dikirim js/sync.js ke server). null bila tidak aktif. */
+  function localRecord() {
+    if (!currentUser || !started) return null;
+    const info = deviceInfo();
+    return {
+      tabId, userId: currentUser.id, page: currentPage, lastActivity,
+      visibility: document.visibilityState || 'visible',
+      browser: info.browser, os: info.os, device: info.device
+    };
+  }
+
   function subscribe(fn) {
     if (typeof fn !== 'function') return () => {};
     listeners.push(fn);
@@ -257,7 +268,9 @@
             <p class="muted small" style="margin:4px 0 0;">Diperbarui otomatis. ${viewer.role === 'guru' ? 'Hanya tutor dan siswa pada kelas yang Anda ampu.' : 'Seluruh pengguna yang aktif pada lingkungan LMS ini.'}</p></div>
             <span class="badge badge-gray">Heartbeat 15 detik</span>
           </div>
-          <div class="alert alert-info small"><strong>Privasi & cakupan:</strong> LMS tidak mengambil alamat IP. Yang ditampilkan hanya perangkat/browser, halaman aktif, dan waktu aktivitas. Karena belum ada backend, status ini tersinkron antar-tab pada browser/origin yang sama; status lintas perangkat memerlukan server realtime.</div>
+          <div class="alert alert-info small"><strong>Privasi & cakupan:</strong> LMS tidak menampilkan alamat IP. Yang ditampilkan hanya perangkat/browser, halaman aktif, dan waktu aktivitas. ${global.Sync && Sync.isServer()
+            ? 'Status dikirim ke server setiap ±25 detik, sehingga pengguna di perangkat lain ikut terlihat.'
+            : 'Mode lokal: status hanya tersinkron antar-tab pada browser yang sama.'}</div>
           ${list.length ? `<div class="online-grid">${list.map(r => `
             <article class="online-card">
               <span class="presence-dot ${r.state}" aria-label="${stateLabel(r.state)}"></span>
@@ -281,7 +294,7 @@
 
   global.Presence = {
     KEY, HEARTBEAT_MS, TTL_MS,
-    start, stop, setPage, subscribe, getAll, visibleTo,
+    start, stop, setPage, subscribe, getAll, visibleTo, localRecord,
     renderPanel, stateLabel, pageLabel, deviceInfo,
     _heartbeat: heartbeat
   };

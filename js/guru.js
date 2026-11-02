@@ -757,8 +757,12 @@
         </form>
       </div>
       <div class="card">
-        <div class="card-header">${UI.secHead('🤖', 'Integrasi AI Perangkat Ini', 'diperlukan untuk pemeriksa esai otomatis di browser tutor')}</div>
-        <div class="alert alert-warning small"><strong>Catatan keamanan:</strong> LMS ini belum memiliki backend. Kunci disimpan hanya di localStorage perangkat ini dan tidak masuk repositori. Gunakan kunci terbatas/terpisah dan jangan membagikannya.</div>
+        <div class="card-header">${UI.secHead('🤖', 'Integrasi AI', 'untuk pemeriksa esai otomatis & asisten')}</div>
+        ${Auth.isServer() ? `
+        <div class="alert alert-info small">Integrasi AI dikelola terpusat oleh <strong>admin</strong> di server. Anda tidak perlu memasukkan kunci di sini — begitu admin mengaktifkannya, fitur AI langsung tersedia di perangkat Anda.</div>
+        <div class="flex-gap"><span class="ai-status ${AI.ready() ? 'is-on' : 'is-off'}">${AI.ready() ? '● AI aktif' : '○ AI belum diaktifkan admin'}</span></div>
+        ` : `
+        <div class="alert alert-warning small"><strong>Mode lokal.</strong> Kunci disimpan hanya di localStorage perangkat ini dan tidak masuk repositori. Gunakan kunci terbatas/terpisah dan jangan membagikannya.</div>
         <div class="form">
           <div class="form-group"><label for="guruGeminiKey">Kunci API Gemini</label>
             <div class="flex-gap"><input id="guruGeminiKey" type="password" autocomplete="off" value="${UI.esc(DB.getSettings().geminiApiKey || '')}" style="flex:1" />
@@ -767,20 +771,22 @@
           <div class="form-group"><label for="guruGeminiModel">Model</label>
             <input id="guruGeminiModel" value="${UI.esc(DB.getSettings().geminiModel || 'gemini-flash-latest')}" /></div>
           <button type="button" class="btn btn-primary" id="guruGeminiSave">Simpan Integrasi AI</button>
-        </div>
+        </div>`}
       </div>
     `;
-    document.getElementById('guruGeminiShow').addEventListener('click', () => {
-      const input = document.getElementById('guruGeminiKey');
-      const show = input.type === 'password'; input.type = show ? 'text' : 'password';
-      document.getElementById('guruGeminiShow').textContent = show ? 'Sembunyikan' : 'Lihat';
-    });
-    document.getElementById('guruGeminiSave').addEventListener('click', () => {
-      DB.setSetting('geminiApiKey', document.getElementById('guruGeminiKey').value.trim());
-      DB.setSetting('geminiModel', document.getElementById('guruGeminiModel').value.trim() || 'gemini-flash-latest');
-      DB.setSetting('aiEnabled', true);
-      UI.toast('Integrasi AI perangkat tutor disimpan.', 'success');
-    });
+    if (!Auth.isServer()) {
+      document.getElementById('guruGeminiShow').addEventListener('click', () => {
+        const input = document.getElementById('guruGeminiKey');
+        const show = input.type === 'password'; input.type = show ? 'text' : 'password';
+        document.getElementById('guruGeminiShow').textContent = show ? 'Sembunyikan' : 'Lihat';
+      });
+      document.getElementById('guruGeminiSave').addEventListener('click', () => {
+        DB.setSetting('geminiApiKey', document.getElementById('guruGeminiKey').value.trim());
+        DB.setSetting('geminiModel', document.getElementById('guruGeminiModel').value.trim() || 'gemini-flash-latest');
+        DB.setSetting('aiEnabled', true);
+        UI.toast('Integrasi AI perangkat tutor disimpan.', 'success');
+      });
+    }
     const photoField = ProfileFields.bindPhotoField(document.getElementById('profileForm'), DB.getUser(user.id));
     document.getElementById('profileForm').addEventListener('submit', (e) => {
       e.preventDefault();
@@ -800,7 +806,7 @@
       if (pw) patch.password = pw;
       DB.updateUser(user.id, patch);
       UI.toast('Profil diperbarui.');
-      setTimeout(() => location.reload(), 500);
+      UI.reloadAfterSync(500);
     });
   }
 

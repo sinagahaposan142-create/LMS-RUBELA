@@ -935,14 +935,7 @@
             <div class="muted small">${UI.esc(partner.role)} ${partner.subject ? '• ' + UI.esc(partner.subject) : ''}</div>
           </div>
         </div>
-        <div class="chat-messages" id="chatMessages">
-          ${messages.length === 0 ? '<div class="muted small" style="text-align:center;padding:20px;">Belum ada pesan. Kirim pesan pertama!</div>' :
-            messages.map(m => `
-              <div class="chat-bubble ${m.senderId === user.id ? 'sent' : 'received'}">
-                <div class="chat-text">${UI.esc(m.text)}</div>
-                <div class="chat-time">${formatChatTime(m.createdAt)}</div>
-              </div>`).join('')}
-        </div>
+        <div class="chat-messages" id="chatMessages">${messagesHtml(messages)}</div>
         <form class="chat-input-box" id="chatForm">
           <input id="chatInput" placeholder="Ketik pesan..." autocomplete="off" maxlength="2000" aria-label="Ketik pesan" enterkeyhint="send" />
           <button type="submit" class="btn btn-primary btn-sm" id="chatSendBtn">Kirim</button>
@@ -979,6 +972,39 @@
       const p = n => String(n).padStart(2, '0');
       return `${p(d.getHours())}:${p(d.getMinutes())}`;
     }
+
+    function messagesHtml(messages) {
+      return messages.length === 0 ? '<div class="muted small" style="text-align:center;padding:20px;">Belum ada pesan. Kirim pesan pertama!</div>' :
+        messages.map(m => `
+          <div class="chat-bubble ${m.senderId === user.id ? 'sent' : 'received'}">
+            <div class="chat-text">${UI.esc(m.text)}</div>
+            <div class="chat-time">${formatChatTime(m.createdAt)}</div>
+          </div>`).join('');
+    }
+
+    /* Mode server: pesan dari perangkat lain langsung tampil tanpa mengganggu
+     * kotak ketik (hanya daftar pesan & pratinjau kontak yang diperbarui). */
+    if (global.__chatLive) global.removeEventListener('lms:remote-change', global.__chatLive);
+    global.__chatLive = (e) => {
+      const keys = (e && e.detail && e.detail.keys) || [];
+      if (!keys.includes('lms_messages')) return;
+      if (!document.getElementById('chatLayout')) {
+        global.removeEventListener('lms:remote-change', global.__chatLive);
+        global.__chatLive = null;
+        return;
+      }
+      container.querySelectorAll('.chat-contact[data-uid]').forEach(el => {
+        const last = getLastMessage(user.id, el.dataset.uid);
+        const prev = el.querySelector('.muted.small');
+        if (prev) prev.innerHTML = last ? UI.esc(last.text.slice(0, 30)) : '<i>Belum ada pesan</i>';
+      });
+      const box = document.getElementById('chatMessages');
+      if (!activeChatUserId || !box) return;
+      const nearBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 80;
+      box.innerHTML = messagesHtml(DB.getConversation(user.id, activeChatUserId));
+      if (nearBottom) box.scrollTop = box.scrollHeight;
+    };
+    global.addEventListener('lms:remote-change', global.__chatLive);
   }
 
   /* ===== AI Tools (Siswa Panel) ===== */

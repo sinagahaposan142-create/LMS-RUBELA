@@ -72,6 +72,12 @@
     if (confirm != null && c !== confirm) return 'Konfirmasi kode F2 tidak sama.';
     return '';
   }
+  /** Mode server: password tidak ada di browser, jadi perbandingannya dicek di server. */
+  async function sameAsAccountPassword(code) {
+    if (!(global.Auth && Auth.isServer && Auth.isServer())) return false;
+    try { return await Auth.matchesAccountPassword(code); } catch (e) { return false; }
+  }
+  const F2_SAME_PW = 'Kode F2 harus berbeda dari password akun.';
 
   /** Buat brankas baru (kunci data baru) → kembalikan recovery key untuk ditampilkan sekali. */
   async function createVault(user, code) {
@@ -195,6 +201,11 @@
       if (msg) { err.textContent = msg; err.classList.remove('hidden'); return; }
       const btn = f.querySelector('button[type=submit]');
       btn.disabled = true; btn.innerHTML = '<span class="spinner"></span> Mengamankan…';
+      if (await sameAsAccountPassword(f.querySelector('#tcF2').value)) {
+        err.textContent = F2_SAME_PW; err.classList.remove('hidden');
+        btn.disabled = false; btn.textContent = 'Buat Brankas';
+        return;
+      }
       try {
         const rec = await createVault(user, f.querySelector('#tcF2').value);
         showRecovery(container, user, rec, 'Brankas dibuat');
@@ -300,7 +311,7 @@
       e.preventDefault();
       err.classList.add('hidden');
       if (pwLockUntil > Date.now()) return fail(`Terlalu banyak percobaan password. Tunggu ${Math.ceil((pwLockUntil - Date.now()) / 1000)} detik.`);
-      const check = Auth.verify(user.username, f.querySelector('#tcPw').value, 'siswa');
+      const check = await Auth.verify(user.username, f.querySelector('#tcPw').value, 'siswa');
       if (!check.ok || check.user.id !== user.id) {
         pwFails++;
         if (pwFails >= 3) { pwFails = 0; pwLockUntil = Date.now() + 60000; }
@@ -319,6 +330,7 @@
       }
       const msg = validateF2(f.querySelector('#tcN1').value, f.querySelector('#tcN2').value, user);
       if (msg) return fail(msg);
+      if (await sameAsAccountPassword(f.querySelector('#tcN1').value)) return fail(F2_SAME_PW);
       const v = DB.getCapsuleVault(user.id);
       if (v.lockUntil && v.lockUntil > Date.now()) return fail(`Terlalu banyak percobaan. Coba lagi dalam ${Math.ceil((v.lockUntil - Date.now()) / 1000)} detik.`);
       const btn = f.querySelector('#tcRecGo');
@@ -434,6 +446,7 @@
       const show = (m) => { err.textContent = m; err.classList.remove('hidden'); };
       const msg = validateF2(ch.n1.value, ch.n2.value, user);
       if (msg) return show(msg);
+      if (await sameAsAccountPassword(ch.n1.value)) return show(F2_SAME_PW);
       const v = DB.getCapsuleVault(user.id);
       try { await aesDec(await derive(ch.cur.value, v.salt, v.iter), v.wrapF2); } catch (ex) { return show('Kode F2 saat ini salah.'); }
       const rec = await rewrap(user, session.raw, ch.n1.value, ch.rot.checked);

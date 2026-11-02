@@ -295,9 +295,22 @@
     return 'Selamat malam';
   }
 
+  /** Muat ulang halaman setelah perubahan terkirim ke server (mode server) agar tidak hilang. */
+  function reloadAfterSync(delay) {
+    const go = () => location.reload();
+    const wait = Number(delay) || 400;
+    if (global.Sync && Sync.isServer && Sync.isServer()) {
+      setTimeout(() => {
+        Promise.race([Sync.flush(), new Promise(r => setTimeout(r, 8000))]).then(go, go);
+      }, wait);
+      return;
+    }
+    setTimeout(go, wait);
+  }
+
   global.UI = {
     esc, fmtDate, fmtDateTime, toDateInput, toDateTimeLocalInput, todayYMD, fmtYMD, fmtRp, fmtDuration,
-    modal, toast, confirmDialog, setBusy, initials, bannerClass,
+    modal, toast, confirmDialog, setBusy, initials, bannerClass, reloadAfterSync,
     progressHtml, meterHtml, secHead, fmtRelative, greeting,
     // Timezone
     TZ_OFFSETS, TZ_LABELS, getTimezone, setTimezone, nowInTz, toTzDate, fmtClock, fmtFullDateTime,

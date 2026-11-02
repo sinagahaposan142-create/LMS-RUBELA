@@ -1,6 +1,8 @@
 # LMS Rubela
 
-Website Learning Management System lengkap berbasis HTML, CSS, dan JavaScript murni (tanpa framework & tanpa backend). Semua data disimpan di `localStorage` browser, semua entitas saling terhubung dan otomatis tersinkronisasi.
+Website Learning Management System lengkap berbasis HTML, CSS, dan JavaScript murni (tanpa framework). Di hosting Vercel, data disimpan di **database server (Turso)** melalui satu Vercel Function (`/api/rubela`), sehingga perubahan dari satu perangkat langsung terlihat di semua perangkat lain. Semua entitas saling terhubung lewat ID dan otomatis tersinkronisasi. Bila server belum dikonfigurasi, aplikasi berjalan dalam **mode lokal** (data hanya di browser itu).
+
+> Detail arsitektur server, aturan akses, dan cara pemulihan akun admin: [`docs/BACKEND-SYNC.md`](docs/BACKEND-SYNC.md).
 
 Antarmuka dilengkapi **layer animasi & micro-interaction** (ripple pada tombol, transisi halaman berjenjang, count-up angka statistik, reveal saat scroll) serta **mode terang/gelap** yang tersimpan per browser.
 
@@ -19,7 +21,7 @@ Antarmuka dilengkapi **layer animasi & micro-interaction** (ripple pada tombol, 
 ### Login
 - Empat peran: **Admin**, **Guru**, **Siswa**, dan **Orang Tua** dengan tab pemilih peran.
 - Registrasi mandiri khusus Siswa (sekaligus mengisi **universitas & jurusan impian**).
-- Session disimpan di `localStorage`.
+- Mode server: username & password diperiksa di server (password disimpan sebagai hash scrypt, tidak pernah dikirim ke browser), sesi berupa token 30 hari, percobaan gagal dibatasi, dan soal verifikasi login dinilai di server.
 - Pesan error spesifik bila peran tidak cocok, dengan animasi shake.
 
 ### CBT / Ujian — Halaman Khusus (dirombak total)
@@ -55,12 +57,12 @@ Menu **CBT / Ujian** kini membuka *workspace* layar penuh dengan sub-halaman sen
 ### Whiteboard & Autosave
 - Setiap detail kelas mempunyai **Whiteboard** vector: pena, penghapus, warna, ketebalan, undo/redo, serta hapus semua.
 - Admin dan tutor kelas dapat menggambar; siswa dan orang tua melihat mode read-only.
-- Autosave maksimal setiap 1 detik, tahan refresh, dan sinkron antar-tab dengan conflict merge/tombstone. Sinkronisasi lintas perangkat memerlukan backend realtime.
+- Autosave maksimal setiap 1 detik, tahan refresh, dan sinkron antar-tab dengan conflict merge/tombstone. Di mode server, coretan tutor ikut tersinkron ke perangkat siswa.
 - Deadline setiap bagian CBT tersimpan pada attempt sehingga refresh tidak mengulang waktu; draft tugas juga tersimpan setiap detik.
 
 ### Status Online & Papan Berjalan
 - **Sedang Online** (admin & tutor): status Aktif/Menjauh, halaman aktif, browser, sistem operasi, dan jenis perangkat. Tutor hanya melihat pengguna pada kelas yang dia ampu. Sistem memakai heartbeat 15 detik, TTL, deduplikasi beberapa tab, serta pemulihan BFCache.
-- LMS **tidak mengambil IP**. Karena tanpa backend, presence hanya tersinkron antar-tab pada browser/origin yang sama; status global lintas perangkat memerlukan backend realtime.
+- LMS **tidak menampilkan IP**. Di mode server, status dikirim ke server setiap ±25 detik sehingga pengguna di perangkat lain ikut terlihat; di mode lokal hanya antar-tab pada browser yang sama.
 - **Papan berjalan** permanen di bawah topbar pada semua panel, mengikuti sasaran Pengumuman, bisa dijeda, aman untuk `prefers-reduced-motion`, dan membuka halaman Pengumuman saat diklik.
 
 ### Pusat Notifikasi (semua peran)
@@ -170,10 +172,11 @@ Seluruh fitur AI memakai **data asli LMS**, bukan angka contoh, dan dipakai bers
 - **Pemeriksa Esai AI** (admin & tutor): rubrik, saran skor/confidence/alasan/feedback, pemeriksaan batch, konfirmasi manusia, dan riwayat audit. Isian singkat memakai normalisasi deterministik serta toleransi numerik.
 - **Agent Web** (admin): kirim URL + tujuan, terima data terstruktur yang bisa diunduh sebagai CSV.
 
-> **Keamanan kunci API.** Aplikasi ini statis tanpa server, sehingga kunci yang ditulis di dalam
-> kode akan terbaca publik. Karena itu kunci **tidak disertakan di repositori**. Admin mengisinya
-> di **Pengaturan → Integrasi AI**; tutor pada perangkat berbeda dapat mengisinya melalui
-> **Profil → Integrasi AI Perangkat Ini**. Kunci hanya disimpan pada `localStorage` browser tersebut.
+> **Keamanan kunci API.** Kunci **tidak disertakan di repositori**. Admin mengisinya
+> di **Pengaturan → Integrasi AI** (tutor juga bisa lewat **Profil → Integrasi AI**). Di mode server
+> kunci disimpan di database server, hanya admin yang dapat melihatnya, dan semua panggilan AI
+> diteruskan oleh `/api/rubela` sehingga siswa tidak pernah menerima kuncinya. Di mode lokal kunci
+> hanya disimpan pada `localStorage` browser tersebut.
 > Bila kunci belum diisi, halaman AI tetap menampilkan analisis dari data asli LMS — hanya ulasan
 > naratif AI yang dinonaktifkan, lengkap dengan petunjuk cara mengaktifkannya.
 
@@ -275,22 +278,45 @@ Tekan *Export Excel* untuk mengunduh template berisi kolom lengkap (termasuk dat
 | Kelas | Judul Kelas, Subtest, Kelas Utama, Username Guru (boleh beberapa), Hari, Jam Mulai, Jam Selesai, Tanggal Mulai, Jumlah Pertemuan, Tautan Kelas, Kategori, Deskripsi, Biaya, Password |
 | Bank Soal | Subtest, Format, Tingkat, Pertanyaan, A, B, C, D, E, Kunci, Pembahasan |
 
-- Kolom **Password** dipakai langsung sebagai password akun. Bila dikosongkan, akun memakai `password123`.
+- Kolom **Password** dipakai langsung sebagai password akun baru. Bila dikosongkan, akun memakai `password123` — minta pemilik akun segera menggantinya.
+- Di mode server, file **Export** tidak berisi password (kolomnya kosong) karena password disimpan sebagai hash di server.
 - Baris dengan username/judul yang sudah ada otomatis dilewati agar tidak duplikat.
 - Pada import orang tua, kolom *Username Anak* langsung menghubungkan akun wali ke siswa dan mengirim notifikasi ke siswa tersebut.
 
 ## Cara Menjalankan
 
+### Produksi (Vercel + Turso)
+1. Hubungkan repositori ke project Vercel (tanpa build command; output = root).
+2. Vercel → **Storage/Integrations → Turso → Connect Project** ke project ini. Vercel akan membuat
+   env `TURSO_DATABASE_URL` dan `TURSO_AUTH_TOKEN`. **Redeploy** setelah menghubungkan.
+3. Buka `https://<domain>/api/rubela?action=health` → harus `"configured": true, "ready": true`.
+4. Masuk sebagai **admin** dengan password awal yang diberikan terpisah (tidak ditulis di repositori),
+   lalu segera ganti password di menu **Admin & Staff**.
+
+Tabel database dibuat otomatis pada permintaan pertama. Database baru hanya berisi akun admin dan
+data dasar (pengaturan, bank soal verifikasi login, kata motivasi, ayat, reading text, course contoh).
+Sinyal realtime memakai Supabase Realtime (publishable key di `js/sync-config.js`); tanpa sinyal itu
+aplikasi tetap tersinkron lewat pembaruan berkala.
+
+### Pengembangan lokal
 ```bash
 git clone https://github.com/<owner>/LMS-RUBELA.git
 cd LMS-RUBELA
 
-# Buka index.html langsung, atau:
-python3 -m http.server 8080
-# akses http://localhost:8080
-```
+# Mode server dengan database tiruan (Node.js >= 22.5, tanpa npm install):
+node scripts/dev-server.js            # http://localhost:8777
+DB_FILE=.dev/rubela.db node scripts/dev-server.js   # data disimpan ke file
 
-## Akun Demo
+# Mode lokal (tanpa backend, data contoh di browser):
+node scripts/dev-server.js --local    # atau: python3 -m http.server 8080
+```
+Data dasar server dibangun dari `js/data.js` dengan `node scripts/build-seed.js` (menghasilkan
+`api/_lib/seed-base.json`).
+
+## Akun Demo (khusus mode lokal)
+
+Akun di bawah hanya ada di **mode lokal** (server belum dikonfigurasi atau `--local`). Di server
+produksi akun demo **tidak dibuat**; semua akun dibuat oleh admin atau lewat registrasi siswa.
 
 | Peran | Username | Password |
 |-------|----------|----------|
@@ -324,12 +350,20 @@ Ubah kapan saja lewat Admin → Semua Kelas → **Atur**, atau Guru → Kelas Sa
 LMS-RUBELA/
 ├── index.html           # Halaman login + registrasi
 ├── dashboard.html       # Shell dashboard
+├── api/
+│   ├── rubela.js        # Satu-satunya Vercel Function: login, kuis, registrasi, sync, berkas, proxy AI
+│   └── _lib/            # Klien Turso (HTTP, tanpa dependensi), skema, aturan akses, hash password
+├── scripts/             # dev-server.js, mock-turso.js (database tiruan), build-seed.js
+├── docs/BACKEND-SYNC.md # Arsitektur server & sinkronisasi
 ├── css/
 │   ├── style.css        # Styling lengkap (auth, dashboard, CBT, editor, keuangan, modul, presensi)
 │   ├── responsive.css   # Penyesuaian layout tablet/ponsel + area scroll (chat, sidebar, tabel)
 │   └── design-system.css # Token & komponen inti (dimuat terakhir)
 └── js/
-    ├── data.js          # Data store (localStorage) + seed + helper atribusi tutor, pertemuan, denda/branding
+    ├── sync-config.js   # Konfigurasi publik: alamat API & Supabase Realtime (publishable key)
+    ├── sync-catalog.js  # Daftar data yang disinkronkan (dipakai browser & server)
+    ├── sync.js          # Mesin sinkronisasi: cache IndexedDB, kirim/tarik per record, realtime, mode lokal
+    ├── data.js          # Data store (API localStorage) + seed mode lokal + helper atribusi tutor, pertemuan, denda/branding
     ├── auth.js          # Session + login (4 peran) + register
     ├── presence.js      # Heartbeat/status online, scope tutor, BroadcastChannel/storage
     ├── login.js         # Controller halaman login
@@ -374,8 +408,10 @@ LMS-RUBELA/
 ```
 
 ## Tips
-- Untuk memulai dari nol: Admin → Pengaturan → Reset Semua Data.
-- Data tiap browser independen — cocok untuk demo.
+- Mode server: Admin → Pengaturan → **Server & Sinkronisasi** menampilkan status, tombol sinkron manual, dan
+  **Bersihkan cache perangkat ini** (data server tidak terhapus). Data lama yang pernah dibuat di browser
+  sebelum server aktif dicadangkan otomatis dan bisa dipindahkan ke server dari kartu yang sama.
+- Mode lokal: Admin → Pengaturan → Reset Semua Data mengembalikan browser itu ke data contoh.
 - Embed video mendukung YouTube (watch/embed/short url) dan Vimeo.
 - Sambutan siswa mengambil data dari **Universitas Impian** di Profil; bila kosong akan muncul tombol pintas untuk mengisinya.
 - Agar animasi tetap ringan, semua efek berbasis CSS transform/opacity dan otomatis dimatikan bila sistem mengaktifkan *reduce motion*.

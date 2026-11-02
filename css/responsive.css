@@ -349,8 +349,7 @@ html[data-theme="dark"] .table-wrap.has-overflow::after {
   .auth-card h2 { font-size: 19px; }
   .role-tabs { flex-wrap: wrap; }
   .role-tab { flex: 1 1 46%; padding: 9px 6px; }
-  .demo-accounts { font-size: 12px; }
-  .demo-accounts th, .demo-accounts td { padding: 4px 5px; }
+  .auth-guide { font-size: 12px; }
 }
 
 /* =========================================================================

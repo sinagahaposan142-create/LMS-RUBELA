@@ -306,7 +306,9 @@
       const wb = XLSX.utils.book_new();
       XLSX.utils.book_append_sheet(wb, ws, isGuru ? 'Guru' : 'Siswa');
       XLSX.writeFile(wb, `data_${role}_${UI.todayYMD()}.xlsx`);
-      UI.toast('File Excel berhasil diunduh (termasuk kolom Password).');
+      UI.toast(Auth.isServer()
+        ? 'File Excel diunduh. Kolom Password sengaja kosong karena password disimpan terenkripsi di server.'
+        : 'File Excel berhasil diunduh (termasuk kolom Password).');
     });
 
     // Import Excel
@@ -2105,10 +2107,10 @@
             <span class="ai-status ${agentOn ? 'is-on' : 'is-off'}">${agentOn ? '● Agent API aktif' : '○ Agent API belum aktif'}</span>
           </div>
           <div class="alert alert-warning">
-            <strong>Keamanan kunci API.</strong> Situs ini berjalan tanpa server, sehingga kunci yang
-            dimasukkan di sini <strong>hanya</strong> disimpan pada browser ini (localStorage) dan tidak
-            pernah ikut tersimpan ke dalam kode atau repositori. Jangan membagikan kunci Anda, dan segera
-            ganti kunci di Google AI Studio bila pernah terkirim ke orang lain.
+            <strong>Keamanan kunci API.</strong> ${Auth.isServer()
+              ? 'Kunci disimpan di <strong>database server</strong> dan hanya dapat dilihat oleh admin. Seluruh panggilan AI diteruskan oleh server (<code>/api/rubela</code>), sehingga kunci tidak pernah dikirim ke browser siswa, tutor, atau orang tua, dan tidak ikut tersimpan ke dalam kode atau repositori.'
+              : 'Mode lokal — kunci yang dimasukkan di sini <strong>hanya</strong> disimpan pada browser ini (localStorage) dan tidak ikut tersimpan ke dalam kode atau repositori.'}
+            Jangan membagikan kunci Anda, dan segera ganti kunci di Google AI Studio bila pernah terkirim ke orang lain.
           </div>
           <div class="form">
             <div class="form-group">
@@ -2169,13 +2171,19 @@
         })()}
       </div>
 
+      ${Auth.isServer() ? `
+      <div class="card" id="sysCard">
+        <div class="card-header">${UI.secHead('☁️', 'Server & Sinkronisasi', 'data tersimpan di database server dan tersinkron ke semua perangkat')}</div>
+        <div id="sysBody"><div class="muted small">Memuat status server…</div></div>
+      </div>` : `
       <div class="card">
         <div class="card-header"><h3>Pengaturan Sistem</h3></div>
-        <p class="muted">Data LMS disimpan di browser Anda (localStorage). Gunakan tombol di bawah untuk mereset ke data contoh.</p>
+        <div class="alert alert-warning small"><strong>Mode lokal.</strong> Server belum terhubung, jadi data LMS hanya tersimpan di browser ini (localStorage) dan tidak terlihat di perangkat lain.</div>
+        <p class="muted">Gunakan tombol di bawah untuk mereset browser ini ke data contoh.</p>
         <div class="flex-gap">
           <button class="btn btn-danger" id="resetBtn">Reset Semua Data</button>
         </div>
-      </div>
+      </div>`}
       <div class="card">
         <div class="card-header"><h3>Tentang</h3></div>
         <p><strong>LMS Rubela</strong> v2.0 — Learning Management System berbasis web dengan fitur lengkap.</p>
@@ -2308,11 +2316,115 @@
       UI.toast('Pengaturan ulang tahun disimpan.', 'success');
     });
 
-    document.getElementById('resetBtn').addEventListener('click', () => {
+    const resetBtn = document.getElementById('resetBtn');
+    if (resetBtn) resetBtn.addEventListener('click', () => {
       if (!UI.confirmDialog('Reset SEMUA data? Akun dan kelas akan kembali ke default.')) return;
       DB.resetAll();
       UI.toast('Data direset. Silakan login ulang.', 'info');
       setTimeout(Auth.logout, 800);
+    });
+    const sysBody = document.getElementById('sysBody');
+    if (sysBody) renderSystemCard(sysBody, container);
+  }
+
+  /* ========== Server & sinkronisasi (mode server) ========== */
+  const REGION_HINT = {
+    'aws-us-east-1': 'iad1', 'aws-us-east-2': 'cle1', 'aws-us-west-2': 'pdx1', 'aws-eu-west-1': 'dub1',
+    'aws-ap-northeast-1': 'hnd1', 'aws-ap-south-1': 'bom1', 'aws-ap-southeast-1': 'sin1', 'aws-ap-southeast-2': 'syd1'
+  };
+  async function renderSystemCard(el, settingsContainer) {
+    const st = Sync.status();
+    const [health, legacy] = await Promise.all([Sync.healthCheck(8000), Sync.legacy.summary()]);
+    if (!document.body.contains(el)) return;
+    const fmtTime = (t) => (t ? new Date(t).toLocaleString('id-ID') : '-');
+    const dbRegion = health && health.db && health.db.region;
+    const fnRegion = health && health.fnRegion;
+    const want = dbRegion && REGION_HINT[dbRegion];
+    const regionTip = want && fnRegion && want !== fnRegion
+      ? `<div class="alert alert-info small">Tips performa: database berada di <strong>${UI.esc(dbRegion)}</strong>, sedangkan fungsi server berjalan di <strong>${UI.esc(fnRegion)}</strong>. Samakan region lewat Vercel → Project → Settings → Functions → Function Region (<strong>${UI.esc(want)}</strong>) agar sinkronisasi lebih cepat.</div>` : '';
+    const legacyHtml = legacy ? `
+      <div class="card" style="margin:14px 0 0;background:var(--gray-50);">
+        <h4 style="margin:0 0 6px;">📦 Data lama di perangkat ini</h4>
+        <p class="muted small" style="margin:0 0 8px;">Data ini dibuat di browser ini sebelum server aktif (dicadangkan ${UI.esc(fmtTime(legacy.at))}).
+          Berisi ${legacy.users} akun (${legacy.realUsers} di luar akun contoh), ${legacy.counts.lms_courses || 0} kelas, ${legacy.counts.lms_questions || 0} soal, dan data lain.
+          Data lama tidak otomatis digabung agar data contoh tidak tercampur dengan data asli.</p>
+        <div class="flex-gap">
+          <button type="button" class="btn btn-secondary btn-sm" id="legacyDl">⬇️ Unduh cadangan (.json)</button>
+          <button type="button" class="btn btn-primary btn-sm" id="legacyImport">⬆️ Pindahkan ke server…</button>
+          <button type="button" class="btn btn-ghost btn-sm" id="legacyDrop">Hapus cadangan</button>
+        </div>
+      </div>` : '';
+    el.innerHTML = `
+      ${health && health.ok === false ? `<div class="alert alert-error small">${UI.esc(health.error || 'Server bermasalah.')}</div>` : ''}
+      ${health && !health.reachable ? '<div class="alert alert-warning small">Server tidak dapat dihubungi dari perangkat ini saat ini.</div>' : ''}
+      <div class="table-wrap"><table class="table">
+        <tbody>
+          <tr><td>Status</td><td>${st.online ? (st.error ? '⚠️ ' + UI.esc(st.error) : '🟢 Terhubung') : '⚪ Offline'}</td></tr>
+          <tr><td>Sinkron terakhir</td><td>${UI.esc(fmtTime(st.lastSync))}</td></tr>
+          <tr><td>Perubahan menunggu</td><td>${st.pending}</td></tr>
+          <tr><td>Pembaruan langsung</td><td>${st.realtime ? 'Realtime Supabase aktif' : 'Pembaruan berkala (±7–25 detik)'}</td></tr>
+          <tr><td>Database</td><td>Turso${dbRegion ? ' • ' + UI.esc(dbRegion) : ''}${fnRegion ? ' • fungsi ' + UI.esc(fnRegion) : ''}</td></tr>
+        </tbody>
+      </table></div>
+      ${regionTip}
+      <p class="muted small">Semua perubahan disimpan ke server dan terlihat di perangkat lain. Password akun disimpan dalam bentuk hash, bukan teks asli.
+        Segera ganti password admin awal lewat menu akun admin.</p>
+      <div class="flex-gap">
+        <button type="button" class="btn btn-primary btn-sm" id="syncNowBtn">🔄 Sinkronkan sekarang</button>
+        <button type="button" class="btn btn-secondary btn-sm" id="clearCacheBtn">Bersihkan cache perangkat ini</button>
+      </div>
+      ${legacyHtml}`;
+    el.querySelector('#syncNowBtn').addEventListener('click', async (e) => {
+      const b = e.currentTarget;
+      b.disabled = true;
+      try { await Sync.flush(); UI.toast('Data tersinkron.', 'success'); } catch (x) { UI.toast(x.message || 'Gagal sinkron.', 'error'); }
+      renderSystemCard(el, settingsContainer);
+    });
+    el.querySelector('#clearCacheBtn').addEventListener('click', () => {
+      if (!UI.confirmDialog('Hapus salinan data di perangkat ini lalu muat ulang dari server? Data di server tidak terhapus.')) return;
+      Sync.resetLocalCache();
+    });
+    if (!legacy) return;
+    el.querySelector('#legacyDl').addEventListener('click', () => Sync.legacy.download());
+    el.querySelector('#legacyDrop').addEventListener('click', async () => {
+      if (!UI.confirmDialog('Hapus cadangan data lama dari perangkat ini? Unduh dulu bila masih diperlukan.')) return;
+      await Sync.legacy.discard();
+      UI.toast('Cadangan data lama dihapus.', 'info');
+      renderSystemCard(el, settingsContainer);
+    });
+    el.querySelector('#legacyImport').addEventListener('click', () => openLegacyImport(el, settingsContainer));
+  }
+
+  function openLegacyImport(el, settingsContainer) {
+    UI.modal.open('Pindahkan data lama ke server', `
+      <form id="legacyForm" class="form">
+        <p>Data dari perangkat ini akan <strong>ditambahkan</strong> ke server. Data yang sudah ada di server tidak ditimpa.</p>
+        <label class="check-row"><input type="checkbox" name="skip" checked /> Lewati akun & data contoh bawaan (admin/guru1–4/siswa1–6/ortu1–2, kelas & soal contoh)</label>
+        <div class="alert alert-info small">Akun tanpa password atau yang memakai password contoh (mis. guru123) diberi password acak baru. Daftarnya ditampilkan setelah selesai agar dapat dibagikan ke pemilik akun.</div>
+        <div class="flex-gap" style="justify-content:flex-end;">
+          <button type="button" class="btn btn-secondary" id="lgCancel">Batal</button>
+          <button type="submit" class="btn btn-primary">Pindahkan</button>
+        </div>
+      </form>`);
+    document.getElementById('lgCancel').addEventListener('click', () => UI.modal.close());
+    document.getElementById('legacyForm').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const btn = e.target.querySelector('button[type=submit]');
+      btn.disabled = true; btn.innerHTML = '<span class="spinner"></span> Memindahkan…';
+      try {
+        const res = await Sync.legacy.importToServer({ skipDemo: e.target.skip.checked });
+        const list = res.resetPw || [];
+        UI.modal.open('Data lama dipindahkan', `
+          <p>${res.added} data ditambahkan ke server.</p>
+          ${list.length ? `<p class="muted small">Password baru untuk akun berikut (catat sekarang, tidak ditampilkan lagi):</p>
+            <div class="table-wrap"><table class="table"><thead><tr><th>Nama</th><th>Username</th><th>Password baru</th></tr></thead>
+            <tbody>${list.map(r => `<tr><td>${UI.esc(r.name || '')}</td><td>${UI.esc(r.username || '')}</td><td><code>${UI.esc(r.password)}</code></td></tr>`).join('')}</tbody></table></div>` : ''}
+          <div class="flex-gap" style="justify-content:flex-end;"><button type="button" class="btn btn-primary" id="lgDone">Selesai</button></div>`);
+        document.getElementById('lgDone').addEventListener('click', () => { UI.modal.close(); renderSystemCard(el, settingsContainer); });
+      } catch (x) {
+        UI.toast(x.message || 'Gagal memindahkan data.', 'error');
+        btn.disabled = false; btn.textContent = 'Pindahkan';
+      }
     });
   }
 
@@ -2829,7 +2941,9 @@
       const wb = XLSX.utils.book_new();
       XLSX.utils.book_append_sheet(wb, ws, 'Orang Tua');
       XLSX.writeFile(wb, `data_orangtua_${UI.todayYMD()}.xlsx`);
-      UI.toast('File Excel orang tua berhasil diunduh.');
+      UI.toast(Auth.isServer()
+        ? 'File Excel orang tua diunduh. Kolom Password kosong karena password disimpan terenkripsi di server.'
+        : 'File Excel orang tua berhasil diunduh.');
     });
 
     /* ---- Import Excel orang tua ---- */

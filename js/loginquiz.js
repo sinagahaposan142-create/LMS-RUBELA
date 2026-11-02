@@ -193,5 +193,82 @@
     }
   }
 
-  global.LoginQuiz = { isRequired, open, close, COOLDOWN_MS };
+  /**
+   * Varian mode server: soal dipilih & jawaban diperiksa di server, sehingga
+   * kunci jawaban tidak pernah dikirim ke browser sebelum dijawab.
+   * @param {object} quiz   { challenge, question, left, name } dari Sync.login
+   * @param {Function} onPass dipanggil dengan respons berisi token & user
+   * @param {Function} onFail dipanggil dengan pesan bila gagal / dibatalkan
+   */
+  function openServer(quiz, onPass, onFail) {
+    const fail = (msg) => { close(); if (typeof onFail === 'function') onFail(msg); };
+    let question = quiz.question;
+    let left = quiz.left;
+    const gate = document.createElement('div');
+    gate.id = 'loginQuizGate';
+    gate.className = 'lq-back';
+    gate.innerHTML = `
+      <div class="lq-card" role="dialog" aria-modal="true" aria-labelledby="lqTitle">
+        <div class="lq-head">
+          <div class="lq-ic">🔐</div>
+          <div>
+            <h3 id="lqTitle">Verifikasi Keamanan</h3>
+            <p class="lq-sub">Halo <strong>${esc(quiz.name)}</strong>, jawab satu soal berikut untuk membuktikan ini benar akun Anda.</p>
+          </div>
+        </div>
+        <div id="lqBody"></div>
+        <div class="lq-foot">
+          <button type="button" class="btn btn-secondary btn-sm" id="lqCancel">Batalkan Masuk</button>
+          <span class="lq-left" id="lqLeft"></span>
+        </div>
+      </div>`;
+    document.body.appendChild(gate);
+    document.body.classList.add('lq-open');
+    document.getElementById('lqCancel').addEventListener('click', () =>
+      fail('Masuk dibatalkan. Verifikasi keamanan belum diselesaikan.'));
+    paint();
+
+    function paint(feedback) {
+      const body = document.getElementById('lqBody');
+      body.innerHTML = `
+        <div class="lq-meta">
+          <span class="badge badge-info">${esc(question.subtest || 'UTBK')}</span>
+          <span class="badge badge-gray">${esc(question.difficulty || 'mudah')}</span>
+        </div>
+        <div class="lq-q">${renderText(question.text)}</div>
+        <div class="lq-opts">
+          ${question.options.map((o, i) => `
+            <button type="button" class="lq-opt" data-pick="${i}">
+              <span class="lq-key">${String.fromCharCode(65 + i)}</span>
+              <span class="lq-val">${renderText(o)}</span>
+            </button>`).join('')}
+        </div>
+        ${feedback ? `<div class="alert alert-error lq-fb">${esc(feedback)}</div>` : ''}
+      `;
+      document.getElementById('lqLeft').textContent = `Kesempatan tersisa: ${left}`;
+      body.querySelectorAll('[data-pick]').forEach(btn => btn.addEventListener('click', async () => {
+        const pick = Number(btn.dataset.pick);
+        body.querySelectorAll('[data-pick]').forEach(b => { b.disabled = true; });
+        const resp = await Sync.quiz(quiz.challenge, pick);
+        if (resp.ok && resp.token) {
+          btn.classList.add('is-right');
+          setTimeout(() => { close(); if (typeof onPass === 'function') onPass(resp); }, 520);
+          return;
+        }
+        btn.classList.add('is-wrong');
+        if (resp.correctIndex != null) {
+          const right = body.querySelector(`[data-pick="${Number(resp.correctIndex)}"]`);
+          if (right) right.classList.add('is-right');
+        }
+        setTimeout(() => {
+          if (resp.done || !resp.question) { fail(resp.error || 'Verifikasi gagal. Silakan masuk lagi.'); return; }
+          question = resp.question;
+          left = resp.left;
+          paint('Jawaban belum tepat. Coba soal berikut ini.');
+        }, 1100);
+      }));
+    }
+  }
+
+  global.LoginQuiz = { isRequired, open, openServer, close, COOLDOWN_MS };
 })(window);
