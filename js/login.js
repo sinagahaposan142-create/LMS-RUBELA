@@ -36,6 +36,7 @@
         document.querySelectorAll('.brand-logo').forEach(el => Branding.fillLogo(el, st));
         document.querySelectorAll('.brand h1').forEach(el => { el.textContent = st.appName; });
         document.querySelectorAll('.brand p:not(#sideRole)').forEach(el => { el.textContent = st.appTagline; });
+        document.querySelectorAll('[data-app-name]').forEach(el => { el.textContent = st.appName; });
       }
       if (h.reachable && h.configured && h.ok === false) {
         showNote('Server sedang tidak dapat mengakses database. Coba beberapa saat lagi atau hubungi admin.', 'alert-warning');

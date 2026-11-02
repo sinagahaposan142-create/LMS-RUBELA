@@ -3,13 +3,16 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
-  <title data-page="Masuk">LMS Rubela - Masuk</title>
+  <title data-page="Masuk">LMS Rubela - Belajar Menuju Kampus Impian</title>
+  <meta name="description" content="LMS Rubela — platform belajar bimbel UTBK: kelas, tugas, CBT/tryout, nilai, dan pemantauan orang tua. Masuk untuk mulai." />
+  <meta name="theme-color" content="#6d5efc" />
   <link rel="stylesheet" href="css/style.css" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" />
   <link rel="stylesheet" href="css/responsive.css" />
   <link rel="stylesheet" href="css/design-system.css" />
+  <link rel="stylesheet" href="css/landing.css" />
   <!-- Apply saved theme before first paint to avoid a flash of the wrong mode -->
   <script>
     try {
@@ -18,33 +21,55 @@
     } catch (e) { /* noop */ }
   </script>
 </head>
-<body class="auth-body">
-  <div class="auth-wrapper">
-    <aside class="auth-hero">
-      <div class="brand">
-        <div class="brand-logo">R</div>
-        <div>
-          <h1>LMS Rubela</h1>
-          <p>Learning Management System</p>
+<body class="lp-body">
+  <!-- ===================== Langit & suasana ===================== -->
+  <div class="lp-sky" aria-hidden="true">
+    <div class="lp-stars" id="lpStars"></div>
+    <div class="lp-sun"></div>
+    <div class="lp-cloud c1"></div>
+    <div class="lp-cloud c2"></div>
+    <div class="lp-cloud c3"></div>
+    <div class="lp-bird">🕊️</div>
+    <div class="lp-bird b2">🐦</div>
+    <div class="lp-balloon">🎈</div>
+  </div>
+
+  <div class="lp-wrap">
+    <!-- ===================== Topbar ===================== -->
+    <header class="lp-topbar">
+      <div class="lp-logo">
+        <div class="lp-mark brand-logo">R</div>
+        <div><b data-app-name>LMS Rubela</b><span>Learning Management System</span></div>
+      </div>
+      <div class="lp-top-actions">
+        <button type="button" class="lp-ghost-btn" id="lpThemeBtn">🌙 Gelap</button>
+        <button type="button" class="lp-ghost-btn" id="lpCtaMasuk">Masuk</button>
+      </div>
+    </header>
+
+    <!-- ===================== Hero + kartu login ===================== -->
+    <section class="lp-hero">
+      <div class="lp-hero-copy">
+        <span class="lp-badge"><span class="dot"></span> Siap menuju PTN impianmu</span>
+        <h1>Belajar seru,<br />raih <span class="hl">kampus impian</span> 🎓</h1>
+        <p class="lead">LMS Rubela menyatukan kelas, materi, tugas, tryout CBT, nilai, dan pemantauan orang tua dalam satu tempat yang menyenangkan — tersinkron langsung di semua perangkatmu.</p>
+        <div class="lp-cta-row">
+          <a href="#" class="lp-cta primary" id="lpCtaDaftar">🚀 Daftar Gratis</a>
+          <a href="#" class="lp-cta ghost" id="lpCtaMasukHero" onclick="document.getElementById('lpCtaMasuk').click();return false;">Sudah punya akun? Masuk</a>
+        </div>
+        <div class="lp-stats">
+          <div class="lp-stat"><b>7</b><span>Subtest UTBK</span></div>
+          <div class="lp-stat"><b>4</b><span>Peran pengguna</span></div>
+          <div class="lp-stat"><b>24/7</b><span>Akses & sinkron</span></div>
         </div>
       </div>
-      <div class="hero-text">
-        <h2>Belajar tanpa batas, di mana saja.</h2>
-        <ul class="hero-features">
-          <li>Kelola kelas, materi, dan tugas dengan mudah</li>
-          <li>Panel khusus untuk Admin, Guru, dan Siswa</li>
-          <li>Pantau nilai dan kemajuan belajar secara real-time</li>
-        </ul>
-      </div>
-      <footer class="hero-footer">&copy; 2026 LMS Rubela</footer>
-    </aside>
 
-    <main class="auth-panel">
-      <div class="auth-card">
-        <div class="flex-between" style="align-items:flex-start;">
+      <!-- Kartu login (seluruh elemen fungsional dipertahankan) -->
+      <main class="lp-authcard" id="lpAuthCard">
+        <div class="flex-between" style="align-items:flex-start;gap:12px;">
           <div>
             <h2>Masuk ke Akun Anda</h2>
-            <p class="muted">Pilih peran dan masukkan kredensial Anda.</p>
+            <p class="lp-sub">Pilih peran dan masukkan kredensial Anda.</p>
           </div>
           <div id="authThemeSlot"></div>
         </div>
@@ -84,8 +109,164 @@
         <p class="auth-foot">
           Belum punya akun siswa? <a href="#" id="openRegister">Daftar di sini</a>
         </p>
+      </main>
+    </section>
+
+    <!-- ===================== Pita berjalan ===================== -->
+    <div class="lp-ticker" aria-hidden="true">
+      <div class="lp-ticker-track">
+        <span>📚 Materi &amp; Modul</span><span>📝 Tugas &amp; Penilaian</span><span>🖥️ CBT / Tryout UTBK</span>
+        <span>📊 Skor IRT 200–800</span><span>🎯 Streak Belajar</span><span>🎥 Rekaman Kelas</span>
+        <span>🗓️ Jadwal &amp; Presensi</span><span>👨‍👩‍👧 Pantauan Orang Tua</span><span>🏆 Papan Peringkat</span>
+        <span>📚 Materi &amp; Modul</span><span>📝 Tugas &amp; Penilaian</span><span>🖥️ CBT / Tryout UTBK</span>
+        <span>📊 Skor IRT 200–800</span><span>🎯 Streak Belajar</span><span>🎥 Rekaman Kelas</span>
+        <span>🗓️ Jadwal &amp; Presensi</span><span>👨‍👩‍👧 Pantauan Orang Tua</span><span>🏆 Papan Peringkat</span>
       </div>
-    </main>
+    </div>
+
+    <!-- ===================== Fitur ===================== -->
+    <section class="lp-features">
+      <div class="lp-features-head lp-reveal">
+        <h2>Semua yang kamu butuhkan untuk belajar</h2>
+        <p>Satu platform, empat peran, tak terbatas kemungkinan.</p>
+      </div>
+      <div class="lp-feature-grid">
+        <article class="lp-feat c1 lp-reveal">
+          <div class="ic">📚</div>
+          <h3>Kelas &amp; Materi</h3>
+          <p>Kelola kelas, materi, modul, dan rekaman video. Semua rapi per mata pelajaran dan mudah diakses kapan saja.</p>
+        </article>
+        <article class="lp-feat c2 lp-reveal">
+          <div class="ic">🖥️</div>
+          <h3>CBT &amp; Tryout UTBK</h3>
+          <p>Ujian berbasis komputer dengan 7 subtest, timer per bagian, pemantauan, dan skor skala 200–800 ala UTBK.</p>
+        </article>
+        <article class="lp-feat c3 lp-reveal">
+          <div class="ic">📝</div>
+          <h3>Tugas &amp; Nilai</h3>
+          <p>Kumpulkan tugas, dapat penilaian plus umpan balik, dan lihat perkembangan nilai secara langsung.</p>
+        </article>
+        <article class="lp-feat c4 lp-reveal">
+          <div class="ic">🎯</div>
+          <h3>Gamifikasi &amp; Streak</h3>
+          <p>Jaga konsistensi dengan streak belajar, poin, lencana, dan papan peringkat yang bikin semangat.</p>
+        </article>
+        <article class="lp-feat c5 lp-reveal">
+          <div class="ic">👨‍👩‍👧</div>
+          <h3>Pantauan Orang Tua</h3>
+          <p>Orang tua memantau kehadiran, nilai, pembayaran, dan kemajuan anak — otomatis terhubung ke akunnya.</p>
+        </article>
+        <article class="lp-feat c6 lp-reveal">
+          <div class="ic">☁️</div>
+          <h3>Sinkron Semua Device</h3>
+          <p>Data tersimpan di server. Perubahan dari HP, tablet, atau laptop langsung terlihat di perangkat lain.</p>
+        </article>
+      </div>
+    </section>
+
+    <!-- ===================== Panorama kampus (SVG, tanpa gambar luar) ===================== -->
+    <div class="lp-campus" aria-hidden="true">
+      <svg viewBox="0 0 1440 340" preserveAspectRatio="xMidYMax slice" role="img">
+        <defs>
+          <linearGradient id="lpGrass" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0" stop-color="#4ade80" /><stop offset="1" stop-color="#16a34a" />
+          </linearGradient>
+          <linearGradient id="lpBrick" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0" stop-color="#f7a8c0" /><stop offset="1" stop-color="#ef5a84" />
+          </linearGradient>
+          <linearGradient id="lpBrick2" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0" stop-color="#cbd5ff" /><stop offset="1" stop-color="#93a3ff" />
+          </linearGradient>
+          <linearGradient id="lpRoof" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0" stop-color="#7c3aed" /><stop offset="1" stop-color="#5b21b6" />
+          </linearGradient>
+        </defs>
+
+        <!-- Pepohonan belakang -->
+        <g opacity=".9">
+          <circle cx="120" cy="250" r="40" fill="#34d399" /><rect x="114" y="250" width="12" height="40" fill="#8b5e3c" />
+          <circle cx="1330" cy="252" r="46" fill="#34d399" /><rect x="1323" y="252" width="14" height="44" fill="#8b5e3c" />
+          <circle cx="1230" cy="262" r="30" fill="#4ade80" /><rect x="1225" y="262" width="10" height="32" fill="#8b5e3c" />
+        </g>
+
+        <!-- Gedung kiri (fakultas) -->
+        <g>
+          <rect x="70" y="150" width="210" height="160" fill="url(#lpBrick2)" />
+          <polygon points="60,150 290,150 175,96" fill="url(#lpRoof)" />
+          <rect x="150" y="60" width="50" height="60" fill="url(#lpRoof)" />
+          <polygon points="150,60 200,60 175,34" fill="#4c1d95" />
+          <rect x="172" y="30" width="6" height="18" fill="#4c1d95" /><rect x="178" y="32" width="18" height="12" class="lp-flag" fill="#ec4899" />
+          <g fill="#ffe8a3">
+            <rect x="95" y="170" width="26" height="30" rx="3" class="lp-win-lit" />
+            <rect x="135" y="170" width="26" height="30" rx="3" class="lp-win-lit w2" />
+            <rect x="188" y="170" width="26" height="30" rx="3" />
+            <rect x="228" y="170" width="26" height="30" rx="3" class="lp-win-lit w3" />
+            <rect x="95" y="215" width="26" height="30" rx="3" />
+            <rect x="135" y="215" width="26" height="30" rx="3" class="lp-win-lit w4" />
+            <rect x="188" y="215" width="26" height="30" rx="3" class="lp-win-lit w5" />
+            <rect x="228" y="215" width="26" height="30" rx="3" />
+          </g>
+          <rect x="155" y="262" width="40" height="48" rx="4" fill="#5b21b6" />
+        </g>
+
+        <!-- Gedung utama (rektorat berkubah) -->
+        <g>
+          <rect x="560" y="120" width="320" height="190" fill="url(#lpBrick)" />
+          <polygon points="545,120 895,120 720,70" fill="url(#lpRoof)" />
+          <ellipse cx="720" cy="70" rx="46" ry="30" fill="#7c3aed" />
+          <path d="M674 70 a46 30 0 0 1 92 0 z" fill="#8b5cf6" />
+          <rect x="716" y="20" width="8" height="26" fill="#4c1d95" /><circle cx="720" cy="18" r="7" fill="#ffd36e" />
+          <!-- Pilar -->
+          <g fill="#fdf2f8">
+            <rect x="590" y="200" width="16" height="110" /><rect x="640" y="200" width="16" height="110" />
+            <rect x="690" y="200" width="16" height="110" /><rect x="740" y="200" width="16" height="110" />
+            <rect x="790" y="200" width="16" height="110" /><rect x="834" y="200" width="16" height="110" />
+          </g>
+          <rect x="576" y="188" width="288" height="14" fill="#fff0f6" />
+          <g fill="#ffe8a3">
+            <rect x="588" y="140" width="30" height="34" rx="3" class="lp-win-lit w3" />
+            <rect x="636" y="140" width="30" height="34" rx="3" />
+            <rect x="690" y="140" width="30" height="34" rx="3" class="lp-win-lit" />
+            <rect x="744" y="140" width="30" height="34" rx="3" />
+            <rect x="798" y="140" width="30" height="34" rx="3" class="lp-win-lit w2" />
+          </g>
+          <!-- Pintu utama + tangga -->
+          <rect x="698" y="250" width="44" height="60" rx="6" fill="#5b21b6" />
+          <rect x="686" y="306" width="68" height="6" fill="#fff0f6" /><rect x="678" y="312" width="84" height="6" fill="#fde4ef" />
+        </g>
+
+        <!-- Gedung kanan (perpustakaan/menara) -->
+        <g>
+          <rect x="1020" y="110" width="150" height="200" fill="url(#lpBrick2)" />
+          <rect x="1180" y="170" width="120" height="140" fill="url(#lpBrick)" />
+          <polygon points="1010,110 1180,110 1095,70" fill="url(#lpRoof)" />
+          <polygon points="1172,170 1308,170 1240,134" fill="url(#lpRoof)" />
+          <rect x="1088" y="40" width="14" height="34" fill="url(#lpRoof)" /><circle cx="1095" cy="36" r="8" fill="#ffd36e" />
+          <g fill="#ffe8a3">
+            <rect x="1040" y="130" width="24" height="28" rx="3" class="lp-win-lit w4" />
+            <rect x="1078" y="130" width="24" height="28" rx="3" />
+            <rect x="1118" y="130" width="24" height="28" rx="3" class="lp-win-lit w5" />
+            <rect x="1040" y="175" width="24" height="28" rx="3" />
+            <rect x="1078" y="175" width="24" height="28" rx="3" class="lp-win-lit" />
+            <rect x="1118" y="175" width="24" height="28" rx="3" />
+            <rect x="1200" y="195" width="26" height="30" rx="3" class="lp-win-lit w2" />
+            <rect x="1250" y="195" width="26" height="30" rx="3" />
+            <rect x="1200" y="240" width="26" height="30" rx="3" />
+            <rect x="1250" y="240" width="26" height="30" rx="3" class="lp-win-lit w3" />
+          </g>
+        </g>
+
+        <!-- Rumput -->
+        <rect x="0" y="300" width="1440" height="40" fill="url(#lpGrass)" />
+        <path d="M0 304 Q 360 288 720 304 T 1440 304 V 340 H 0 Z" fill="#22c55e" opacity=".55" />
+        <!-- Jalan setapak ke gerbang -->
+        <polygon points="690,340 750,340 800,310 640,310" fill="#e9d8c4" opacity=".9" />
+      </svg>
+    </div>
+
+    <footer class="lp-footer">
+      &copy; <span data-year>2026</span> <span data-app-name>LMS Rubela</span> — Belajar tanpa batas menuju kampus impian. 🎓
+    </footer>
   </div>
 
   <!-- Register modal (siswa only) -->
@@ -129,6 +310,9 @@
     </div>
   </div>
 
+  <script>
+    try { document.querySelectorAll('[data-year]').forEach(function (el) { el.textContent = new Date().getFullYear(); }); } catch (e) {}
+  </script>
   <script src="js/sync-config.js"></script>
   <script src="js/sync-catalog.js"></script>
   <script src="js/sync.js" data-page="login"></script>
@@ -139,5 +323,6 @@
   <script src="js/responsive.js"></script>
   <script src="js/loginquiz.js"></script>
   <script src="js/login.js"></script>
+  <script src="js/landing.js"></script>
 </body>
 </html>
