@@ -38,6 +38,7 @@
    * Modul, dan Tugas memakai alat yang persis sama.
    * ===================================================================*/
   let wsEl = null;
+  let escGuard = null;
 
   function esc(s) { return global.UI ? UI.esc(s) : String(s == null ? '' : s); }
 
@@ -179,16 +180,22 @@
    * @param {object} user     pengguna aktif (penulis soal)
    * @param {string|null} editId  id soal yang disunting, null untuk soal baru
    * @param {function} onSaved  callback setelah disimpan/ditutup
-   * @param {object} opts     { bank: 'questions' | 'security', subtest: nama }
+   * @param {object} opts     { bank: 'questions' | 'security', subtest: nama,
+   *                            detached: true, question: {...} }
+   *   detached → editor untuk soal kuis Course Mandiri: soal TIDAK disimpan
+   *              ke bank; onSaved(payload) menerima salinan soalnya.
    */
   function open(user, editId, onSaved, opts) {
     const o = opts || {};
+    const detached = !!o.detached;
     const bank = o.bank === 'security' ? 'security' : 'questions';
-    const existing = editId
-      ? (bank === 'security'
-          ? DB.getSecurityQuestions().find(q => q.id === editId)
-          : DB.getQuestion(editId))
-      : null;
+    const existing = detached
+      ? (o.question ? JSON.parse(JSON.stringify(o.question)) : null)
+      : editId
+        ? (bank === 'security'
+            ? DB.getSecurityQuestions().find(q => q.id === editId)
+            : DB.getQuestion(editId))
+        : null;
 
     const draft = Object.assign({
       subject: o.subtest || (DB.SUBTESTS[0] && DB.SUBTESTS[0].name),
@@ -218,17 +225,20 @@
     function buildShell() {
       close();   // pastikan tidak ada editor ganda
       wsEl = document.createElement('div');
-      wsEl.className = 'qe-workspace';
+      // Mode kuis course dibuka DI ATAS modal pelajaran, tanpa animasi masuk.
+      wsEl.className = 'qe-workspace' + (detached ? ' is-detached' : '');
+      const where = detached ? 'Soal kuis course — disimpan di pelajaran ini, bank soal tidak berubah'
+        : bank === 'security' ? 'Bank soal verifikasi login' : 'Bank soal ujian CBT';
       wsEl.innerHTML = `
         <div class="qe-top">
           <button class="btn btn-secondary btn-sm" id="qeBack">← Batal</button>
           <div class="qe-title">
-            <strong id="qeHeading">${existing ? 'Edit Soal' : 'Tambah Soal'}</strong>
-            <div class="muted small">${bank === 'security' ? 'Bank soal verifikasi login' : 'Bank soal ujian CBT'} • mendukung LaTeX, gambar, audio, dan tautan</div>
+            <strong id="qeHeading">${detached ? (existing ? 'Edit Soal Kuis' : 'Tambah Soal Kuis') : (existing ? 'Edit Soal' : 'Tambah Soal')}</strong>
+            <div class="muted small">${where} • mendukung LaTeX, gambar, audio, dan tautan</div>
           </div>
           <div class="qe-top-actions">
             <button class="btn btn-secondary btn-sm" id="qePreviewToggle">👁 Pratinjau</button>
-            <button class="btn btn-success btn-sm" id="qeSave">💾 Simpan Soal</button>
+            <button class="btn btn-success btn-sm" id="qeSave">${detached ? '✓ Simpan ke Kuis' : '💾 Simpan Soal'}</button>
           </div>
         </div>
         <div class="qe-body">
@@ -236,7 +246,10 @@
           <aside class="qe-side" id="qeSide"></aside>
         </div>`;
       document.body.appendChild(wsEl);
-      document.body.style.overflow = 'hidden';
+      if (!detached) document.body.style.overflow = 'hidden';
+      // Escape tidak boleh menembus ke modal di belakang ruang kerja (data pelajaran bisa hilang).
+      escGuard = (e) => { if (e.key === 'Escape' && wsEl) e.stopPropagation(); };
+      global.addEventListener('keydown', escGuard, true);
 
       wsEl.querySelector('#qeBack').addEventListener('click', () => {
         if (UI.confirmDialog('Tutup editor? Perubahan yang belum disimpan akan hilang.')) {
@@ -686,6 +699,16 @@
         payload.correctIndex = null;
       }
 
+      if (detached) {
+        // Salinan soal untuk kuis course; kunci asal bank (sourceId) dipertahankan.
+        payload.id = (existing && existing.id) || ('hq_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6));
+        if (existing && existing.sourceId) payload.sourceId = existing.sourceId;
+        payload.subject = draft.subject;
+        close();
+        if (typeof onSaved === 'function') onSaved(payload);
+        return;
+      }
+
       let saved;
       if (bank === 'security') {
         payload.subtest = draft.subject;
@@ -712,7 +735,9 @@
 
   function close() {
     if (wsEl) { wsEl.remove(); wsEl = null; }
-    document.body.style.overflow = '';
+    if (escGuard) { global.removeEventListener('keydown', escGuard, true); escGuard = null; }
+    // Kunci gulir halaman hanya dilepas bila tidak ada modal yang masih terbuka di belakang.
+    if (!(global.UI && UI.modal.isOpen && UI.modal.isOpen())) document.body.style.overflow = '';
     Editor.setHost(null);
   }
 

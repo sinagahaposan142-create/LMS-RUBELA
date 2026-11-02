@@ -1,8 +1,13 @@
 /* =====================================================================
- * js/ai.js — Lapisan integrasi AI bersama (Gemini + Agent API TinyFish)
+ * js/ai.js — Lapisan integrasi AI bersama (multi-penyedia + Agent API)
  * ---------------------------------------------------------------------
  * Dipakai bersama oleh panel admin, tutor, siswa, dan orang tua supaya
  * perilaku AI identik di seluruh aplikasi.
+ *
+ * Penyedia: Google Gemini, Groq, Mistral AI, OpenRouter, atau endpoint
+ * kompatibel OpenAI (lihat js/ai-providers.js). Bila penyedia utama gagal
+ * (kuota habis, kunci salah, server/jaringan bermasalah) penyedia lain
+ * yang kuncinya terisi dicoba otomatis.
  *
  * CATATAN KEAMANAN — PENTING
  * Kunci API TIDAK boleh ditulis di dalam kode dan tidak boleh ikut
@@ -14,9 +19,10 @@
 (function (global) {
   'use strict';
 
-  const GEMINI_BASE = 'https://generativelanguage.googleapis.com/v1beta/models/';
   const DEFAULT_MODEL = 'gemini-flash-latest';
   const DEFAULT_TIMEOUT = 30000;
+  const P = () => global.AIProviders;
+  let lastUsed = null;          // { provider, model } penyedia yang terakhir menjawab
 
   const esc = (s) => (global.UI && UI.esc) ? UI.esc(s) : String(s == null ? '' : s)
     .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
@@ -25,12 +31,18 @@
   /* ---------------------------------------------------------------
    * Konfigurasi
    * -------------------------------------------------------------*/
+  function settings() { return (global.DB && DB.getSettings) ? DB.getSettings() : {}; }
   function cfg() {
-    const s = (global.DB && DB.getSettings) ? DB.getSettings() : {};
+    const s = settings();
+    const chain = P() ? P().chain(s) : [];
+    const primary = P() ? P().primaryId(s) : 'gemini';
     return {
       enabled: s.aiEnabled !== false,
-      key: String(s.geminiApiKey || '').trim(),
-      model: String(s.geminiModel || DEFAULT_MODEL).trim() || DEFAULT_MODEL,
+      provider: primary,
+      providers: chain.map(c => c.id),
+      key: chain.length ? chain[0].key : String(s.geminiApiKey || '').trim(),
+      model: chain.length ? chain[0].model : (String(s.geminiModel || DEFAULT_MODEL).trim() || DEFAULT_MODEL),
+      fallback: s.aiFallback !== false,
       timeout: Number(s.aiTimeoutMs) > 0 ? Number(s.aiTimeoutMs) : DEFAULT_TIMEOUT,
       tfKey: String(s.tinyfishApiKey || '').trim(),
       tfEndpoint: String(s.tinyfishEndpoint || '').trim()
@@ -40,10 +52,16 @@
   /** Mode server: panggilan AI diteruskan oleh /api/rubela memakai kunci di server. */
   function viaServer() { return !!(global.Sync && Sync.isServer()); }
 
-  /** Apakah Gemini siap dipakai (diaktifkan + ada kunci). */
-  function ready() { const c = cfg(); return !!(c.enabled && c.key); }
+  /** Apakah AI siap dipakai (diaktifkan + minimal satu penyedia berkunci). */
+  function ready() { const c = cfg(); return !!(c.enabled && c.providers.length); }
   /** Apakah Agent API (TinyFish) siap dipakai. */
   function agentReady() { const c = cfg(); return !!(c.enabled && c.tfKey && c.tfEndpoint); }
+  /** Nama penyedia (utama, atau yang terakhir menjawab) untuk label "Ditenagai …". */
+  function providerLabel(which) {
+    const id = which === 'last' && lastUsed ? lastUsed.provider : cfg().provider;
+    const p = P() && P().PROVIDERS[id];
+    return p ? p.label : 'AI';
+  }
 
   function err(code, message) {
     const e = new Error(message);
@@ -51,20 +69,42 @@
     return e;
   }
 
+  /** Mode lokal: panggil satu penyedia langsung dari browser. */
+  async function callDirect(c, body, timeout, plain) {
+    const def = P().buildRequest(c, body, { plain, noJson: plain, referer: global.location ? global.location.origin : '' });
+    const ctrl = (typeof AbortController !== 'undefined') ? new AbortController() : null;
+    let timer = null;
+    if (ctrl) timer = setTimeout(() => ctrl.abort(), timeout);
+    try {
+      const res = await fetch(def.url, { method: 'POST', headers: def.headers, body: JSON.stringify(def.body), signal: ctrl ? ctrl.signal : undefined });
+      let data = null;
+      try { data = await res.json(); } catch (e) { data = null; }
+      return P().normalizeResponse(c, res.status, data);
+    } catch (e) {
+      const to = e && e.name === 'AbortError';
+      return { ok: false, code: to ? 'timeout' : 'network',
+        error: to ? 'Permintaan ke AI melebihi batas waktu. Coba lagi atau perpendek pertanyaan.' : `Tidak dapat menghubungi ${c.label}. Periksa koneksi internet Anda.` };
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
+  }
+
   /* ---------------------------------------------------------------
-   * Pemanggilan Gemini
+   * Pemanggilan AI (format permintaan Gemini, diterjemahkan per penyedia)
    * -------------------------------------------------------------*/
   /**
-   * Kirim percakapan ke Gemini.
+   * Kirim percakapan ke AI.
    * @param {Array} turns  [{ role:'user'|'model', text:'...' }]
-   * @param {object} opts  { system, temperature, maxTokens, json, signal }
+   * @param {object} opts  { system, temperature, maxTokens, json,
+   *                         test:{ provider, key, model, endpoint } (uji koneksi admin) }
    * @returns {Promise<string>} teks jawaban
    */
   async function chat(turns, opts) {
     const o = opts || {};
     const c = cfg();
-    if (!c.enabled) throw err('disabled', 'Fitur AI sedang dimatikan oleh admin pada menu Pengaturan.');
-    if (!c.key) throw err('nokey', 'Kunci API Gemini belum diisi. Admin dapat menambahkannya di Pengaturan → Integrasi AI.');
+    const test = o.test && o.test.provider ? o.test : null;
+    if (!c.enabled && !test) throw err('disabled', 'Fitur AI sedang dimatikan oleh admin pada menu Pengaturan.');
+    if (!test && !c.providers.length) throw err('nokey', 'Kunci API AI belum diisi. Admin dapat menambahkannya di Pengaturan → Integrasi AI.');
 
     const body = {
       contents: (turns || []).map(t => ({
@@ -81,12 +121,16 @@
 
     let res;
     let data = null;
+    let used = null;
     if (viaServer()) {
       // Mode server: kunci API hanya ada di server; browser mengirim lewat /api/rubela.
       try { await Sync.flush(); } catch (e) { /* tetap coba */ }
       let out;
+      const req = { payload: body };
+      if (test) Object.assign(req, { test: true, provider: test.provider, testKey: test.key || '', model: test.model || '', endpoint: test.endpoint || '' });
       try {
-        out = await Sync.api('ai', { model: c.model, payload: body, testKey: o.testKey || '' }, { timeout: c.timeout + 10000 });
+        // Penyedia cadangan bisa dicoba berurutan di server — beri waktu lebih.
+        out = await Sync.api('ai', req, { timeout: Math.max(c.timeout + 10000, 62000) });
       } catch (e) {
         if (!e.status) throw err('network', 'Tidak dapat menghubungi server. Periksa koneksi internet Anda.');
         throw err('server', e.message || 'Server AI sedang bermasalah. Coba lagi.');
@@ -94,42 +138,44 @@
       if (!out.ok) throw err(out.code || 'http', out.error || 'Permintaan AI gagal.');
       res = { ok: out.status >= 200 && out.status < 300, status: out.status };
       data = out.data;
+      used = out.provider ? { provider: out.provider, model: out.model || '' } : null;
     } else {
-      // Timeout manual: fetch tidak punya timeout bawaan.
-      const ctrl = (typeof AbortController !== 'undefined') ? new AbortController() : null;
-      let timer = null;
-      if (ctrl) timer = setTimeout(() => ctrl.abort(), c.timeout);
-      try {
-        res = await fetch(GEMINI_BASE + encodeURIComponent(c.model) + ':generateContent', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'X-goog-api-key': c.key },
-          body: JSON.stringify(body),
-          signal: ctrl ? ctrl.signal : undefined
-        });
-      } catch (e) {
-        if (timer) clearTimeout(timer);
-        if (e && e.name === 'AbortError') {
-          throw err('timeout', 'Permintaan ke AI melebihi batas waktu. Coba lagi atau perpendek pertanyaan.');
-        }
-        throw err('network', 'Tidak dapat menghubungi layanan AI. Periksa koneksi internet Anda.');
+      if (!P()) throw err('config', 'Modul penyedia AI belum termuat. Muat ulang halaman.');
+      const s = settings();
+      const chain = test ? P().chain(s, { only: test.provider, key: test.key, model: test.model, endpoint: test.endpoint }) : P().chain(s);
+      if (!chain.length) throw err('nokey', 'Kunci API/endpoint penyedia AI belum diisi atau tidak valid.');
+      let last = null;
+      for (const pc of chain) {
+        let r = await callDirect(pc, body, c.timeout, false);
+        if (!r.ok && r.retryPlain) r = await callDirect(pc, body, c.timeout, true);
+        if (r.ok && !P().shouldFallback(r)) { last = { r, pc }; break; }
+        last = { r, pc };
       }
-      if (timer) clearTimeout(timer);
-      try { data = await res.json(); } catch (e) { data = null; }
+      const r = last.r;
+      if (r.code) throw err(r.code, r.error);
+      res = { ok: r.ok, status: r.status };
+      data = r.data;
+      used = { provider: last.pc.id, model: last.pc.model };
     }
+    if (used) lastUsed = used;
+    const label = used && P() && P().PROVIDERS[used.provider] ? P().PROVIDERS[used.provider].label : 'AI';
 
     if (!res.ok) {
       const msg = (data && data.error && data.error.message) ? data.error.message : ('HTTP ' + res.status);
       if (res.status === 400 && /api key|API_KEY/i.test(msg)) {
-        throw err('badkey', 'Kunci API Gemini tidak valid. Periksa kembali di Pengaturan → Integrasi AI.');
+        throw err('badkey', `Kunci API ${label} tidak valid. Periksa kembali di Pengaturan → Integrasi AI.`);
       }
       if (res.status === 401 || res.status === 403) {
-        throw err('forbidden', 'Kunci API ditolak (tidak punya izin). Pastikan kunci masih aktif.');
+        throw err('forbidden', `Kunci API ${label} ditolak (tidak punya izin). Pastikan kunci masih aktif.`);
+      }
+      if (res.status === 413) {
+        throw err('toolarge', 'Permintaan terlalu panjang untuk batas penyedia AI gratis. Perpendek teks atau tambahkan penyedia cadangan.');
       }
       if (res.status === 429) {
-        throw err('quota', 'Kuota permintaan AI sedang penuh. Tunggu sebentar lalu coba lagi.');
+        throw err('quota', `Kuota permintaan ${label} sedang penuh. Tunggu sebentar, atau tambahkan penyedia cadangan di Pengaturan → Integrasi AI.`);
       }
       if (res.status >= 500) {
-        throw err('server', 'Layanan AI sedang bermasalah (server). Coba lagi beberapa saat lagi.');
+        throw err('server', `Layanan ${label} sedang bermasalah (server). Coba lagi beberapa saat lagi.`);
       }
       throw err('http', 'Permintaan AI gagal: ' + msg);
     }
@@ -254,6 +300,12 @@
     for (const k of ['rows', 'data', 'items', 'result', 'results', 'output', 'records']) {
       if (Array.isArray(data[k])) return data[k].filter(r => r && typeof r === 'object');
     }
+    // Mode JSON penyedia berformat OpenAI mewajibkan objek, sehingga array sering
+    // dibungkus kunci lain (mis. {"soal":[...]}) — ambil array objek pertama.
+    if (typeof data === 'object') {
+      const arrKey = Object.keys(data).find(k => Array.isArray(data[k]) && data[k].some(r => r && typeof r === 'object'));
+      if (arrKey) return data[arrKey].filter(r => r && typeof r === 'object');
+    }
     // Kadang hasil dikirim sebagai string JSON di dalam field teks.
     for (const k of ['text', 'content', 'answer']) {
       if (typeof data[k] === 'string') {
@@ -273,19 +325,21 @@
   /** Pemberitahuan bila AI belum dikonfigurasi. */
   function noticeHtml(user) {
     const c = cfg();
-    if (c.enabled && c.key) return '';
+    if (c.enabled && c.providers.length) return '';
     const isAdmin = user && user.role === 'admin';
     const why = !c.enabled
       ? 'Fitur AI sedang dimatikan pada menu Pengaturan.'
-      : 'Kunci API Gemini belum diisi.';
+      : 'Kunci API AI (Gemini, Groq, Mistral, atau OpenRouter) belum diisi.';
+    let how;
+    if (isAdmin) how = ' Buka <strong>Pengaturan → Integrasi AI</strong> untuk memilih penyedia dan memasukkan kunci API.';
+    else if (user && user.role === 'guru') {
+      how = viaServer()
+        ? ' Integrasi AI dikelola admin di server — hubungi admin agar mengisi kunci di <strong>Pengaturan → Integrasi AI</strong>.'
+        : ' Buka <strong>Profil → Integrasi AI</strong> untuk mengisi kunci di perangkat ini (mode lokal).';
+    } else how = ' Hubungi admin agar mengaktifkan integrasi AI terlebih dahulu.';
     return `
       <div class="alert alert-warning ai-notice">
-        <strong>🤖 Fitur AI belum aktif.</strong> ${esc(why)}
-        ${isAdmin
-          ? ' Buka <strong>Pengaturan → Integrasi AI</strong> untuk memasukkan kunci API Gemini.'
-          : (user && user.role === 'guru'
-            ? ' Buka <strong>Profil → Integrasi AI Perangkat Ini</strong>. Karena LMS belum memiliki backend, kunci admin tidak dapat tersinkron otomatis ke perangkat tutor lain.'
-            : ' Hubungi admin agar mengaktifkan integrasi AI terlebih dahulu.')}
+        <strong>🤖 Fitur AI belum aktif.</strong> ${esc(why)}${how}
         <div class="muted small" style="margin-top:6px;">
           Tanpa kunci API, halaman ini tetap menampilkan analisis dari data asli LMS —
           hanya ulasan naratif dari AI yang tidak tersedia.
@@ -356,7 +410,8 @@
   }
 
   global.AI = {
-    cfg, ready, agentReady,
+    cfg, ready, agentReady, providerLabel,
+    lastUsed: () => lastUsed,
     chat, ask, askJson, parseJson,
     agentExtract, normalizeRows,
     noticeHtml, loadingHtml, errorHtml, renderMarkdown, toPlain,

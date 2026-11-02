@@ -910,7 +910,7 @@
             <div class="form-group"><label>Nama kampus</label><input class="input" name="name" maxlength="80" required value="${esc(u.name)}" /></div>
             <div class="form-group"><label>Singkatan</label><input class="input" name="short" maxlength="10" required value="${esc(u.short)}" /></div>
             <div class="form-group"><label>Gaya bangunan</label><select class="input" name="style">${Object.keys(STYLES).map(k => `<option value="${k}" ${u.style === k ? 'selected' : ''}>${STYLES[k]}</option>`).join('')}</select></div>
-            <div class="form-group"><label>Warna atap</label><input type="color" name="color" value="${esc(u.color)}" /></div>
+            <div class="form-group"><label>Warna atap</label>${UI.colorFieldHtml('color', u.color, 'aria-label="Warna atap gedung ' + (i + 1) + '"', '#e2e8f0')}</div>
           </div>
           <div class="form-row">
             <div class="form-group"><label>Peringkat</label><input class="input" name="rank" maxlength="20" value="${esc(u.rank || '')}" placeholder="mis. 189" /></div>

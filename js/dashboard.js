@@ -674,6 +674,8 @@
     streakTick();
     setInterval(streakTick, 5 * 60 * 1000);
     if (user.role === 'siswa') { try { DB.notifyReadyCapsules(user.id); } catch (e) { console.warn('[LMS] mesin waktu', e); } }
+    // Course Mandiri: keluarkan otomatis peserta yang tidak aktif (admin: semua; mentee: miliknya).
+    if ((user.role === 'admin' || user.role === 'siswa') && window.CourseHub && CourseHub.sweep) CourseHub.sweep(user);
     renderSidebar();
     document.getElementById('clockContainer').innerHTML = UI.clockWidgetHtml();
     UI.startClock();

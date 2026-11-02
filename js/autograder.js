@@ -40,7 +40,7 @@
 
   async function suggestSubmission(user, assignment, submission) {
     assertManage(user, assignment);
-    if (!AI.ready()) throw new Error('Gemini belum aktif. Isi kunci API di Pengaturan → Integrasi AI.');
+    if (!AI.ready()) throw new Error('AI belum aktif. Isi kunci API (Gemini/Groq/Mistral/OpenRouter) di Pengaturan → Integrasi AI.');
     const studentAnswer = snapshot(assignment, submission);
     if (!studentAnswer.trim()) throw new Error('Jawaban siswa kosong.');
     const maxScore = Number(assignment.maxScore) || 100;
@@ -88,7 +88,8 @@
 
     const raw = await AI.askJson(prompt, { temperature: 0.15, maxTokens: 1200 });
     const suggestion = normalizeSuggestion(raw, maxScore);
-    return saveProposal(user, assignment, submission, suggestion, AI.cfg().model);
+    const used = AI.lastUsed && AI.lastUsed();
+    return saveProposal(user, assignment, submission, suggestion, used ? `${used.provider}:${used.model}` : AI.cfg().model);
   }
 
   function saveProposal(user, assignment, submission, suggestion, model) {

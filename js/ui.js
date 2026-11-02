@@ -171,21 +171,81 @@
     return `${m} menit`;
   }
 
+  /* Preferensi layar penuh per jenis modal disimpan di perangkat ini saja
+   * (kunci di luar katalog sinkronisasi). */
+  const FULL_PREFIX = 'lms_modal_full:';
+  let modalCloseTimer = null;
+
+  function setModalFull(el, on, key) {
+    el.classList.toggle('is-full', !!on);
+    const btn = document.getElementById('modalFull');
+    if (btn) {
+      btn.setAttribute('aria-pressed', on ? 'true' : 'false');
+      btn.title = on ? 'Keluar dari layar penuh' : 'Layar penuh';
+      btn.setAttribute('aria-label', btn.title);
+      btn.innerHTML = on ? '🗗' : '⛶';
+    }
+    if (key) { try { localStorage.setItem(FULL_PREFIX + key, on ? '1' : '0'); } catch (e) { /* penyimpanan penuh */ } }
+  }
+
+  /** Pasang/lepas tombol layar penuh di kepala modal sesuai opsi pemanggil. */
+  function applyModalChrome(el, o) {
+    const head = el.querySelector('.modal-header');
+    let btn = document.getElementById('modalFull');
+    if (!o.fullscreenToggle) {
+      if (btn) btn.remove();
+      el.classList.remove('is-full');
+      return;
+    }
+    if (!btn && head) {
+      btn = document.createElement('button');
+      btn.type = 'button';
+      btn.id = 'modalFull';
+      btn.className = 'icon-btn modal-full-btn';
+      head.insertBefore(btn, document.getElementById('modalClose'));
+    }
+    const key = o.fullKey ? String(o.fullKey) : '';
+    let on = false;
+    if (o.fullscreen != null) on = !!o.fullscreen;
+    else if (key) { try { on = localStorage.getItem(FULL_PREFIX + key) === '1'; } catch (e) { on = false; } }
+    if (btn) btn.onclick = () => setModalFull(el, !el.classList.contains('is-full'), key);
+    setModalFull(el, on, '');
+  }
+
   const modal = {
-    open(title, bodyHTML) {
+    /**
+     * Buka modal umum.
+     * @param {string} title
+     * @param {string} bodyHTML
+     * @param {object} [opts] { fullscreenToggle, fullKey, fullscreen, animate, autofocus }
+     *   fullscreenToggle → tampilkan tombol layar penuh (preferensi diingat per fullKey)
+     *   animate:false    → jangan memutar animasi masuk
+     *   autofocus:false  → jangan memfokuskan kolom pertama
+     */
+    open(title, bodyHTML, opts) {
+      const o = opts || {};
       const el = document.getElementById('genericModal');
+      if (modalCloseTimer) { clearTimeout(modalCloseTimer); modalCloseTimer = null; }
+      const wasOpen = !el.classList.contains('hidden') && !el.classList.contains('is-closing');
       document.getElementById('modalTitle').textContent = title;
       document.getElementById('modalBody').innerHTML = bodyHTML;
       el.classList.remove('is-closing');
       el.classList.remove('hidden');
-      // Re-trigger the entrance animation on every open
+      applyModalChrome(el, o);
+      // Animasi masuk hanya saat modal baru dibuka — bukan saat isinya diganti
+      // ketika modal masih tampil (mencegah kedip/lompatan saat memperbarui isi).
       const box = el.querySelector('.modal-content');
-      if (box) { box.style.animation = 'none'; void box.offsetWidth; box.style.animation = ''; }
+      if (box) {
+        if (o.animate === false) box.style.animation = 'none';
+        else if (!wasOpen) { box.style.animation = 'none'; void box.offsetWidth; box.style.animation = ''; }
+      }
       // Autofocus the first meaningful field for faster data entry
-      setTimeout(() => {
-        const first = el.querySelector('input:not([type=hidden]):not([readonly]), textarea, select');
-        if (first) try { first.focus(); } catch (e) { /* noop */ }
-      }, 60);
+      if (o.autofocus !== false) {
+        setTimeout(() => {
+          const first = el.querySelector('#modalBody input:not([type=hidden]):not([readonly]), #modalBody textarea, #modalBody select');
+          if (first) try { first.focus({ preventScroll: true }); } catch (e) { /* noop */ }
+        }, 60);
+      }
       if (global.Effects) Effects.enhance(el);
       if (global.Responsive) Responsive.apply(el);
     },
@@ -193,10 +253,19 @@
       const el = document.getElementById('genericModal');
       if (!el || el.classList.contains('hidden')) return;
       el.classList.add('is-closing');
-      setTimeout(() => {
+      if (modalCloseTimer) clearTimeout(modalCloseTimer);
+      modalCloseTimer = setTimeout(() => {
+        modalCloseTimer = null;
         el.classList.add('hidden');
         el.classList.remove('is-closing');
+        el.classList.remove('is-full');
+        const fb = document.getElementById('modalFull');
+        if (fb) fb.remove();
       }, 170);
+    },
+    isOpen() {
+      const el = document.getElementById('genericModal');
+      return !!el && !el.classList.contains('hidden') && !el.classList.contains('is-closing');
     }
   };
 
@@ -226,6 +295,34 @@
   }
 
   function confirmDialog(msg) { return window.confirm(msg); }
+
+  /**
+   * Kolom pilihan warna: kotak contoh warna + kode heksa, dengan garis tepi
+   * yang ikut berubah sesuai warna terpilih.
+   * @param {string} name   atribut name input
+   * @param {string} value  warna awal (#rrggbb)
+   * @param {string} [attrs] atribut tambahan untuk <input> (mis. 'id="x"')
+   * @param {string} [fallback] warna bila value tidak valid
+   */
+  function colorFieldHtml(name, value, attrs, fallback) {
+    const ok = (c) => /^#[0-9a-f]{6}$/i.test(String(c || ''));
+    const v = ok(value) ? String(value) : (ok(fallback) ? String(fallback) : '#4f46e5');
+    return `<span class="color-field" style="--picked:${v}"><input type="color" name="${esc(name)}" value="${v}" ${attrs || ''} />` +
+      `<code class="color-hex" aria-hidden="true">${v.toUpperCase()}</code></span>`;
+  }
+  function syncColorField(e) {
+    const t = e.target;
+    if (!t || t.type !== 'color' || !t.closest) return;
+    const wrap = t.closest('.color-field');
+    if (!wrap) return;
+    wrap.style.setProperty('--picked', t.value);
+    const hex = wrap.querySelector('.color-hex');
+    if (hex) hex.textContent = String(t.value || '').toUpperCase();
+  }
+  if (typeof document !== 'undefined') {
+    document.addEventListener('input', syncColorField, true);
+    document.addEventListener('change', syncColorField, true);
+  }
 
   /** Status memuat pada tombol (spinner + nonaktif sementara). */
   function setBusy(btn, busy) {
@@ -310,7 +407,7 @@
 
   global.UI = {
     esc, fmtDate, fmtDateTime, toDateInput, toDateTimeLocalInput, todayYMD, fmtYMD, fmtRp, fmtDuration,
-    modal, toast, confirmDialog, setBusy, initials, bannerClass, reloadAfterSync,
+    modal, toast, confirmDialog, setBusy, initials, bannerClass, reloadAfterSync, colorFieldHtml,
     progressHtml, meterHtml, secHead, fmtRelative, greeting,
     // Timezone
     TZ_OFFSETS, TZ_LABELS, getTimezone, setTimezone, nowInTz, toTzDate, fmtClock, fmtFullDateTime,

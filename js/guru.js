@@ -763,15 +763,19 @@
         <div class="flex-gap"><span class="ai-status ${AI.ready() ? 'is-on' : 'is-off'}">${AI.ready() ? '● AI aktif' : '○ AI belum diaktifkan admin'}</span></div>
         ` : `
         <div class="alert alert-warning small"><strong>Mode lokal.</strong> Kunci disimpan hanya di localStorage perangkat ini dan tidak masuk repositori. Gunakan kunci terbatas/terpisah dan jangan membagikannya.</div>
-        <div class="form">
-          <div class="form-group"><label for="guruGeminiKey">Kunci API Gemini</label>
-            <div class="flex-gap"><input id="guruGeminiKey" type="password" autocomplete="off" value="${UI.esc(DB.getSettings().geminiApiKey || '')}" style="flex:1" />
+        ${(() => { const st = DB.getSettings(); const AP = window.AIProviders; const cur = AP.primaryId(st); const p = AP.PROVIDERS[cur];
+          return `<div class="form">
+          <div class="form-group"><label for="guruAiProv">Penyedia AI</label>
+            <select id="guruAiProv">${AP.ORDER.filter(id => id !== 'custom').map(id => `<option value="${id}" ${id === cur ? 'selected' : ''}>${UI.esc(AP.PROVIDERS[id].label)}</option>`).join('')}</select>
+            <div class="muted small" id="guruAiNote">${UI.esc(p.note)}</div></div>
+          <div class="form-group"><label for="guruGeminiKey">Kunci API</label>
+            <div class="flex-gap"><input id="guruGeminiKey" type="password" autocomplete="off" value="${UI.esc(st[p.keySetting] || '')}" style="flex:1" />
             <button type="button" class="btn btn-sm btn-secondary" id="guruGeminiShow">Lihat</button></div>
           </div>
           <div class="form-group"><label for="guruGeminiModel">Model</label>
-            <input id="guruGeminiModel" value="${UI.esc(DB.getSettings().geminiModel || 'gemini-flash-latest')}" /></div>
+            <input id="guruGeminiModel" value="${UI.esc(st[p.modelSetting] || '')}" placeholder="${UI.esc(p.defaultModel)}" /></div>
           <button type="button" class="btn btn-primary" id="guruGeminiSave">Simpan Integrasi AI</button>
-        </div>`}
+        </div>`; })()}`}
       </div>
     `;
     if (!Auth.isServer()) {
@@ -780,11 +784,26 @@
         const show = input.type === 'password'; input.type = show ? 'text' : 'password';
         document.getElementById('guruGeminiShow').textContent = show ? 'Sembunyikan' : 'Lihat';
       });
+      const AP = window.AIProviders;
+      const provSel = document.getElementById('guruAiProv');
+      provSel.addEventListener('change', () => {
+        const st = DB.getSettings();
+        const p = AP.PROVIDERS[provSel.value];
+        document.getElementById('guruGeminiKey').value = st[p.keySetting] || '';
+        const m = document.getElementById('guruGeminiModel');
+        m.value = st[p.modelSetting] || '';
+        m.placeholder = p.defaultModel;
+        document.getElementById('guruAiNote').textContent = p.note;
+      });
       document.getElementById('guruGeminiSave').addEventListener('click', () => {
-        DB.setSetting('geminiApiKey', document.getElementById('guruGeminiKey').value.trim());
-        DB.setSetting('geminiModel', document.getElementById('guruGeminiModel').value.trim() || 'gemini-flash-latest');
+        const p = AP.PROVIDERS[provSel.value];
+        const model = document.getElementById('guruGeminiModel').value.trim();
+        if (model && !AP.isValidModel(p, model)) { UI.toast('Nama model tidak valid.', 'error'); return; }
+        DB.setSetting('aiProvider', p.id);
+        DB.setSetting(p.keySetting, document.getElementById('guruGeminiKey').value.trim());
+        DB.setSetting(p.modelSetting, model);
         DB.setSetting('aiEnabled', true);
-        UI.toast('Integrasi AI perangkat tutor disimpan.', 'success');
+        UI.toast(`Integrasi AI perangkat tutor disimpan (${p.label}).`, 'success');
       });
     }
     const photoField = ProfileFields.bindPhotoField(document.getElementById('profileForm'), DB.getUser(user.id));

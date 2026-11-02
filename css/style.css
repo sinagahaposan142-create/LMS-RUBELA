@@ -166,6 +166,41 @@ textarea.form:focus,
 /* Standalone select.form / input.form / .att-input shouldn't stretch to full width */
 select.form, input.form, textarea.form, .att-input { width: auto; }
 
+/* ---- Input warna: tampil sebagai kotak contoh warna (bukan garis tipis memanjang) ----
+ * Aturan .form input di atas memberi width:100% + padding sehingga warna hanya
+ * terlihat sebagai garis. Pembungkus .color-field ikut berwarna (garis tepi &
+ * kode heksa) mengikuti warna yang dipilih — diperbarui js/ui.js. */
+.form input[type="color"], .form-group input[type="color"], input[type="color"].input, .color-field input[type="color"] {
+  -webkit-appearance: none; appearance: none;
+  width: 52px; min-width: 52px; max-width: 52px; height: 40px;
+  padding: 3px; flex: none;
+  border: 1px solid var(--gray-300); border-radius: 10px;
+  background: var(--surface); cursor: pointer; vertical-align: middle;
+}
+.form input[type="color"]::-webkit-color-swatch-wrapper, .form-group input[type="color"]::-webkit-color-swatch-wrapper,
+.color-field input[type="color"]::-webkit-color-swatch-wrapper { padding: 0; }
+.form input[type="color"]::-webkit-color-swatch, .form-group input[type="color"]::-webkit-color-swatch,
+.color-field input[type="color"]::-webkit-color-swatch { border: none; border-radius: 7px; }
+.form input[type="color"]::-moz-color-swatch, .form-group input[type="color"]::-moz-color-swatch,
+.color-field input[type="color"]::-moz-color-swatch { border: none; border-radius: 7px; }
+.form input[type="color"]:focus-visible, .color-field input[type="color"]:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+.color-field {
+  --picked: #4f46e5;
+  display: inline-flex; align-items: center; gap: 10px;
+  padding: 4px 12px 4px 4px;
+  border: 2px solid var(--picked);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--picked) 8%, var(--surface));
+  transition: border-color var(--t-fast, .15s) ease, background-color var(--t-fast, .15s) ease;
+}
+.color-field input[type="color"] { width: 46px; min-width: 46px; max-width: 46px; height: 34px; padding: 0; border: none; border-radius: 8px; background: transparent; }
+.color-hex { font: 700 12.5px/1 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; letter-spacing: .3px; color: var(--gray-800); }
+
+/* Angka dengan satuan di kanan (mis. "40 detik", "7 hari") */
+.input-suffix { display: flex; align-items: center; gap: 8px; }
+.input-suffix .input, .form .input-suffix input { flex: 1 1 auto; min-width: 0; max-width: 140px; }
+.input-suffix > span { font-size: 13px; color: var(--gray-600); white-space: nowrap; }
+
 .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 
 /* ===== Alerts ===== */
@@ -1381,6 +1416,20 @@ body { transition: background-color var(--t-med) ease, color var(--t-med) ease; 
 .modal .modal-content { animation: popIn 0.34s var(--ease-back) both; }
 .modal.is-closing { animation: fadeIn 0.18s ease reverse both; }
 .modal.is-closing .modal-content { animation: popOut 0.18s ease both; }
+/* Bagian form yang dirender ulang (mis. tambah soal) tidak perlu beranimasi lagi */
+.no-anim .form-group, .form.no-anim .form-group { animation: none !important; }
+
+/* ---------- Modal layar penuh (UI.modal.open(..., { fullscreenToggle: true })) ---------- */
+.modal-header .modal-full-btn { margin-left: auto; font-size: 17px; }
+#genericModal.is-full { padding: 0; place-items: stretch; }
+#genericModal.is-full .modal-content {
+  width: 100vw; max-width: 100vw; height: 100vh; height: 100dvh; max-height: 100vh; max-height: 100dvh;
+  border-radius: 0; border: none; padding-bottom: var(--sa-b, 0px);
+}
+#genericModal.is-full .modal-content::before { display: none; }
+#genericModal.is-full .modal-header { border-radius: 0; }
+#genericModal.is-full #modalBody { width: 100%; max-width: 1180px; margin: 0 auto; }
+#genericModal.is-full .ce-editor-tall, #genericModal.is-full .qe-editor.ce-editor-tall { max-height: none; min-height: 46vh; }
 
 /* ---------- Toasts ---------- */
 #toastBox { pointer-events: none; }
@@ -2729,6 +2778,9 @@ html[data-theme="dark"] .theme-toggle .knob { transform: translateX(24px); }
   flex-direction: column;
   animation: fadeIn 0.18s ease both;
 }
+/* Editor soal kuis Course Mandiri: dibuka di atas modal pelajaran (160) namun
+ * di bawah dialog editor (1700), tanpa animasi masuk. */
+.qe-workspace.is-detached { z-index: 1650; animation: none; }
 .qe-top {
   display: flex;
   align-items: center;
@@ -2936,45 +2988,70 @@ html[data-theme="dark"] .theme-toggle .knob { transform: translateX(24px); }
 .qe-prev-order { padding-left: 22px; font-size: 13.5px; }
 .qe-prev-order li { margin-bottom: 5px; }
 
-/* ---- Dialog kecil di dalam editor ---- */
+/* ---- Dialog kecil editor (tabel, gambar, audio, tautan, rumus, AI, …) ----
+ * Dipasang di <body> dengan position: fixed. z-index 1700 berada di atas
+ * .modal (160), ruang kerja (140) dan pemutar musik (1500), namun di bawah
+ * toast (3500). Saat dibuka dari bilah alat editor, js/editor.js menaruhnya
+ * tepat di bawah/atas bilah alat (kelas .is-anchored); di ponsel menjadi
+ * bottom sheet (.is-sheet). */
 .qe-dialog-back {
-  position: absolute;
+  position: fixed;
   inset: 0;
-  background: rgba(15, 23, 42, 0.5);
-  backdrop-filter: blur(2px);
+  z-index: 1700;
+  background: rgba(15, 23, 42, 0.42);
   display: grid;
   place-items: center;
   padding: 20px;
-  z-index: 5;
-  animation: fadeIn 0.16s ease both;
+  animation: fadeIn 0.14s ease both;
 }
+.qe-dialog-back.is-anchored { display: block; padding: 0; background: rgba(15, 23, 42, 0.14); }
+.qe-dialog-back.is-anchored .qe-dialog { position: absolute; }
 .qe-dialog {
+  position: relative;
   background: var(--surface);
+  border: 1px solid var(--gray-200);
   border-radius: 14px;
-  width: 100%;
-  max-width: 520px;
+  width: min(520px, calc(100vw - 20px));
   max-height: 86dvh;
+  min-height: 0;
   overflow: hidden;
   display: flex; flex-direction: column;
-  box-shadow: var(--shadow-lg);
-  animation: popIn 0.22s var(--ease-back) both;
+  box-shadow: 0 18px 50px rgba(15, 23, 42, 0.28), 0 2px 8px rgba(15, 23, 42, 0.12);
+  animation: qeDlgIn 0.16s var(--ease) both;
 }
+@keyframes qeDlgIn { from { opacity: 0; transform: translateY(6px) scale(0.985); } to { opacity: 1; transform: none; } }
 .qe-dialog-head {
+  flex: 0 0 auto;
   display: flex; align-items: center; justify-content: space-between;
   padding: 12px 16px;
   border-bottom: 1px solid var(--gray-200);
 }
-.qe-dialog-body { padding: 16px; overflow-y: auto; }
+.qe-dialog-body { flex: 1 1 auto; min-height: 0; padding: 16px; overflow-y: auto; overscroll-behavior: contain; }
+.qe-dialog-back.is-sheet { display: grid; place-items: end center; padding: 0 0 0; }
+.qe-dialog-back.is-sheet .qe-dialog {
+  position: relative;
+  width: 100%;
+  border-radius: 18px 18px 0 0;
+  border-bottom: none;
+  padding-bottom: var(--sa-b, 0px);
+  animation: qeSheetUp 0.24s var(--ease) both;
+}
+@keyframes qeSheetUp { from { transform: translateY(100%); } to { transform: none; } }
 .qe-dialog-body input[type="text"], .qe-dialog-body input[type="url"],
-.qe-dialog-body input[type="number"], .qe-dialog-body input[type="file"] {
+.qe-dialog-body input[type="number"], .qe-dialog-body input[type="file"],
+.qe-dialog-body input[type="search"], .qe-dialog-body input:not([type]),
+.qe-dialog-body textarea:not(.qe-fx-input) {
   width: 100%;
   padding: 9px 11px;
   border: 1px solid var(--gray-300);
   border-radius: var(--radius-sm);
   font-size: 13.5px;
+  font-family: inherit;
   background: var(--surface);
   color: var(--gray-800);
 }
+.qe-dialog-body textarea:not(.qe-fx-input) { resize: vertical; min-height: 90px; }
+.qe-dialog-body input:focus, .qe-dialog-body textarea:focus { outline: none; border-color: var(--primary); box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.15); }
 .qe-fx-input {
   width: 100%;
   padding: 11px;
@@ -3800,6 +3877,10 @@ body.lq-open { overflow: hidden; }
   box-shadow: var(--shadow-lg);
 }
 .rte-pop.is-open { display: block; animation: fadeInUp 0.16s var(--ease) both; }
+/* Dibalik oleh js/editor.js (fitPop) agar tidak terpotong tepi layar/modal */
+.rte-pop.to-left { left: auto; right: 0; }
+.rte-pop.to-right { left: 0; right: auto; }
+.rte-pop.to-up { top: auto; bottom: calc(100% + 6px); }
 .rte-pop-wide { min-width: 268px; }
 .rte-pop-title {
   font-size: 11px;
@@ -4441,6 +4522,15 @@ body.lq-open { overflow: hidden; }
   font-size: 11.5px;
   font-weight: 600;
 }
+/* Panel penyedia AI (Pengaturan → Integrasi AI) */
+.ai-prov { border: 1px solid var(--gray-200); border-radius: 12px; padding: 0 14px; margin: 10px 0; background: var(--surface); }
+.ai-prov[open] { padding-bottom: 12px; }
+.ai-prov > summary { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 12px 0; cursor: pointer; list-style: none; }
+.ai-prov > summary::-webkit-details-marker { display: none; }
+.ai-prov > summary::before { content: '▸'; color: var(--gray-500); transition: transform .15s; }
+.ai-prov[open] > summary::before { transform: rotate(90deg); }
+.ai-prov > .muted { margin-bottom: 8px; }
+
 .ai-status.is-on  { background: var(--success-light, #dcfce7); color: var(--success-dark, #166534); }
 .ai-status.is-off { background: var(--gray-100); color: var(--gray-600); }
 
@@ -5068,6 +5158,45 @@ html[data-theme="dark"] .vs-card { background: linear-gradient(160deg, #0f2e2a, 
 .hub-elessons li.is-off { opacity: .6; }
 .hub-li-act { display: flex; gap: 2px; flex-wrap: wrap; margin-left: auto; }
 .hub-checks { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 2px 12px; max-height: 220px; overflow-y: auto; border: 1px solid var(--gray-200); border-radius: 8px; padding: 8px; }
+/* Status kunci urutan & keaktifan */
+.hub-li.is-locked .hub-li-t, .hub-li.is-drip .hub-li-t { color: var(--gray-500); }
+.hub-sec.is-locked summary { background: var(--gray-100); }
+.hub-side-item.is-locked, .hub-side-item.is-drip { opacity: .55; }
+.hub-lock-hint { margin-top: 10px; padding: 9px 12px; border-radius: 10px; background: var(--warning-bg, #fffbeb); color: var(--gray-700); font-size: 13px; }
+.hub-meta-warn { color: var(--warning, #b45309); font-weight: 600; }
+.hub-inact-note { margin-top: 2px; line-height: 1.45; }
+/* Kuis mentee (8 jenis soal CBT) */
+.hub-q { scroll-margin: calc(var(--topbar-h, 58px) + 16px); transition: box-shadow .2s, border-color .2s; }
+.hub-q.is-missing { border-color: var(--danger) !important; box-shadow: 0 0 0 3px color-mix(in srgb, var(--danger) 18%, transparent); }
+.hub-q .asg-opt.is-key { border-color: var(--success); background: var(--success-bg); }
+.hub-q .asg-opt.is-wrong { border-color: var(--danger); background: var(--danger-bg); }
+.hub-key { margin-top: 10px; padding: 10px 12px; border-radius: 10px; background: var(--success-bg); font-size: 13px; line-height: 1.55; }
+.hub-key .rt-content p { margin: 0; }
+.hub-key ol { margin: 4px 0 0; padding-left: 20px; }
+.hub-quiz-foot { justify-content: flex-end; margin-top: 4px; }
+/* Editor pelajaran (modal, dapat layar penuh) */
+.modal-content:has(.les-form) { max-width: min(900px, 100%); }
+.les-min-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
+.les-min-quick { display: flex; flex-wrap: wrap; gap: 6px; }
+.les-min-quick .btn { white-space: nowrap; }
+.hub-quiz-edit { border: 1px solid var(--gray-200); border-radius: 12px; padding: 12px; margin-bottom: 14px; background: var(--surface-alt, var(--gray-50)); }
+.hub-quiz-head { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 10px; margin-bottom: 6px; }
+.hub-quiz-tools { display: flex; flex-wrap: wrap; gap: 6px; }
+.hub-qlist { list-style: none; margin: 10px 0 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.hub-qitem { display: flex; gap: 10px; align-items: flex-start; padding: 10px; border: 1px solid var(--gray-200); border-radius: 10px; background: var(--surface); transition: box-shadow .3s, border-color .3s; }
+.hub-qitem.is-bad { border-color: color-mix(in srgb, var(--danger) 55%, var(--gray-200)); }
+.hub-qitem.is-new { border-color: var(--primary); box-shadow: 0 0 0 3px var(--primary-light); }
+.hub-qn { flex: 0 0 26px; height: 26px; border-radius: 8px; display: grid; place-items: center; background: var(--primary-light); color: var(--primary-dark, var(--primary)); font-weight: 800; font-size: 12.5px; }
+.hub-qbody { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.hub-qmeta { display: flex; flex-wrap: wrap; gap: 4px; }
+.hub-qtext { font-size: 13.5px; color: var(--gray-800); overflow-wrap: anywhere; }
+.hub-qact { display: flex; flex-wrap: wrap; gap: 2px; flex: none; }
+.hub-qempty { padding: 14px; text-align: center; border: 1px dashed var(--gray-300); border-radius: 10px; }
+@media (max-width: 640px) {
+  .hub-qitem { flex-wrap: wrap; }
+  .hub-qact { width: 100%; justify-content: flex-end; }
+  .les-min-row .input-suffix { width: 100%; }
+}
 
 /* ===== Mesin Waktu ===== */
 .tc-root { --tc-ink: #3f2d20; max-width: 1000px; margin: 0 auto; }

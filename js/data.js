@@ -1077,6 +1077,108 @@
     return { entry: e };
   }
 
+  /* =====================================================================
+   * Course Mandiri — helper kuis, kunci urutan, durasi & keaktifan peserta
+   * ===================================================================*/
+  /** Jenis soal kuis course = jenis soal CBT (js/qeditor.js FORMATS). */
+  const HUB_QTYPES = ['Pilihan Ganda', 'Pilihan Lebih dari Satu', 'Benar/Salah', 'Isian Singkat',
+    'Majemuk Kompleks', 'Menjodohkan', 'Urutan', 'Esai'];
+  const HUB_DEFAULT_MIN_SEC = 40;          // waktu minimal bawaan sebelum "Tandai selesai"
+  const HUB_DEFAULT_INACTIVE_DAYS = 7;     // keluarkan peserta bila tidak aktif selama ini
+  const HUB_TOUCH_MS = 10 * 60000;         // jeda minimum pencatatan "terakhir aktif"
+  let hubSweepAt = { id: '', at: 0 };
+
+  const hubPlain = (html) => String(html == null ? '' : html).replace(/<[^>]*>/g, ' ')
+    .replace(/&nbsp;|&#160;/g, ' ').replace(/\s+/g, ' ').trim();
+  const hubHasMedia = (html) => /<(img|audio|video|iframe)\b/i.test(String(html || ''));
+  const hubFilled = (v) => !!(hubPlain(v) || hubHasMedia(v));
+  /** Soal lama (tanpa questionType) dianggap Pilihan Ganda. */
+  const hubQType = (q) => (q && HUB_QTYPES.includes(q.questionType)) ? q.questionType : 'Pilihan Ganda';
+
+  /** Bagian yang belum lengkap dari sebuah soal kuis; null bila valid. */
+  function hubQuestionProblem(q) {
+    if (!q || typeof q !== 'object') return 'data soal';
+    const t = hubQType(q);
+    if (!hubFilled(q.text)) return 'isi pertanyaan';
+    const opts = Array.isArray(q.options) ? q.options : [];
+    if (t === 'Pilihan Ganda' || t === 'Pilihan Lebih dari Satu') {
+      if (opts.length < 2 || opts.some(o => !hubFilled(o))) return 'minimal 2 pilihan jawaban dan tidak ada pilihan kosong';
+      if (t === 'Pilihan Ganda') {
+        const k = Number(q.correctIndex);
+        if (!(Number.isInteger(k) && k >= 0 && k < opts.length)) return 'kunci jawaban';
+      } else {
+        const ks = Array.isArray(q.correctIndices) ? q.correctIndices.map(Number) : [];
+        if (!ks.length || ks.some(k => !(Number.isInteger(k) && k >= 0 && k < opts.length))) return 'minimal satu kunci jawaban';
+      }
+    } else if (t === 'Benar/Salah') {
+      if (Number(q.correctIndex) !== 0 && Number(q.correctIndex) !== 1) return 'kunci Benar/Salah';
+    } else if (t === 'Isian Singkat') {
+      if (!(q.answers || []).some(a => String(a == null ? '' : a).trim())) return 'minimal satu jawaban yang diterima';
+    } else if (t === 'Majemuk Kompleks') {
+      if ((q.statements || []).filter(x => x && hubFilled(x.text)).length < 2) return 'minimal 2 pernyataan';
+    } else if (t === 'Menjodohkan') {
+      if ((q.pairs || []).filter(x => x && hubFilled(x.left) && hubFilled(x.right)).length < 2) return 'minimal 2 pasangan lengkap';
+    } else if (t === 'Urutan') {
+      if ((q.orderItems || []).filter(hubFilled).length < 2) return 'minimal 2 item urutan';
+    }
+    return null;
+  }
+
+  /** Normalkan jawaban mentee ke bentuk yang dipakai Exam.gradeQuestion (dan batasi ukurannya). */
+  function hubNormAnswer(q, a) {
+    const t = hubQType(q);
+    const clip = (v, n) => String(v == null ? '' : v).slice(0, n || 4000);
+    if (t === 'Pilihan Ganda' || t === 'Benar/Salah') {
+      return (a === '' || a == null || !isFinite(Number(a))) ? null : Number(a);
+    }
+    if (t === 'Pilihan Lebih dari Satu') {
+      return Array.isArray(a) ? [...new Set(a.map(Number).filter(n => Number.isInteger(n) && n >= 0))].sort((x, y) => x - y).slice(0, 20) : [];
+    }
+    if (t === 'Isian Singkat' || t === 'Esai') return clip(a);
+    if (t === 'Majemuk Kompleks') return Array.isArray(a) ? (q.statements || []).map((_, i) => (a[i] === true ? true : a[i] === false ? false : null)) : [];
+    if (t === 'Menjodohkan') return Array.isArray(a) ? (q.pairs || []).map((_, i) => clip(a[i], 2000)) : [];
+    if (t === 'Urutan') return Array.isArray(a) ? a.slice(0, 60).map(v => clip(v, 2000)) : [];
+    return null;
+  }
+  function hubAnswered(q, a) {
+    const t = hubQType(q);
+    if (t === 'Pilihan Ganda' || t === 'Benar/Salah') return a != null;
+    if (t === 'Pilihan Lebih dari Satu') return Array.isArray(a) && a.length > 0;
+    if (t === 'Isian Singkat' || t === 'Esai') return String(a || '').trim().length > 0;
+    if (t === 'Majemuk Kompleks') return Array.isArray(a) && a.length > 0 && a.every(v => v === true || v === false);
+    if (t === 'Menjodohkan') return Array.isArray(a) && a.length > 0 && a.every(v => String(v).length > 0);
+    if (t === 'Urutan') return Array.isArray(a) && a.length === (q.orderItems || []).length;
+    return false;
+  }
+  /** Nilai satu soal → { auto, correct }. Memakai mesin penilaian CBT agar hasilnya konsisten. */
+  function hubGrade(q, a) {
+    const t = hubQType(q);
+    if (t === 'Esai') return { auto: false, correct: false };
+    const qq = Object.assign({}, q, { questionType: t });
+    if (t === 'Pilihan Ganda' || t === 'Benar/Salah') qq.correctIndex = Number(q.correctIndex);
+    if (t === 'Pilihan Lebih dari Satu') qq.correctIndices = (q.correctIndices || []).map(Number);
+    if (global.Exam && typeof global.Exam.gradeQuestion === 'function') {
+      const g = global.Exam.gradeQuestion(qq, a);
+      return { auto: !!g.auto, correct: !!g.correct };
+    }
+    if (t === 'Pilihan Ganda' || t === 'Benar/Salah') return { auto: true, correct: a === qq.correctIndex };
+    throw new Error('Modul penilaian belum termuat. Muat ulang halaman lalu coba lagi.');
+  }
+
+  /** Waktu aktivitas terakhir peserta course (dipakai pengeluaran otomatis). */
+  function hubLastActive(p) {
+    let t = Math.max(Number(p.lastActiveAt) || 0, Number(p.enrolledAt) || 0, Number(p.restoredAt) || 0);
+    Object.values(p.completed || {}).forEach(v => { if (Number(v) > t) t = Number(v); });
+    Object.values(p.quiz || {}).forEach(q => { if (q && Number(q.at) > t) t = Number(q.at); });
+    return t;
+  }
+  function saveHubProgressRec(prog) {
+    const list = load('lms_hub_progress', []);
+    const i = list.findIndex(x => x.id === prog.id);
+    if (i >= 0) list[i] = prog; else list.push(prog);
+    save('lms_hub_progress', list);
+  }
+
   const DB = {
     KEYS, uid, periodKey,
 
@@ -1095,8 +1197,19 @@
        * lewat Pengaturan, lalu disimpan pada localStorage browser masing-masing.
        */
       aiEnabled: true,
+      aiProvider: 'gemini',          // penyedia utama: gemini | groq | mistral | openrouter | custom
+      aiFallback: true,              // coba penyedia lain yang kuncinya terisi bila utama gagal
       geminiApiKey: '',
       geminiModel: 'gemini-flash-latest',
+      groqApiKey: '',
+      groqModel: 'openai/gpt-oss-120b',
+      mistralApiKey: '',
+      mistralModel: 'mistral-small-latest',
+      openrouterApiKey: '',
+      openrouterModel: 'openrouter/free',
+      customAiEndpoint: '',
+      customAiApiKey: '',
+      customAiModel: '',
       aiTimeoutMs: 30000,
       tinyfishApiKey: '',
       tinyfishEndpoint: '',
@@ -2402,6 +2515,9 @@
     /**
      * Terbitkan token sesi aktivitas. Durasi minimum dihitung dari waktu ini.
      * opts.minSec dipakai Reading Text (menyesuaikan panjang teks).
+     * opts.exactMinSec dipakai pelajaran Course Mandiri: waktu minimal diatur
+     * admin per pelajaran (boleh 0 detik). Streak/XP tetap memakai batas
+     * minimum jenis aktivitas (lihat recordLearning & hubCompleteLesson).
      */
     beginLearning: (userId, type, refId, opts) => {
       const actor = sessionActor();
@@ -2411,8 +2527,10 @@
       // Bersihkan token kedaluwarsa agar memori tidak tumbuh.
       const now = Date.now();
       learningTokens.forEach((t, k) => { if (now - t.startedAt > 3 * 3600000) learningTokens.delete(k); });
+      const exact = opts && opts.exactMinSec != null && isFinite(Number(opts.exactMinSec))
+        ? Math.max(0, Math.min(7200, Math.round(Number(opts.exactMinSec)))) : null;
       const tok = { id: uid('tok'), userId, type, refId: String(refId || '').slice(0, 80), startedAt: now,
-        minSec: Math.max(def.minSec || 0, Math.min(600, Number(opts && opts.minSec) || 0)) };
+        minSec: exact != null ? exact : Math.max(def.minSec || 0, Math.min(600, Number(opts && opts.minSec) || 0)) };
       learningTokens.set(tok.id, tok);
       return { token: tok.id, minSec: tok.minSec, startedAt: now };
     },
@@ -2444,7 +2562,9 @@
         if (!tok || tok.userId !== userId || tok.type !== type) throw new Error('Sesi aktivitas tidak sah. Mulai ulang aktivitas.');
         const sec = (now - tok.startedAt) / 1000;
         if (sec > 3 * 3600) { learningTokens.delete(p.token); throw new Error('Sesi aktivitas kedaluwarsa. Mulai ulang.'); }
-        if (sec < tok.minSec) throw new Error(`Aktivitas terlalu singkat. Tunggu ${Math.ceil(tok.minSec - sec)} detik lagi.`);
+        // Batas minimum jenis aktivitas tetap berlaku walau token dibuat dengan waktu lebih singkat.
+        const needSec = Math.max(tok.minSec, def.minSec || 0);
+        if (sec < needSec) throw new Error(`Aktivitas terlalu singkat. Tunggu ${Math.ceil(needSec - sec)} detik lagi.`);
         const answered = Math.max(0, Math.floor(Number(p.answered) || 0));
         const total = Math.max(0, Math.floor(Number(p.total) || 0));
         const correct = Math.max(0, Math.min(answered, Math.floor(Number(p.correct) || 0)));
@@ -2673,8 +2793,17 @@
     },
 
     /* ---------- Course mandiri (dikelola admin, tanpa tutor) ---------- */
+    HUB_QTYPES,
+    HUB_DEFAULT_MIN_SEC,
+    HUB_DEFAULT_INACTIVE_DAYS,
     getHubCourses: () => load('lms_hub_courses', []),
     getHubCourse: (id) => load('lms_hub_courses', []).find(c => c.id === id) || null,
+    /** Bagian soal kuis yang belum lengkap (null = valid). Dipakai editor & validasi simpan. */
+    hubQuestionProblem: (q) => hubQuestionProblem(q),
+    /** Jenis soal kuis (soal lama tanpa jenis = Pilihan Ganda). */
+    hubQType: (q) => hubQType(q),
+    /** Apakah jawaban mentee untuk soal ini sudah lengkap (aturan sama dengan penilaian). */
+    hubIsAnswered: (q, a) => hubAnswered(q, hubNormAnswer(q, a)),
     saveHubCourse: (rec, actor) => {
       if (!actor || actor.role !== 'admin') throw new Error('Course hanya dapat dikelola admin.');
       const title = String(rec.title || '').trim();
@@ -2683,25 +2812,35 @@
       sections.forEach((sec, si) => {
         if (!String(sec.title || '').trim()) throw new Error(`Bab ${si + 1} belum diberi judul.`);
         (sec.lessons || []).forEach((l, li) => {
-          if (!String(l.title || '').trim()) throw new Error(`Pelajaran ${si + 1}.${li + 1} belum diberi judul.`);
-          if (!['article', 'video', 'pdf', 'link', 'quiz'].includes(l.type)) throw new Error(`Jenis pelajaran ${si + 1}.${li + 1} tidak valid.`);
+          const at = `${si + 1}.${li + 1}`;
+          if (!String(l.title || '').trim()) throw new Error(`Pelajaran ${at} belum diberi judul.`);
+          if (!['article', 'video', 'pdf', 'link', 'quiz'].includes(l.type)) throw new Error(`Jenis pelajaran ${at} tidak valid.`);
           if ((l.type === 'video' || l.type === 'link' || l.type === 'pdf') && l.url && !/^https:\/\//i.test(l.url)) {
-            throw new Error(`Tautan pelajaran ${si + 1}.${li + 1} harus diawali https://`);
+            throw new Error(`Tautan pelajaran ${at} harus diawali https://`);
           }
           if (l.type === 'quiz') {
             const qs = l.questions || [];
-            if (!qs.length) throw new Error(`Kuis ${si + 1}.${li + 1} belum memiliki soal.`);
+            if (!qs.length) throw new Error(`Kuis ${at} belum memiliki soal.`);
+            if (qs.length > 60) throw new Error(`Kuis ${at} maksimal 60 soal.`);
             qs.forEach((q, qi) => {
-              const opts = (q.options || []).filter(o => String(o).trim());
-              if (!String(q.text || '').trim() || opts.length < 2 || !(q.correctIndex >= 0 && q.correctIndex < opts.length)) {
-                throw new Error(`Kuis ${si + 1}.${li + 1} soal ${qi + 1} belum lengkap.`);
-              }
+              const prob = hubQuestionProblem(q);
+              if (prob) throw new Error(`Kuis ${at} soal ${qi + 1} belum lengkap: ${prob}.`);
             });
+            if (!qs.some(q => hubQType(q) !== 'Esai')) {
+              throw new Error(`Kuis ${at} membutuhkan minimal satu soal yang dinilai otomatis (selain Esai).`);
+            }
           }
+          // Normalisasi angka agar data lama & baru konsisten
+          l.durationMin = Math.max(0, Math.min(600, Math.round(Number(l.durationMin) || 0)));
+          l.dripDays = Math.max(0, Math.min(365, Math.round(Number(l.dripDays) || 0)));
+          // Waktu minimal hanya untuk pelajaran non-kuis (kuis selesai bila lulus).
+          if (l.type !== 'quiz' && l.minSec != null && l.minSec !== '') l.minSec = Math.max(0, Math.min(7200, Math.round(Number(l.minSec) || 0)));
+          else delete l.minSec;
         });
       });
       const list = load('lms_hub_courses', []);
       const now = Date.now();
+      const inact = Number(rec.inactivityDays);
       const clean = Object.assign({}, rec, {
         title, subtitle: String(rec.subtitle || '').trim().slice(0, 240),
         category: String(rec.category || '').trim().slice(0, 60), level: String(rec.level || '').slice(0, 30),
@@ -2709,6 +2848,10 @@
         requirements: (rec.requirements || []).map(x => String(x).trim()).filter(Boolean).slice(0, 12),
         enrollMode: rec.enrollMode === 'assigned' ? 'assigned' : 'open',
         newStudentPolicy: rec.newStudentPolicy === 'fromJoin' ? 'fromJoin' : 'all',
+        sequential: rec.sequential === 'lesson' || rec.sequential === 'section' ? rec.sequential : 'off',
+        inactivityDays: rec.inactivityDays == null || rec.inactivityDays === '' || !isFinite(inact)
+          ? HUB_DEFAULT_INACTIVE_DAYS : Math.max(0, Math.min(365, Math.round(inact))),
+        color: /^#[0-9a-f]{6}$/i.test(String(rec.color || '')) ? rec.color : '#4f46e5',
         active: rec.active !== false, updatedAt: now
       });
       let out;
@@ -2756,15 +2899,26 @@
       if (a.type === 'students') return (a.studentIds || []).includes(student.id);
       return true;
     },
+    /** Progres AKTIF (peserta yang dikeluarkan otomatis tidak dihitung). */
     getHubProgress: (courseId, studentId) => load('lms_hub_progress', [])
+      .find(p => p.courseId === courseId && p.studentId === studentId && !p.removedAt) || null,
+    /** Record progres apa pun statusnya (termasuk yang dikeluarkan). */
+    getHubProgressRecord: (courseId, studentId) => load('lms_hub_progress', [])
       .find(p => p.courseId === courseId && p.studentId === studentId) || null,
-    getHubProgressByStudent: (studentId) => load('lms_hub_progress', []).filter(p => p.studentId === studentId),
-    getHubProgressByCourse: (courseId) => load('lms_hub_progress', []).filter(p => p.courseId === courseId),
+    getHubProgressByStudent: (studentId) => load('lms_hub_progress', []).filter(p => p.studentId === studentId && !p.removedAt),
+    getHubProgressByCourse: (courseId) => load('lms_hub_progress', []).filter(p => p.courseId === courseId && !p.removedAt),
+    /** Semua record milik mentee (termasuk yang dikeluarkan) — untuk tampilan orang tua. */
+    getHubProgressHistoryByStudent: (studentId) => load('lms_hub_progress', []).filter(p => p.studentId === studentId),
+    getHubRemovedByCourse: (courseId) => load('lms_hub_progress', []).filter(p => p.courseId === courseId && p.removedAt),
     /** Course yang tampil di katalog siswa (aktif & sesuai sasaran). */
     hubCoursesForStudent: (studentId) => {
       const st = findById(KEYS.users, studentId);
       return load('lms_hub_courses', []).filter(c => c.active !== false && DB.hubAudienceIncludes(c, st));
     },
+    /**
+     * Daftar ke course. Bila mentee pernah dikeluarkan otomatis karena tidak
+     * aktif, record lamanya dipulihkan (progres, nilai kuis & catatan tetap ada).
+     */
     hubEnroll: (courseId, studentId) => {
       const actor = sessionActor();
       const c = DB.getHubCourse(courseId);
@@ -2774,10 +2928,21 @@
       if (!isAdmin && (!actor || actor.id !== studentId)) throw new Error('Pendaftaran tidak sah.');
       if (!DB.hubAudienceIncludes(c, st)) throw new Error('Course ini bukan untuk kelasmu.');
       if (!isAdmin && c.enrollMode === 'assigned') throw new Error('Course ini didaftarkan oleh admin.');
-      const existing = DB.getHubProgress(courseId, studentId);
-      if (existing) return existing;
-      const rec = { id: uid('hubp'), courseId, studentId, enrolledAt: Date.now(), completed: {}, quiz: {}, notes: {}, lastLessonId: '', completedAt: null };
-      const list = load('lms_hub_progress', []); list.push(rec); save('lms_hub_progress', list);
+      const list = load('lms_hub_progress', []);
+      const existing = list.find(p => p.courseId === courseId && p.studentId === studentId);
+      const now = Date.now();
+      if (existing && !existing.removedAt) return existing;
+      if (existing) {
+        existing.removedAt = null;
+        existing.removedReason = '';
+        existing.removedAfterDays = null;
+        existing.restoredAt = now;
+        existing.lastActiveAt = now;
+        save('lms_hub_progress', list);
+        return existing;
+      }
+      const rec = { id: uid('hubp'), courseId, studentId, enrolledAt: now, lastActiveAt: now, completed: {}, quiz: {}, notes: {}, lastLessonId: '', completedAt: null };
+      list.push(rec); save('lms_hub_progress', list);
       return rec;
     },
     hubLessonVisible: (course, lesson, progress) => {
@@ -2796,9 +2961,65 @@
       return at > Date.now() ? at : null;
     },
     hubLessons: (course) => (course.sections || []).flatMap(sec => (sec.lessons || []).map(l => Object.assign({ sectionId: sec.id, sectionTitle: sec.title }, l))),
+    /** Waktu minimal (detik) sebelum pelajaran non-kuis boleh ditandai selesai. 0 = langsung. */
+    hubLessonMinSec: (lesson) => {
+      const v = lesson && lesson.minSec;
+      if (v == null || v === '' || !isFinite(Number(v))) return HUB_DEFAULT_MIN_SEC;
+      return Math.max(0, Math.min(7200, Math.round(Number(v))));
+    },
+    /** Batas hari tidak aktif sebelum peserta dikeluarkan otomatis (0 = tidak pernah). */
+    hubInactivityDays: (course) => {
+      const v = course && course.inactivityDays;
+      if (v == null || v === '' || !isFinite(Number(v))) return HUB_DEFAULT_INACTIVE_DAYS;
+      return Math.max(0, Math.min(365, Math.round(Number(v))));
+    },
+    /**
+     * Kunci urutan belajar (course.sequential):
+     *   'lesson'  → pelajaran terbuka setelah semua pelajaran sebelumnya selesai
+     *   'section' → bab berikutnya terbuka setelah seluruh pelajaran bab sebelumnya selesai
+     * Mengembalikan peta lessonId → pelajaran penghalang (yang harus diselesaikan dulu).
+     * Pelajaran yang sudah selesai tidak pernah terkunci (selalu bisa diulas).
+     */
+    hubLockMap: (course, progress) => {
+      const mode = course && (course.sequential === 'lesson' || course.sequential === 'section') ? course.sequential : '';
+      const out = {};
+      if (!mode) return out;
+      const done = (progress && progress.completed) || {};
+      let blocker = null;
+      (course.sections || []).forEach(sec => {
+        const vis = (sec.lessons || []).filter(l => DB.hubLessonVisible(course, l, progress))
+          .map(l => Object.assign({ sectionId: sec.id, sectionTitle: sec.title }, l));
+        if (mode === 'section') {
+          if (blocker) vis.forEach(l => { if (!done[l.id]) out[l.id] = blocker; });
+          else blocker = vis.find(l => !done[l.id]) || null;
+        } else {
+          vis.forEach(l => {
+            if (done[l.id]) return;
+            if (blocker) out[l.id] = blocker;
+            else blocker = l;
+          });
+        }
+      });
+      return out;
+    },
+    /** Catat "terakhir aktif" saat mentee membuka pelajaran (dibatasi tiap 10 menit). */
+    hubTouch: (courseId, studentId) => {
+      const actor = sessionActor();
+      if (!actor || actor.id !== studentId) return null;
+      const prog = DB.getHubProgress(courseId, studentId);
+      if (!prog) return null;
+      const now = Date.now();
+      if (now - (Number(prog.lastActiveAt) || 0) < HUB_TOUCH_MS) return prog;
+      prog.lastActiveAt = now;
+      saveHubProgressRec(prog);
+      return prog;
+    },
+    hubLastActive: (progress) => (progress ? hubLastActive(progress) : 0),
     /**
      * Tandai pelajaran selesai. Artikel/video/tautan memerlukan token durasi
-     * (≥ 40 detik); kuis dinilai DI SINI dari kunci jawaban, bukan dari UI.
+     * (waktu minimal diatur per pelajaran, bawaan 40 detik); kuis dinilai DI
+     * SINI dari kunci jawaban, bukan dari UI. Streak/XP hanya bertambah bila
+     * waktu belajar nyata memenuhi batas aktivitas "Membaca materi".
      */
     hubCompleteLesson: (courseId, lessonId, studentId, payload) => {
       const actor = sessionActor();
@@ -2810,36 +3031,56 @@
       const lesson = DB.hubLessons(c).find(l => l.id === lessonId);
       if (!DB.hubLessonVisible(c, lesson, prog)) throw new Error('Pelajaran tidak tersedia.');
       if (DB.hubLessonOpensAt(lesson, prog)) throw new Error('Pelajaran ini belum dibuka.');
+      const blocker = DB.hubLockMap(c, prog)[lessonId];
+      if (blocker) throw new Error(`Selesaikan dulu pelajaran "${blocker.title}".`);
       const p = payload || {};
       const user = findById(KEYS.users, studentId);
       const now = Date.now();
       let result = { passed: true, score: null };
+      let streakOk = true;
       if (lesson.type === 'quiz') {
         const qs = lesson.questions || [];
-        const ans = Array.isArray(p.answers) ? p.answers : [];
-        if (ans.length !== qs.length || ans.some(a => a == null || a === '')) throw new Error('Jawab semua soal kuis.');
-        const correct = qs.reduce((n, q, i) => n + (Number(ans[i]) === Number(q.correctIndex) ? 1 : 0), 0);
-        const score = Math.round(correct / qs.length * 100);
+        const raw = Array.isArray(p.answers) ? p.answers : [];
+        if (raw.length !== qs.length) throw new Error('Jawab semua soal kuis.');
+        const ans = qs.map((q, i) => hubNormAnswer(q, raw[i]));
+        if (qs.some((q, i) => !hubAnswered(q, ans[i]))) throw new Error('Jawab semua soal kuis.');
+        let correct = 0, total = 0;
+        const marks = qs.map((q, i) => {
+          const g = hubGrade(q, ans[i]);
+          if (g.auto) { total++; if (g.correct) correct++; }
+          return g.auto ? (g.correct ? 1 : 0) : null;
+        });
+        if (!total) throw new Error('Kuis ini belum memiliki soal yang dapat dinilai otomatis.');
+        const score = Math.round(correct / total * 100);
         const pass = Number(lesson.passScore) || 70;
-        result = { passed: score >= pass, score, correct, total: qs.length };
-        prog.quiz = Object.assign({}, prog.quiz, { [lessonId]: { score, passed: result.passed, at: now, answers: ans.map(Number), attempts: ((prog.quiz || {})[lessonId] || {}).attempts + 1 || 1 } });
+        result = { passed: score >= pass, score, correct, total, marks };
+        const prevAttempts = Number(((prog.quiz || {})[lessonId] || {}).attempts) || 0;
+        prog.quiz = Object.assign({}, prog.quiz, { [lessonId]: { score, passed: result.passed, at: now, answers: ans,
+          correct, total, attempts: prevAttempts + 1 } });
       } else {
         const tok = learningTokens.get(p.token);
         if (!tok || tok.userId !== studentId || tok.refId !== 'hub:' + lessonId) throw new Error('Sesi belajar tidak sah. Buka ulang pelajaran.');
-        const wait = tok.minSec - (now - tok.startedAt) / 1000;
+        const elapsed = (now - tok.startedAt) / 1000;
+        // Waktu minimal dibaca dari data course (bukan dari token) agar tidak dapat diperpendek.
+        const wait = DB.hubLessonMinSec(lesson) - elapsed;
         if (wait > 0) throw new Error(`Pelajari dulu minimal ${Math.ceil(wait)} detik lagi.`);
+        streakOk = elapsed >= (LEARNING_TYPES.materi.minSec || HUB_DEFAULT_MIN_SEC);
         learningTokens.delete(p.token);
       }
       const already = !!(prog.completed || {})[lessonId];
       if (result.passed && !already) {
         prog.completed = Object.assign({}, prog.completed, { [lessonId]: now });
         // Aktivitas belajar sah: pelajaran = "membaca materi", kuis = "mini quiz".
-        try { appendLearning(user, lesson.type === 'quiz' ? 'miniquiz' : 'materi', 'hub:' + lessonId, { score: result.score }, now); } catch (e) { /* duplikasi diabaikan */ }
+        if (streakOk) {
+          try { appendLearning(user, lesson.type === 'quiz' ? 'miniquiz' : 'materi', 'hub:' + lessonId, { score: result.score }, now); } catch (e) { /* duplikasi diabaikan */ }
+        }
       }
+      result.streak = !!(result.passed && !already && streakOk);
       prog.lastLessonId = lessonId;
+      prog.lastActiveAt = now;
       const visible = DB.hubLessons(c).filter(l => DB.hubLessonVisible(c, l, prog));
       if (!prog.completedAt && visible.length && visible.every(l => prog.completed[l.id])) prog.completedAt = now;
-      save('lms_hub_progress', load('lms_hub_progress', []).map(x => x.id === prog.id ? prog : x));
+      saveHubProgressRec(prog);
       return Object.assign({ progress: prog }, result);
     },
     hubSaveNote: (courseId, lessonId, studentId, text) => {
@@ -2849,7 +3090,8 @@
       if (!prog) throw new Error('Daftar course terlebih dahulu.');
       prog.notes = Object.assign({}, prog.notes, { [lessonId]: String(text || '').slice(0, 4000) });
       prog.lastLessonId = lessonId;
-      save('lms_hub_progress', load('lms_hub_progress', []).map(x => x.id === prog.id ? prog : x));
+      prog.lastActiveAt = Date.now();
+      saveHubProgressRec(prog);
       return prog;
     },
     hubPercent: (course, progress) => {
@@ -2857,6 +3099,74 @@
       const visible = DB.hubLessons(course).filter(l => DB.hubLessonVisible(course, l, progress));
       if (!visible.length) return 0;
       return Math.round(visible.filter(l => (progress.completed || {})[l.id]).length / visible.length * 100);
+    },
+    /**
+     * Keluarkan otomatis peserta Course Mandiri yang tidak aktif selama
+     * course.inactivityDays hari (bawaan 7; 0 = tidak pernah). Hanya berlaku
+     * untuk Course Mandiri — pendaftaran Kelas tidak disentuh. Bersifat lunak:
+     * record tetap disimpan (removedAt) sehingga progres pulih saat mentee
+     * bergabung kembali. Tidak dihitung tidak aktif bila mentee sudah tuntas,
+     * course sedang dimatikan, atau mentee hanya menunggu pelajaran terjadwal.
+     * Admin memproses semua peserta; mentee hanya record miliknya sendiri.
+     */
+    hubSweepInactive: (actorArg, opts) => {
+      const actor = actorArg || sessionActor();
+      if (!actor || (actor.role !== 'admin' && actor.role !== 'siswa')) return [];
+      const now = Date.now();
+      if (!(opts && opts.force) && hubSweepAt.id === actor.id && now - hubSweepAt.at < HUB_TOUCH_MS) return [];
+      hubSweepAt = { id: actor.id, at: now };
+      const byId = new Map(load('lms_hub_courses', []).map(c => [c.id, c]));
+      const list = load('lms_hub_progress', []);
+      const removed = [];
+      let stamped = 0;
+      list.forEach(p => {
+        if (!p || p.removedAt || p.completedAt) return;
+        if (actor.role !== 'admin' && p.studentId !== actor.id) return;
+        const c = byId.get(p.courseId);
+        if (!c || c.active === false) return;
+        const days = DB.hubInactivityDays(c);
+        if (!days) return;
+        // Record lama (sebelum pencatatan keaktifan ada) diberi hitungan baru mulai
+        // sekarang, sehingga tidak ada mentee yang langsung dikeluarkan saat fitur ini aktif.
+        if (p.lastActiveAt == null) { p.lastActiveAt = now; stamped++; return; }
+        const st = findById(KEYS.users, p.studentId);
+        if (!st || st.role !== 'siswa') return;
+        const lock = DB.hubLockMap(c, p);
+        const pending = DB.hubLessons(c).filter(l => DB.hubLessonVisible(c, l, p) && !(p.completed || {})[l.id]);
+        // Tidak ada pelajaran yang bisa dikerjakan sekarang (semua menunggu jadwal) → jangan dihitung.
+        if (!pending.some(l => !DB.hubLessonOpensAt(l, p) && !lock[l.id])) return;
+        let last = hubLastActive(p);
+        // Pelajaran terjadwal yang baru terbuka menjadi titik awal hitungan baru.
+        pending.forEach(l => {
+          const d = Number(l.dripDays) || 0;
+          if (!d) return;
+          const at = (Number(p.enrolledAt) || 0) + d * 86400000;
+          if (at <= now && at > last) last = at;
+        });
+        if (now - last < days * 86400000) return;
+        p.removedAt = now;
+        p.removedReason = 'inactive';
+        p.removedAfterDays = days;
+        p.removals = (Array.isArray(p.removals) ? p.removals : []).concat([{ at: now, reason: 'inactive', days, lastActiveAt: last, percent: DB.hubPercent(c, p) }]).slice(-10);
+        removed.push({ progress: p, course: c });
+      });
+      if (!removed.length) {
+        if (stamped) save('lms_hub_progress', list);
+        return [];
+      }
+      save('lms_hub_progress', list);
+      removed.forEach(({ progress: p, course: c }) => {
+        try {
+          DB.addNotification({ userId: p.studentId, type: 'course', icon: '⏳', title: 'Dikeluarkan dari course karena tidak aktif',
+            body: `${c.title} — tidak ada aktivitas selama ${p.removedAfterDays} hari. ` +
+              (c.enrollMode === 'assigned' ? 'Hubungi admin untuk didaftarkan kembali.' : 'Buka menu Course untuk bergabung kembali; progresmu tetap tersimpan.'),
+            link: 'course' });
+        } catch (e) { /* notifikasi opsional */ }
+      });
+      if (actor.role === 'admin') {
+        try { DB.logActivity('hub.inactive', `Mengeluarkan ${removed.length} peserta course yang tidak aktif`, removed.map(r => r.progress.id).join(',').slice(0, 200)); } catch (e) { /* log opsional */ }
+      }
+      return removed;
     },
 
     /* ---------- Mesin Waktu: penyimpanan ciphertext milik pemilik saja ----------

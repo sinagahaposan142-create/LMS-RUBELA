@@ -455,7 +455,7 @@
   function openReadingForm(container, admin, id) {
     const ed = id ? DB.getReadingText(id) : null;
     const qs = ed ? ed.questions.map(q => Object.assign({}, q, { options: q.options.slice() })) : [{ text: '', options: ['', '', '', ''], correctIndex: 0 }];
-    UI.modal.open(ed ? 'Edit Reading Text' : 'Tambah Reading Text', `<form id="rtForm" class="form">
+    UI.modal.open(ed ? 'Edit Reading Text' : 'Tambah Reading Text', `<form id="rtForm" class="form no-anim">
       <div class="form-group"><label>Judul</label><input name="title" class="input" required maxlength="140" value="${esc(ed ? ed.title : '')}" /></div>
       <div class="form-row"><div class="form-group"><label>Subtest</label><select name="subtest" class="input">${DB.SUBTEST_NAMES.map(n => `<option ${ed && ed.subtest === n ? 'selected' : ''}>${esc(n)}</option>`).join('')}</select></div>
         <div class="form-group"><label>Tingkat</label><select name="level" class="input">${['mudah', 'sedang', 'sulit'].map(v => `<option ${ed && ed.level === v ? 'selected' : ''}>${v}</option>`).join('')}</select></div>
@@ -465,7 +465,8 @@
       <div id="rtQs"></div>
       <button type="button" class="btn btn-sm btn-secondary" id="rtAddQ">+ Tambah soal</button>
       <div id="rtErr" class="alert alert-error hidden"></div>
-      <div class="flex-gap" style="justify-content:flex-end;"><button type="button" class="btn btn-secondary" data-close>Batal</button><button type="submit" class="btn btn-primary">Simpan</button></div></form>`);
+      <div class="flex-gap" style="justify-content:flex-end;"><button type="button" class="btn btn-secondary" data-close>Batal</button><button type="submit" class="btn btn-primary">Simpan</button></div></form>`,
+      { fullscreenToggle: true, fullKey: 'arena-reading' });
     const f = document.getElementById('rtForm');
     Editor.attach(f);
     const qBox = f.querySelector('#rtQs');

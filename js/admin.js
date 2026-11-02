@@ -2095,23 +2095,51 @@
 
       <div class="card">
         <div class="card-header">
-          ${UI.secHead('🤖', 'Integrasi AI', 'Gemini untuk asisten belajar & analisis, Agent API untuk menarik data dari halaman web')}
+          ${UI.secHead('🤖', 'Integrasi AI', 'asisten belajar, analisis mentee, bantuan menulis & pembuat soal — multi-penyedia dengan cadangan otomatis')}
         </div>
         ${(() => {
           const st = DB.getSettings();
-          const geminiOn = !!(st.aiEnabled !== false && (st.geminiApiKey || '').trim());
+          const AP = window.AIProviders;
+          const chain = AP ? AP.chain(st) : [];
+          const primary = AP ? AP.primaryId(st) : 'gemini';
+          const aiOn = st.aiEnabled !== false && chain.length > 0;
           const agentOn = !!(st.aiEnabled !== false && (st.tinyfishApiKey || '').trim() && (st.tinyfishEndpoint || '').trim());
+          const provBox = (id) => {
+            const p = AP.PROVIDERS[id];
+            const has = !!String(st[p.keySetting] || '').trim();
+            return `<details class="ai-prov" data-prov="${id}" ${has || id === primary ? 'open' : ''}>
+              <summary><strong>${UI.esc(p.label)}</strong>
+                <span class="ai-status ${has ? 'is-on' : 'is-off'}">${has ? '● kunci terisi' : '○ belum diisi'}</span>
+                ${id === primary ? '<span class="badge badge-info">utama</span>' : ''}</summary>
+              <div class="muted small">${UI.esc(p.note)}${p.keyUrl ? ` <a href="${UI.esc(p.keyUrl)}" target="_blank" rel="noopener noreferrer">Buat kunci API ↗</a>` : ''}</div>
+              ${p.endpointSetting ? `<div class="form-group"><label for="ai_ep_${id}">Endpoint (https)</label>
+                <input id="ai_ep_${id}" autocomplete="off" spellcheck="false" placeholder="https://…/v1/chat/completions" value="${UI.esc(st[p.endpointSetting] || '')}" /></div>` : ''}
+              <div class="form-row">
+                <div class="form-group"><label for="ai_key_${id}">Kunci API ${UI.esc(p.label)}</label>
+                  <div class="flex-gap"><input type="password" id="ai_key_${id}" autocomplete="off" spellcheck="false" placeholder="Tempel kunci API di sini" value="${UI.esc(st[p.keySetting] || '')}" style="flex:1;" />
+                    <button type="button" class="btn btn-secondary btn-sm" data-ai-show="${id}">Lihat</button></div></div>
+                <div class="form-group"><label for="ai_model_${id}">Model</label>
+                  <input id="ai_model_${id}" autocomplete="off" spellcheck="false" placeholder="${UI.esc(p.defaultModel || 'nama model')}" value="${UI.esc(st[p.modelSetting] || '')}" />
+                  <div class="muted small">${p.defaultModel ? `Kosongkan untuk bawaan: <code>${UI.esc(p.defaultModel)}</code>` : 'Wajib diisi untuk endpoint kustom.'}</div></div>
+              </div>
+              <div class="flex-gap"><button type="button" class="btn btn-secondary btn-sm" data-ai-test="${id}">Uji koneksi ${UI.esc(p.label)}</button></div>
+              <div id="ai_test_${id}" style="margin-top:8px;"></div>
+            </details>`;
+          };
           return `
-          <div class="flex-gap" style="margin-bottom:10px;">
-            <span class="ai-status ${geminiOn ? 'is-on' : 'is-off'}">${geminiOn ? '● Gemini aktif' : '○ Gemini belum aktif'}</span>
+          <div class="flex-gap" style="margin-bottom:10px;flex-wrap:wrap;">
+            <span class="ai-status ${aiOn ? 'is-on' : 'is-off'}">${aiOn ? `● AI aktif — ${UI.esc(chain.map(c => c.label).join(' → '))}` : '○ AI belum aktif'}</span>
             <span class="ai-status ${agentOn ? 'is-on' : 'is-off'}">${agentOn ? '● Agent API aktif' : '○ Agent API belum aktif'}</span>
           </div>
           <div class="alert alert-warning">
             <strong>Keamanan kunci API.</strong> ${Auth.isServer()
               ? 'Kunci disimpan di <strong>database server</strong> dan hanya dapat dilihat oleh admin. Seluruh panggilan AI diteruskan oleh server (<code>/api/rubela</code>), sehingga kunci tidak pernah dikirim ke browser siswa, tutor, atau orang tua, dan tidak ikut tersimpan ke dalam kode atau repositori.'
               : 'Mode lokal — kunci yang dimasukkan di sini <strong>hanya</strong> disimpan pada browser ini (localStorage) dan tidak ikut tersimpan ke dalam kode atau repositori.'}
-            Jangan membagikan kunci Anda, dan segera ganti kunci di Google AI Studio bila pernah terkirim ke orang lain.
+            Jangan membagikan kunci Anda, dan segera ganti (rotate) kunci di dasbor penyedia bila pernah terkirim ke orang lain.
           </div>
+          <div class="alert alert-info small">💡 <strong>Rekomendasi gratis:</strong> isi <strong>Groq</strong> (paling cepat, tanpa kartu kredit) sebagai penyedia utama,
+            <strong>Mistral</strong> (kuota token gratis terbesar) dan <strong>OpenRouter</strong> sebagai cadangan. Bila satu penyedia kehabisan kuota,
+            LMS otomatis memakai penyedia berikutnya. Data yang dikirim ke AI (mis. ringkasan nilai mentee) diproses oleh penyedia tersebut.</div>
           <div class="form">
             <div class="form-group">
               <label class="sec-opt ${st.aiEnabled !== false ? 'is-on' : ''}">
@@ -2122,27 +2150,20 @@
                 </div>
               </label>
             </div>
-
-            <h4 style="margin:6px 0 0;">Google Gemini</h4>
-            <div class="form-group">
-              <label for="geminiApiKey">Kunci API Gemini</label>
-              <div class="flex-gap">
-                <input type="password" id="geminiApiKey" autocomplete="off" spellcheck="false"
-                       placeholder="Tempel kunci API di sini" value="${UI.esc(st.geminiApiKey || '')}" style="flex:1;" />
-                <button type="button" class="btn btn-secondary btn-sm" id="toggleKeyBtn">Lihat</button>
-              </div>
-              <div class="muted small">Dapatkan kunci gratis di Google AI Studio (aistudio.google.com/apikey).</div>
-            </div>
             <div class="form-row">
-              <div class="form-group">
-                <label for="geminiModel">Model</label>
-                <input id="geminiModel" value="${UI.esc(st.geminiModel || 'gemini-flash-latest')}" placeholder="gemini-flash-latest" />
-              </div>
-              <div class="form-group">
-                <label for="aiTimeoutMs">Batas waktu (ms)</label>
-                <input id="aiTimeoutMs" type="number" min="5000" step="1000" value="${Number(st.aiTimeoutMs) || 30000}" />
-              </div>
+              <div class="form-group"><label for="aiProvider">Penyedia utama</label>
+                <select id="aiProvider">${AP.ORDER.map(id => `<option value="${id}" ${id === primary ? 'selected' : ''}>${UI.esc(AP.PROVIDERS[id].label)}</option>`).join('')}</select></div>
+              <div class="form-group"><label for="aiTimeoutMs">Batas waktu per penyedia (ms)</label>
+                <input id="aiTimeoutMs" type="number" min="5000" max="55000" step="1000" value="${Number(st.aiTimeoutMs) || 30000}" /></div>
             </div>
+            <div class="form-group">
+              <label class="sec-opt ${st.aiFallback !== false ? 'is-on' : ''}">
+                <input type="checkbox" id="aiFallback" ${st.aiFallback !== false ? 'checked' : ''} />
+                <div><div class="so-nm">🔁 Cadangan otomatis</div>
+                  <div class="so-ds">Bila penyedia utama gagal (kuota habis, kunci salah, atau server bermasalah), coba penyedia lain yang kuncinya sudah diisi.</div></div>
+              </label>
+            </div>
+            ${AP.ORDER.map(provBox).join('')}
 
             <h4 style="margin:6px 0 0;">Agent API (TinyFish)</h4>
             <p class="muted small" style="margin:0;">
@@ -2164,9 +2185,7 @@
 
             <div class="flex-gap">
               <button class="btn btn-primary btn-sm" id="saveAiBtn">Simpan Integrasi</button>
-              <button class="btn btn-secondary btn-sm" id="testAiBtn">Uji Koneksi Gemini</button>
             </div>
-            <div id="aiTestBox" style="margin-top:10px;"></div>
           </div>`;
         })()}
       </div>
@@ -2255,47 +2274,65 @@
       renderSettings(container);
     });
 
-    /* ---- Integrasi AI ---- */
-    document.getElementById('toggleKeyBtn').addEventListener('click', () => {
-      const inp = document.getElementById('geminiApiKey');
-      const btn = document.getElementById('toggleKeyBtn');
+    /* ---- Integrasi AI (multi-penyedia) ---- */
+    const AP = window.AIProviders;
+    const aiVal = (id) => { const el = document.getElementById(id); return el ? el.value.trim() : ''; };
+    container.querySelectorAll('[data-ai-show]').forEach(btn => btn.addEventListener('click', () => {
+      const inp = document.getElementById('ai_key_' + btn.dataset.aiShow);
       const show = inp.type === 'password';
       inp.type = show ? 'text' : 'password';
       btn.textContent = show ? 'Sembunyikan' : 'Lihat';
-    });
+    }));
     document.getElementById('saveAiBtn').addEventListener('click', () => {
       const timeout = Number(document.getElementById('aiTimeoutMs').value);
+      const ep = aiVal('ai_ep_custom');
+      if (ep && !AP.safeEndpoint(ep)) { UI.toast('Endpoint kustom harus https:// dan bukan alamat jaringan lokal.', 'error'); return; }
+      for (const id of AP.ORDER) {
+        const p = AP.PROVIDERS[id];
+        const m = aiVal('ai_model_' + id);
+        if (m && !AP.isValidModel(p, m)) { UI.toast(`Nama model ${p.label} tidak valid.`, 'error'); return; }
+      }
+      if (aiVal('ai_key_custom') && !aiVal('ai_model_custom')) { UI.toast('Isi nama model untuk endpoint kustom.', 'error'); return; }
       DB.setSetting('aiEnabled', document.getElementById('aiEnabled').checked);
-      DB.setSetting('geminiApiKey', document.getElementById('geminiApiKey').value.trim());
-      DB.setSetting('geminiModel', document.getElementById('geminiModel').value.trim() || 'gemini-flash-latest');
-      DB.setSetting('aiTimeoutMs', timeout >= 5000 ? timeout : 30000);
+      DB.setSetting('aiProvider', document.getElementById('aiProvider').value);
+      DB.setSetting('aiFallback', document.getElementById('aiFallback').checked);
+      DB.setSetting('aiTimeoutMs', timeout >= 5000 ? Math.min(55000, timeout) : 30000);
+      AP.ORDER.forEach(id => {
+        const p = AP.PROVIDERS[id];
+        DB.setSetting(p.keySetting, aiVal('ai_key_' + id));
+        DB.setSetting(p.modelSetting, aiVal('ai_model_' + id));
+        if (p.endpointSetting) DB.setSetting(p.endpointSetting, aiVal('ai_ep_' + id));
+      });
       DB.setSetting('tinyfishEndpoint', document.getElementById('tinyfishEndpoint').value.trim());
       DB.setSetting('tinyfishApiKey', document.getElementById('tinyfishApiKey').value.trim());
-      UI.toast('Pengaturan integrasi AI disimpan.', 'success');
+      const chosen = AP.PROVIDERS[document.getElementById('aiProvider').value];
+      if (chosen && !aiVal('ai_key_' + chosen.id)) UI.toast(`Disimpan. Catatan: kunci ${chosen.label} (penyedia utama) masih kosong — penyedia lain yang berkunci akan dipakai.`, 'info');
+      else UI.toast('Pengaturan integrasi AI disimpan.', 'success');
       renderSettings(container);
     });
-    document.getElementById('testAiBtn').addEventListener('click', async () => {
-      const box = document.getElementById('aiTestBox');
-      const key = document.getElementById('geminiApiKey').value.trim();
-      if (!key) {
-        box.innerHTML = '<div class="alert alert-warning">Isi kunci API terlebih dahulu, lalu tekan Simpan Integrasi.</div>';
-        return;
-      }
-      // Pakai nilai yang sedang tampil supaya admin bisa menguji sebelum menyimpan.
-      DB.setSetting('geminiApiKey', key);
-      DB.setSetting('geminiModel', document.getElementById('geminiModel').value.trim() || 'gemini-flash-latest');
-      DB.setSetting('aiEnabled', document.getElementById('aiEnabled').checked);
-      box.innerHTML = AI.loadingHtml('Menghubungi Gemini…');
+    container.querySelectorAll('[data-ai-test]').forEach(btn => btn.addEventListener('click', async () => {
+      const id = btn.dataset.aiTest;
+      const p = AP.PROVIDERS[id];
+      const box = document.getElementById('ai_test_' + id);
+      const key = aiVal('ai_key_' + id);
+      if (!key) { box.innerHTML = `<div class="alert alert-warning">Isi kunci API ${UI.esc(p.label)} terlebih dahulu.</div>`; return; }
+      if (p.endpointSetting && !AP.safeEndpoint(aiVal('ai_ep_' + id))) { box.innerHTML = '<div class="alert alert-warning">Isi endpoint https yang valid terlebih dahulu.</div>'; return; }
+      box.innerHTML = AI.loadingHtml(`Menghubungi ${p.label}…`);
+      btn.disabled = true;
       try {
+        // Kunci yang sedang tampil dipakai langsung, jadi bisa diuji sebelum disimpan.
         const out = await AI.ask('Jawab dengan satu kalimat pendek dalam Bahasa Indonesia: sebutkan dirimu siap membantu LMS Rubela.',
-          { temperature: 0.2, maxTokens: 120 });
-        box.innerHTML = `<div class="alert alert-success"><strong>Koneksi berhasil.</strong>
+          { temperature: 0.2, maxTokens: 160, test: { provider: id, key, model: aiVal('ai_model_' + id), endpoint: aiVal('ai_ep_' + id) } });
+        const used = AI.lastUsed();
+        box.innerHTML = `<div class="alert alert-success"><strong>Koneksi ${UI.esc(p.label)} berhasil.</strong>${used && used.model ? ` <span class="muted small">Model: ${UI.esc(used.model)}</span>` : ''}
           <div class="ai-answer" style="margin-top:6px;">${AI.renderMarkdown(out)}</div></div>`;
       } catch (e) {
         box.innerHTML = AI.errorHtml(e) +
-          '<div class="muted small">Bila pesan di atas menyebut masalah jaringan, pastikan perangkat ini terhubung ke internet dan tidak diblokir firewall.</div>';
+          '<div class="muted small">Periksa kunci & nama model. Bila pesan menyebut masalah jaringan, pastikan perangkat/server terhubung ke internet.</div>';
+      } finally {
+        btn.disabled = false;
       }
-    });
+    }));
 
     document.getElementById('attPolicyForm').addEventListener('submit', (e) => {
       e.preventDefault();

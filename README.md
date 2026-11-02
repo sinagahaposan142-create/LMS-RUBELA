@@ -81,7 +81,7 @@ Menu **CBT / Ujian** kini membuka *workspace* layar penuh dengan sub-halaman sen
 - **Kelola Orang Tua**: buat akun wali, hubungkan ke satu atau beberapa siswa (daftar centang rapi dengan **pencarian langsung**), lihat siswa yang belum punya wali, serta **Export / Import Excel**.
 - **Semua Kelas**: daftar dengan rekap materi/tugas/siswa + kolom **Password Kelas** beserta tombol atur cepat, plus **Export / Import Excel**. Judul kelas dipilih dari **7 subtest UTBK** atau ditulis manual lewat opsi *Lainnya*.
 - **Sedang Online**: seluruh pengguna aktif, status aktivitas, halaman, browser, OS, dan perangkat (tanpa mengambil IP).
-- **Pemeriksa otomatis**: buat saran nilai esai/uraian dengan Gemini, tinjau, lalu terapkan secara massal tanpa menimpa keputusan manual.
+- **Pemeriksa otomatis**: buat saran nilai esai/uraian dengan AI, tinjau, lalu terapkan secara massal tanpa menimpa keputusan manual.
 - **Whiteboard kelas**: edit papan tulis pada setiap detail kelas dengan autosave dan sinkronisasi.
 - **Presensi**: tab **Ambil Presensi** (pilih kelas lewat kotak berbaris, tandai status dengan satu klik **tanpa animasi** agar cepat), plus rekap siswa, rekap guru, dan log lengkap.
 - **Papan Peringkat**: peringkat poin seluruh siswa.
@@ -94,8 +94,8 @@ Menu **CBT / Ujian** kini membuka *workspace* layar penuh dengan sub-halaman sen
 - **Kelas Saya**: buat / edit / hapus kelas (dengan harga/SPP) dan **atur password kelas**.
 - **Detail Kelas** (8 tab): Materi, **Modul**, **Rekaman Kelas**, Tugas, **CBT/Ujian**, **Whiteboard**, **Absensi**, Siswa.
 - **Sedang Online**: co-tutor dan siswa pada kelas yang diampu, lengkap dengan status/perangkat.
-- **Penilaian Tugas**: grading terpusat, saran Gemini berbasis rubrik, batch apply dengan audit trail; nilai manual tidak dapat ditimpa AI.
-- **Profil**: ubah data diri/password dan konfigurasi kunci Gemini khusus perangkat tutor.
+- **Penilaian Tugas**: grading terpusat, saran AI berbasis rubrik, batch apply dengan audit trail; nilai manual tidak dapat ditimpa AI.
+- **Profil**: ubah data diri/password dan (mode lokal) konfigurasi kunci AI khusus perangkat tutor.
 - **Modul** (global): kumpulan modul dari seluruh kelas saya.
 - **Rekaman Kelas** (global): agregat rekaman video dengan filter kelas.
 - **Bank Soal**: kelola bank soal multiple-choice (mapel, tingkat kesulitan, 4 pilihan, pembahasan). Digunakan di CBT.
@@ -159,9 +159,12 @@ Tombol **Tambah** kini membuka *workspace* satu halaman penuh (bukan modal sempi
 - Jadwal kelas tersinkronisasi ke **halaman kelas** (agenda pertemuan hari itu beserta materi/modul yang sudah tersedia) dan ke **Kalender utama** semua peran: admin, tutor, siswa, dan orang tua.
 - **Pengumuman** kini punya sasaran peran **Orang Tua**, tautan `http(s)` otomatis menjadi biru/aman, upload gambar terkompresi, dan opsi tampil pada papan berjalan.
 
-### Integrasi AI (Google Gemini + Agent API)
+### Integrasi AI (Gemini, Groq, Mistral, OpenRouter + Agent API)
 Seluruh fitur AI memakai **data asli LMS**, bukan angka contoh, dan dipakai bersama semua panel.
-- **AI Guru** (siswa): percakapan sungguhan dengan Gemini. Konteks kelas yang diikuti dan subtest terlemah siswa dikirim otomatis agar jawabannya terarah.
+Admin memilih **penyedia utama** dan boleh mengisi beberapa kunci sekaligus; bila penyedia utama
+gagal (kuota habis, kunci salah, server bermasalah) LMS otomatis mencoba penyedia lain yang kuncinya
+terisi. Penerjemahan format permintaan ada di `js/ai-providers.js` (dipakai browser & server).
+- **AI Guru** (siswa): percakapan sungguhan dengan AI. Konteks kelas yang diikuti dan subtest terlemah siswa dikirim otomatis agar jawabannya terarah.
 - **Rencana Belajar Mingguan** (siswa): disusun dari **jadwal kelas yang sebenarnya**; hari tanpa kelas diisi belajar mandiri pada subtest terlemah. Tersedia tombol agar AI merapikannya.
 - **Rekomendasi Materi** (siswa): prioritas belajar dihitung dari rata-rata skor CBT per subtest, dilengkapi materi & modul nyata yang tersedia di kelasnya.
 - **Kesiapan PTN** (siswa): kesiapan terukur per subtest berdasarkan skor CBT dan target kampus siswa sendiri, dengan keterangan tegas bahwa ini bukan prediksi resmi SNBT.
@@ -215,6 +218,9 @@ Hasil audit lengkap 23 poin permintaan beserta buktinya ada di
   pemutar mini yang tidak restart saat berpindah menu, otomatis berhenti saat ujian.
 - **Ayat Harian** sesuai agama mentee (dikelola admin, berganti tiap hari).
 - **Course Mandiri** tanpa tutor: katalog, halaman course, kurikulum, pemutar pelajaran, kuis, catatan, sertifikat.
+  Sejak ronde 9: urutan wajib per pelajaran/bab, waktu belajar minimal per pelajaran (boleh 0 detik),
+  kuis 8 jenis soal CBT + ambil dari Bank Soal, editor pelajaran layar penuh, dan pengeluaran otomatis
+  peserta yang tidak aktif (bawaan 7 hari, progres tetap tersimpan saat bergabung kembali).
 - **Aktifkan / Matikan / Aktifkan ulang** untuk kelas, materi, modul, rekaman, tugas, tryout/CBT, course & pelajaran,
   serta kebijakan "siswa baru hanya melihat konten baru" untuk kelas dan course.
 - **Chat** kini selalu menampilkan kotak ketik di semua ukuran layar (satu panel di ponsel/tablet).
@@ -375,8 +381,9 @@ LMS-RUBELA/
     ├── effects.js       # Layer animasi: ripple, reveal, count-up, transisi halaman, tema gelap/terang
     ├── responsive.js    # Pembungkus tabel & penyesuaian elemen agar aman di layar kecil
     ├── branding.js      # Logo & nama lembaga (login, topbar, judul halaman, favicon)
-    ├── ai.js            # Integrasi Gemini & Agent API: pemanggilan, penanganan galat,
-    │                    #   render markdown aman, status "belum dikonfigurasi"
+    ├── ai.js            # Integrasi AI multi-penyedia & Agent API: pemanggilan, cadangan otomatis,
+    │                    #   penanganan galat, render markdown aman, status "belum dikonfigurasi"
+    ├── ai-providers.js  # Daftar penyedia AI + terjemahan format Gemini ↔ OpenAI (browser & server)
     ├── richtext.js      # Sanitasi & ringkasan teks kaya (plain text, potong aman)
     ├── editor.js        # Mesin editor bersama: toolbar, tabel, LaTeX, palet simbol, media
     ├── qeditor.js       # Editor khusus form soal (mendelegasikan ke editor.js)
@@ -390,7 +397,7 @@ LMS-RUBELA/
     │                    #   pemantauan langsung, hasil & analisis per subtest
     ├── exam.js          # Runner ujian peserta: autosave jawaban/deadline, keamanan, hasil
     ├── scoring.js       # Raw 1/0, kesulitan empiris, bobot cohort, Rasch-like 200–800
-    ├── autograder.js    # Saran nilai esai Gemini, batch apply, confidence & audit trail
+    ├── autograder.js    # Saran nilai esai AI, batch apply, confidence & audit trail
     ├── whiteboard.js    # Whiteboard pro: 10 alat, objek, zoom/pan, versi, ekspor, sinkron & role guards
     ├── data-search.js   # Pencarian/filter/sort/pagination bersama untuk semua daftar
     ├── attendance-insights.js # Ring, grafik, rekap & riwayat persentase kehadiran

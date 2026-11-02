@@ -421,7 +421,7 @@
               </select>
             </div>
             <div class="form-group"><label>Warna</label>
-              <input name="color" type="color" value="${editing?.color || '#eef2ff'}" /></div>
+              ${UI.colorFieldHtml('color', editing?.color, 'aria-label="Warna acara"', '#eef2ff')}</div>
           </div>
           <div class="form-group"><label>Deskripsi (opsional)</label>
             <textarea name="description" rows="3">${UI.esc(editing?.description || '')}</textarea></div>
@@ -609,13 +609,32 @@
       <div class="ann-content">${autoLinkText(a.content)}</div>`;
   }
 
-  /** Papan berjalan permanen di bawah topbar, audience-nya sama dengan pengumuman. */
+  /** Pengumuman masih tayang di papan berjalan? (tickerUntil kosong = tanpa batas waktu) */
+  function tickerActive(a, now) {
+    if (!a || !a.showInTicker) return false;
+    const until = Number(a.tickerUntil) || 0;
+    return !until || until > (now || Date.now());
+  }
+
+  /**
+   * Papan berjalan permanen di bawah topbar, audience-nya sama dengan pengumuman.
+   * Hanya JUDUL yang ditampilkan, dan pengumuman otomatis berhenti tayang saat
+   * waktu tayangnya (tickerUntil) berakhir — dijadwalkan ulang tepat pada waktunya.
+   */
+  let tickerTimer = null;
   function renderTicker(container, user) {
     if (!container) return;
-    const marked = visibleAnnouncementsFor(user).filter(a => a.showInTicker);
+    if (tickerTimer) { clearTimeout(tickerTimer); tickerTimer = null; }
+    const now = Date.now();
+    const marked = visibleAnnouncementsFor(user).filter(a => tickerActive(a, now));
     const fallback = `Selamat datang di ${DB.getSettings().appName || 'LMS Rubela'} • Tetap konsisten belajar dan raih kampus impianmu!`;
-    const items = marked.length ? marked.slice(0, 8).map(a => `${a.title}: ${a.content}`) : [fallback];
+    const shown = marked.slice(0, 8);
+    const items = shown.length ? shown.map(a => String(a.title || '').trim() || 'Pengumuman') : [fallback];
     const text = items.join('   ✦   ');
+    // Render ulang saat pengumuman terdekat berakhir (maks. 6 jam sekali agar tetap segar).
+    const ends = shown.map(a => Number(a.tickerUntil) || 0).filter(t => t > now);
+    const wait = Math.min(ends.length ? Math.min(...ends) - now + 500 : Infinity, 6 * 3600000);
+    tickerTimer = setTimeout(() => { if (container.isConnected) renderTicker(container, user); }, wait);
     container.innerHTML = `<div class="ticker-label">📢 INFO</div>
       <button type="button" class="ticker-viewport" id="tickerOpen" title="Buka Pengumuman">
         <span class="ticker-track">${UI.esc(text)}</span>
@@ -653,7 +672,8 @@
                 <div class="title">${UI.esc(a.title)}</div>
                 <div class="flex-gap">
                   <span class="badge ${a.targetType === 'semua' ? 'badge-success' : 'badge-info'}">${UI.esc(audienceLabel(a))}</span>
-                  ${a.showInTicker ? '<span class="badge badge-warning">📢 Papan berjalan</span>' : ''}
+                  ${tickerBadge(a)}
+                  ${canEdit && (user.role === 'admin' || a.authorId === user.id) && a.showInTicker ? `<button class="btn btn-sm btn-secondary" data-ticker-ann="${a.id}">⏱ Waktu tayang</button>` : ''}
                   ${canEdit && (user.role === 'admin' || a.authorId === user.id) ? `<button class="btn btn-sm btn-danger" data-del-ann="${a.id}">Hapus</button>` : ''}
                 </div>
               </div>
@@ -674,6 +694,50 @@
       UI.toast('Pengumuman dihapus.');
       renderAnnouncements(container, user);
     }));
+    container.querySelectorAll('[data-ticker-ann]').forEach(b => b.addEventListener('click', () => openTickerTimeForm(container, user, b.dataset.tickerAnn)));
+  }
+
+  function tickerBadge(a) {
+    if (!a.showInTicker) return '';
+    const until = Number(a.tickerUntil) || 0;
+    if (until && until <= Date.now()) return `<span class="badge badge-gray" title="Berakhir ${UI.esc(UI.fmtDateTime(until))}">⏹ Papan berjalan berakhir</span>`;
+    return `<span class="badge badge-warning">📢 Papan berjalan${until ? ' s/d ' + UI.esc(UI.fmtDateTime(until)) : ''}</span>`;
+  }
+
+  /** Ubah/hentikan waktu tayang papan berjalan sebuah pengumuman. */
+  function openTickerTimeForm(container, user, id) {
+    const a = DB.getAnnouncement(id);
+    if (!a) return;
+    const until = Number(a.tickerUntil) || 0;
+    UI.modal.open('Waktu Tayang Papan Berjalan', `
+      <form id="annTickForm" class="form">
+        <p class="muted small" style="margin-top:0;">"${UI.esc(a.title)}" — hanya judulnya yang bergerak di papan berjalan.</p>
+        <div class="form-group"><label for="annTickUntil">Tayang sampai</label>
+          <input type="datetime-local" id="annTickUntil" value="${UI.esc(until ? UI.utcToTzInput(until) : '')}" />
+          <div class="muted small">Kosongkan bila ingin tayang tanpa batas waktu.</div></div>
+        <div class="flex-gap" style="justify-content:space-between;flex-wrap:wrap;">
+          <button type="button" class="btn btn-danger" id="annTickStop">⏹ Hentikan sekarang</button>
+          <div class="flex-gap"><button type="button" class="btn btn-secondary" id="annTickCancel">Batal</button>
+            <button type="submit" class="btn btn-primary">Simpan</button></div>
+        </div>
+      </form>`);
+    const done = (patch, msg) => {
+      DB.updateAnnouncement(id, patch);
+      global.dispatchEvent(new CustomEvent('lms:announcements-changed'));
+      UI.toast(msg);
+      UI.modal.close();
+      renderAnnouncements(container, user);
+    };
+    document.getElementById('annTickCancel').addEventListener('click', () => UI.modal.close());
+    document.getElementById('annTickStop').addEventListener('click', () => done({ tickerUntil: Date.now() }, 'Pengumuman dihentikan dari papan berjalan.'));
+    document.getElementById('annTickForm').addEventListener('submit', (e) => {
+      e.preventDefault();
+      const v = document.getElementById('annTickUntil').value;
+      const ts = v ? UI.tzInputToUtc(v) : null;
+      if (v && (!ts || !isFinite(ts))) { UI.toast('Tanggal tidak valid.', 'error'); return; }
+      if (ts && ts <= Date.now()) { UI.toast('Waktu tayang harus di masa depan. Gunakan "Hentikan sekarang" untuk berhenti.', 'error'); return; }
+      done({ tickerUntil: ts || null }, ts ? 'Waktu tayang diperbarui.' : 'Papan berjalan tanpa batas waktu.');
+    });
   }
 
   function openAnnouncementForm(container, user) {
@@ -695,10 +759,13 @@
           <div id="annImagePreview"></div>
         </div>
         <label class="sec-opt">
-          <input type="checkbox" name="showInTicker" value="1" />
+          <input type="checkbox" name="showInTicker" value="1" id="annTicker" />
           <div><div class="so-nm">📢 Tampilkan di papan berjalan</div>
-          <div class="so-ds">Judul dan isi singkat akan bergerak di bagian atas dashboard sesuai sasaran pengumuman.</div></div>
+          <div class="so-ds">Hanya judul yang bergerak di bagian atas dashboard sesuai sasaran pengumuman, dan berhenti otomatis saat waktu tayang berakhir.</div></div>
         </label>
+        <div class="form-group hidden" id="annTickerUntilBox"><label for="annTickerUntil">Tayang di papan berjalan sampai</label>
+          <input type="datetime-local" name="tickerUntil" id="annTickerUntil" value="${UI.esc(UI.utcToTzInput(Date.now() + 7 * 86400000))}" />
+          <div class="muted small">Bawaan 7 hari. Kosongkan bila ingin tayang tanpa batas waktu.</div></div>
         <div class="form-group"><label>Ditujukan Kepada</label>
           <select name="targetType" id="annTarget">
             <option value="semua">Semua Pengguna (Tutor + Siswa + Orang Tua)</option>
@@ -715,6 +782,8 @@
       </form>`;
     UI.modal.open('Buat Pengumuman', body);
     document.getElementById('cancelBtn').addEventListener('click', () => UI.modal.close());
+    const tickChk = document.getElementById('annTicker');
+    tickChk.addEventListener('change', () => document.getElementById('annTickerUntilBox').classList.toggle('hidden', !tickChk.checked));
     document.getElementById('annImage').addEventListener('change', async (e) => {
       const file = e.target.files && e.target.files[0];
       const preview = document.getElementById('annImagePreview');
@@ -785,6 +854,12 @@
       e.preventDefault();
       if (imageProcessing) { UI.toast('Tunggu hingga gambar selesai diproses.', 'info'); return; }
       const fd = new FormData(e.target);
+      const untilRaw = String(fd.get('tickerUntil') || '');
+      const tickerUntil = fd.get('showInTicker') === '1' && untilRaw ? UI.tzInputToUtc(untilRaw) : null;
+      if (fd.get('showInTicker') === '1' && untilRaw && (!tickerUntil || tickerUntil <= Date.now())) {
+        UI.toast('Waktu tayang papan berjalan harus di masa depan.', 'error');
+        return;
+      }
       const payload = {
         title: fd.get('title').trim(),
         content: fd.get('content').trim(),
@@ -792,6 +867,7 @@
         targetRole: fd.get('targetRole') || null,
         targetIds: fd.getAll('tid').length > 0 ? fd.getAll('tid') : null,
         showInTicker: fd.get('showInTicker') === '1',
+        tickerUntil: tickerUntil || null,
         imageData: pendingImage || '',
         authorId: user.id
       };
@@ -1142,7 +1218,7 @@
     }
 
     /**
-     * AI Guru — percakapan sungguhan dengan Gemini.
+     * AI Guru — percakapan sungguhan dengan AI (penyedia sesuai pengaturan admin).
      * Konteks siswa (kelas yang diikuti + subtest terlemah) dikirim sebagai
      * systemInstruction agar jawaban relevan dengan kondisi belajarnya.
      */
@@ -1154,7 +1230,7 @@
 
       box.innerHTML = `
         <div class="card">
-          <div class="card-header">${UI.secHead('🧠', 'AI Guru — Asisten Belajar', 'Ditenagai Google Gemini')}</div>
+          <div class="card-header">${UI.secHead('🧠', 'AI Guru — Asisten Belajar', 'Ditenagai ' + UI.esc(AI.providerLabel()))}</div>
           ${AI.noticeHtml(user)}
           <div class="chat-messages" id="aiChatBox" style="height:320px;overflow-y:auto;background:var(--gray-50);border-radius:var(--radius-sm);padding:16px;margin-bottom:12px;">
             <div class="chat-bubble received">
@@ -2282,7 +2358,7 @@
    */
   global.Shared = {
     toEmbedUrl, videoEmbedHtml, startCbt, showCbtResult, renderCalendar, renderFeedback,
-    renderAnnouncements, renderTicker, visibleAnnouncementsFor, isAnnouncementVisible,
+    renderAnnouncements, renderTicker, visibleAnnouncementsFor, isAnnouncementVisible, tickerActive,
     autoLinkText, announcementContentHtml, renderChat, renderAiTools, renderAiAnalytics,
     // Password kelas
     openCoursePasswordForm, openCoursePasswordGate,

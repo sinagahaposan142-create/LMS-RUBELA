@@ -516,7 +516,7 @@
         </div>
       </form>`;
 
-    UI.modal.open(sub ? 'Ubah Jawaban' : 'Kerjakan Tugas', body);
+    UI.modal.open(sub ? 'Ubah Jawaban' : 'Kerjakan Tugas', body, { fullscreenToggle: true, fullKey: 'siswa-tugas' });
 
     let draftTimer = null;
     function saveDraft() {
@@ -1307,4 +1307,6 @@
   }
 
   global.SiswaPanel = { render };
+  /* Komponen jawaban soal (8 format CBT) dipakai juga oleh kuis Course Mandiri. */
+  global.QuestionUI = { answerInputHtml, bindAnswerInputs, seededShuffle };
 })(window);

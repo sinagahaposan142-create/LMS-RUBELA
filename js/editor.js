@@ -109,14 +109,17 @@
   /* ===== Status modul ===== */
   let activeEditable = null;   // editor terakhir yang difokuskan
   let savedRange = null;       // posisi kursor terakhir di dalam editor
-  let dialogHost = null;       // tempat dialog dipasang (overlay penuh / body)
+  let dialogHost = null;       // hanya untuk kompatibilitas Editor.setHost()
 
   function esc(s) { return global.UI ? UI.esc(s) : String(s == null ? '' : s); }
   function toast(msg, kind) { if (global.UI) UI.toast(msg, kind); }
 
-  /** Tentukan tempat memasang dialog agar selalu di atas lapisan lain. */
+  /**
+   * Dipertahankan demi kompatibilitas pemanggil lama. Dialog kini selalu
+   * dipasang di <body> dengan posisi fixed (lihat openSubDialog), sehingga
+   * host tidak lagi menentukan letak dialog.
+   */
   function setHost(el) { dialogHost = el || null; }
-  function host() { return dialogHost || document.body; }
 
   /* =====================================================================
    * 1. Seleksi & penyisipan — inti perbaikan bug "tabel tidak bisa dibuat"
@@ -565,7 +568,7 @@
   }
 
   /* =====================================================================
-   * Bantuan menulis dengan AI (Gemini)
+   * Bantuan menulis dengan AI (penyedia sesuai Pengaturan → Integrasi AI)
    * Dipakai seluruh editor: Bank Soal, Materi, Modul, dan Tugas — sehingga
    * panel admin dan tutor mendapat kemampuan yang sama.
    * ===================================================================*/
@@ -575,7 +578,7 @@
     const existing = activeEditable ? AI.toPlain(activeEditable.innerHTML) : '';
 
     saveRange();
-    openSubDialog('Tulis dengan AI', `
+    openEditorDialog('Tulis dengan AI', `
       ${AI.noticeHtml((global.Dashboard && Dashboard.currentUser) || null)}
       <div class="form-group">
         <label for="aiMode">Yang ingin dilakukan</label>
@@ -590,7 +593,7 @@
       </div>
       <div class="form-group">
         <label for="aiTopic">Topik / instruksi</label>
-        <input id="aiTopic" placeholder="mis. Barisan dan deret aritmetika untuk kelas 11" />
+        <input type="text" id="aiTopic" class="input" placeholder="mis. Barisan dan deret aritmetika untuk kelas 11" />
       </div>
       <div class="form-group">
         <label for="aiLen">Panjang</label>
@@ -664,36 +667,230 @@
 
   /* =====================================================================
    * 6. Dialog
+   * Dialog selalu dipasang langsung di <body> (position: fixed, z-index di
+   * atas modal & ruang kerja) lalu diletakkan DEKAT tombol/editor pemicunya:
+   * di bawah bilah alat bila muat, di atasnya bila tidak, dan menjadi bottom
+   * sheet di layar ponsel. Sebelumnya dialog berposisi absolute di dalam
+   * "host", sehingga muncul di puncak halaman (jauh dari kolom yang sedang
+   * disunting) atau justru tertutup modal pelajaran.
    * ===================================================================*/
-  function openSubDialog(title, bodyHtml, onMount) {
+  const DLG_EDGE = 10;          // jarak minimum dari tepi layar
+  const DLG_GAP = 8;            // jarak dari bilah alat / kursor
+  const openDialogs = [];       // tumpukan dialog terbuka (terakhir = teratas)
+  let pendingAnchor = null;     // diisi saat tombol bilah alat / pintasan ditekan
+  let popCloserReady = false;   // pendengar "klik di luar" popover sudah dipasang
+
+  /** Catat elemen pemicu dialog berikutnya: { btn, bar, editor }. */
+  function markAnchor(a) { pendingAnchor = a ? Object.assign({ t: Date.now() }, a) : null; }
+
+  /** Jangkar sekali pakai untuk dialog editor; tanpa jangkar → editor aktif. */
+  function editorAnchor() {
+    const a = pendingAnchor;
+    pendingAnchor = null;
+    if (a && Date.now() - a.t < 5000) return a;
+    return activeEditable && activeEditable.isConnected ? { editor: activeEditable } : null;
+  }
+
+  /** Area layar yang benar-benar terlihat (visualViewport mengecil saat keyboard ponsel muncul). */
+  function visibleBox() {
+    const vv = global.visualViewport;
+    const de = document.documentElement;
+    const layoutW = de.clientWidth || global.innerWidth;
+    const layoutH = de.clientHeight || global.innerHeight;
+    return {
+      top: vv ? vv.offsetTop : 0,
+      height: vv ? Math.min(vv.height, layoutH) : layoutH,
+      width: layoutW,
+      layoutH
+    };
+  }
+
+  function rectOf(el) {
+    if (!el || !el.isConnected || !el.getBoundingClientRect) return null;
+    const r = el.getBoundingClientRect();
+    return (r.width || r.height) ? r : null;
+  }
+
+  function caretRect(editor) {
+    if (!savedRange || !editor || !editor.contains(savedRange.commonAncestorContainer)) return null;
+    try {
+      const rs = savedRange.getClientRects();
+      const r = rs && rs.length ? rs[rs.length - 1] : savedRange.getBoundingClientRect();
+      return r && (r.top || r.bottom || r.left) ? r : null;
+    } catch (e) { return null; }
+  }
+
+  /** Tentukan area acuan: bilah alat (bila terlihat) → posisi kursor → editor. */
+  function anchorArea(a, vb) {
+    if (!a) return null;
+    const viewTop = vb.top, viewBottom = vb.top + vb.height;
+    const inView = (r) => r && r.bottom > viewTop + 4 && r.top < viewBottom - 4;
+    const bar = rectOf(a.bar);
+    const btn = rectOf(a.btn);
+    const ed = rectOf(a.editor);
+    if (inView(bar)) {
+      return { top: bar.top, bottom: bar.bottom, left: bar.left, right: bar.right,
+        x: btn ? btn.left + btn.width / 2 : null };
+    }
+    const car = caretRect(a.editor);
+    if (inView(car)) {
+      return { top: car.top, bottom: car.bottom, left: ed ? ed.left : car.left,
+        right: ed ? ed.right : car.right, x: car.left };
+    }
+    if (inView(ed)) {
+      // Bilah alat sudah tergulir keluar layar: mulai di bagian editor yang terlihat.
+      const y = Math.max(ed.top, viewTop + DLG_EDGE) - DLG_GAP;
+      return { top: y, bottom: y, left: ed.left, right: ed.right, x: null };
+    }
+    return null;
+  }
+
+  function placeDialog(d) {
+    const { back, box } = d;
+    if (!back.isConnected) return;
+    const vb = visibleBox();
+    const st = box.style;
+    const sheet = vb.width <= 640;
+    back.classList.toggle('is-sheet', sheet);
+    if (sheet) {
+      // Bottom sheet yang selalu berada di atas keyboard ponsel
+      const kb = Math.max(0, Math.round(vb.layoutH - (vb.top + vb.height)));
+      back.classList.remove('is-anchored');
+      back.style.paddingBottom = kb ? kb + 'px' : '';
+      st.top = st.left = st.bottom = '';
+      st.maxHeight = Math.max(220, Math.round(vb.height * 0.9)) + 'px';
+      return;
+    }
+    back.style.paddingBottom = '';
+    const area = anchorArea(d.anchor, vb);
+    back.classList.toggle('is-anchored', !!area);
+    if (!area) { st.top = st.left = st.bottom = st.maxHeight = ''; return; }
+
+    const head = box.querySelector('.qe-dialog-head');
+    const body = box.querySelector('.qe-dialog-body');
+    const viewTop = vb.top + DLG_EDGE;
+    const viewBottom = vb.top + vb.height - DLG_EDGE;
+    // Tinggi alami diukur tanpa mengubah gaya agar posisi gulir isi dialog tidak melompat
+    const natural = (head ? head.offsetHeight : 0) + (body ? body.scrollHeight : 0) + 2;
+    const h = Math.min(natural, viewBottom - viewTop);
+    const below = viewBottom - (area.bottom + DLG_GAP);
+    const above = (area.top - DLG_GAP) - viewTop;
+
+    if (below >= h) {
+      // Muat di bawah bilah alat (posisi utama): tumbuh ke bawah bila isinya bertambah.
+      const top = Math.max(viewTop, area.bottom + DLG_GAP);
+      st.top = Math.round(top) + 'px'; st.bottom = '';
+      st.maxHeight = Math.round(viewBottom - top) + 'px';
+    } else if (above >= h) {
+      // Muat di atas bilah alat: ditambatkan dari bawah sehingga tumbuh ke atas.
+      const bottomY = Math.min(viewBottom, area.top - DLG_GAP);
+      st.top = ''; st.bottom = Math.round(vb.layoutH - bottomY) + 'px';
+      st.maxHeight = Math.round(bottomY - viewTop) + 'px';
+    } else {
+      // Tidak muat utuh di salah satu sisi: tampilkan utuh sedekat mungkin dengan
+      // bilah alat (boleh menutupi bilah alat) daripada memaksa isi dialog bergulir.
+      const pref = below >= above ? area.bottom + DLG_GAP : area.top - DLG_GAP - h;
+      const top = Math.max(viewTop, Math.min(pref, viewBottom - h));
+      st.top = Math.round(top) + 'px'; st.bottom = '';
+      st.maxHeight = Math.round(viewBottom - top) + 'px';
+    }
+
+    // Horizontal: tengah pada tombol pemicu & tetap di dalam lebar editor.
+    // Bila dialog lebih lebar daripada editor, letakkan di tengah editor.
+    const w = box.offsetWidth;
+    const areaW = area.right - area.left;
+    let left;
+    if (w > areaW) left = area.left + (areaW - w) / 2;
+    else {
+      left = area.x != null ? area.x - w / 2 : area.left;
+      left = Math.min(Math.max(left, area.left), area.right - w);
+    }
+    left = Math.min(left, vb.width - DLG_EDGE - w);
+    st.left = Math.round(Math.max(DLG_EDGE, left)) + 'px';
+  }
+
+  /**
+   * Buka dialog kecil.
+   * @param {string} title
+   * @param {string} bodyHtml
+   * @param {function} onMount  (backEl, close) => void
+   * @param {object} [opts]     { anchor: {btn, bar, editor} } — tanpa jangkar dialog di tengah layar
+   */
+  function openSubDialog(title, bodyHtml, onMount, opts) {
+    const o = opts || {};
     const back = document.createElement('div');
     back.className = 'qe-dialog-back';
     back.innerHTML = `
-      <div class="qe-dialog" role="dialog" aria-modal="true">
+      <div class="qe-dialog" role="dialog" aria-modal="true" aria-label="${esc(title)}">
         <header class="qe-dialog-head">
           <strong>${esc(title)}</strong>
-          <button type="button" class="icon-btn" data-close>&times;</button>
+          <button type="button" class="icon-btn" data-close aria-label="Tutup">&times;</button>
         </header>
         <div class="qe-dialog-body">${bodyHtml}</div>
       </div>`;
-    host().appendChild(back);
+    // Selalu di <body>: leluhur ber-transform/backdrop-filter tidak lagi menjebak posisi fixed.
+    document.body.appendChild(back);
+    const d = { back, box: back.querySelector('.qe-dialog'), anchor: o.anchor || null };
+    openDialogs.push(d);
 
     // Menekan tombol di dalam dialog tidak boleh mencuri seleksi editor
     back.addEventListener('mousedown', (e) => {
       if (e.target.closest('button')) e.preventDefault();
     });
 
-    const close = () => back.remove();
+    let raf = 0;
+    let closed = false;
+    const vv = global.visualViewport;
+    const schedule = (e) => {
+      // Gulir di dalam dialog sendiri tidak perlu memindahkan dialog
+      if (e && e.type === 'scroll' && e.target && e.target.nodeType === 1 && back.contains(e.target)) return;
+      if (raf) return;
+      raf = requestAnimationFrame(() => { raf = 0; if (!closed) placeDialog(d); });
+    };
+    const onKey = (e) => {
+      if (e.key !== 'Escape' || openDialogs[openDialogs.length - 1] !== d) return;
+      // Fase capture di window: Escape hanya menutup dialog ini, bukan modal di belakangnya
+      e.preventDefault();
+      e.stopPropagation();
+      if (e.stopImmediatePropagation) e.stopImmediatePropagation();
+      close();
+    };
+    function close() {
+      if (closed) return;
+      closed = true;
+      global.removeEventListener('keydown', onKey, true);
+      global.removeEventListener('resize', schedule);
+      global.removeEventListener('scroll', schedule, true);
+      if (vv) { vv.removeEventListener('resize', schedule); vv.removeEventListener('scroll', schedule); }
+      if (raf) cancelAnimationFrame(raf);
+      const i = openDialogs.indexOf(d);
+      if (i >= 0) openDialogs.splice(i, 1);
+      back.remove();
+    }
+
     back.querySelector('[data-close]').addEventListener('click', close);
-    back.addEventListener('click', (e) => { if (e.target === back) close(); });
-    const onKey = (e) => { if (e.key === 'Escape') { close(); document.removeEventListener('keydown', onKey); } };
-    document.addEventListener('keydown', onKey);
+    // Tutup hanya bila tekan DAN lepas terjadi di latar (bukan saat menyeret seleksi teks keluar dialog)
+    let downOnBack = false;
+    back.addEventListener('pointerdown', (e) => { downOnBack = e.target === back; });
+    back.addEventListener('click', (e) => { if (e.target === back && downOnBack) close(); downOnBack = false; });
+    global.addEventListener('keydown', onKey, true);
+    global.addEventListener('resize', schedule);
+    global.addEventListener('scroll', schedule, true);
+    if (vv) { vv.addEventListener('resize', schedule); vv.addEventListener('scroll', schedule); }
+
+    placeDialog(d);
     if (typeof onMount === 'function') onMount(back, close);
+    placeDialog(d);                 // isi bisa berubah tinggi setelah onMount
     return { el: back, close };
   }
 
+  /** Dialog milik editor: diletakkan dekat tombol bilah alat yang ditekan. */
+  function openEditorDialog(title, bodyHtml, onMount) {
+    return openSubDialog(title, bodyHtml, onMount, { anchor: editorAnchor() });
+  }
+
   function openFormulaDialog() {
-    openSubDialog('Sisipkan Rumus (LaTeX)', `
+    openEditorDialog('Sisipkan Rumus (LaTeX)', `
       <p class="muted small" style="margin-top:0;">Tulis rumus tanpa tanda <code>$</code>. Contoh:
         <code>\\frac{1}{2}</code>, <code>x^2 + y^2</code>, <code>\\ce{H2SO4}</code>, <code>\\sum_{i=1}^{n} i</code>.</p>
       <textarea id="qeFx" class="qe-fx-input" rows="3" placeholder="\\frac{a}{b}"></textarea>
@@ -742,7 +939,7 @@
           </div>
         </div>`).join('')}</div>
       <p class="muted small">Klik simbol untuk menyisipkan. Dialog tetap terbuka agar bisa memilih beberapa simbol.</p>`;
-    openSubDialog('Palet Simbol LaTeX', body, (back) => {
+    openEditorDialog('Palet Simbol LaTeX', body, (back) => {
       back.querySelectorAll('[data-tex]').forEach(b => b.addEventListener('click', () => {
         insertHtml('$' + b.dataset.tex + '$&nbsp;');
         toast('Simbol disisipkan.', 'info');
@@ -764,7 +961,7 @@
   }
 
   function openTableDialog() {
-    openSubDialog('Sisipkan Tabel', `
+    openEditorDialog('Sisipkan Tabel', `
       <div class="form-row">
         <div class="form-group"><label>Jumlah Baris</label><input type="number" id="qeRows" min="1" max="30" value="3" /></div>
         <div class="form-group"><label>Jumlah Kolom</label><input type="number" id="qeCols" min="1" max="12" value="3" /></div>
@@ -790,7 +987,7 @@
   }
 
   function openImageDialog() {
-    openSubDialog('Sisipkan Gambar', `
+    openEditorDialog('Sisipkan Gambar', `
       <div class="form-group">
         <label>Unggah dari perangkat</label>
         <input type="file" id="qeImgFile" accept="image/*" />
@@ -843,7 +1040,7 @@
   }
 
   function openAudioDialog() {
-    openSubDialog('Sisipkan Audio', `
+    openEditorDialog('Sisipkan Audio', `
       <div class="form-group">
         <label>Unggah berkas audio</label>
         <input type="file" id="qeAudFile" accept="audio/*" />
@@ -897,7 +1094,7 @@
   }
 
   function openLinkDialog() {
-    openSubDialog('Sisipkan Tautan', `
+    openEditorDialog('Sisipkan Tautan', `
       <div class="form-group">
         <label>URL</label>
         <input type="url" id="qeLnkUrl" placeholder="https://contoh.com/artikel" />
@@ -944,7 +1141,7 @@
   }
 
   function openPasteDialog() {
-    openSubDialog('Tempel sebagai Teks Biasa', `
+    openEditorDialog('Tempel sebagai Teks Biasa', `
       <p class="muted small" style="margin-top:0;">Tempel di sini bila ingin membuang seluruh format asal
         (warna, huruf, dan gaya dari Word atau situs web).</p>
       <textarea id="qePasteBox" rows="7" placeholder="Tempel teks di sini (Ctrl+V)…"></textarea>
@@ -1004,7 +1201,7 @@
       ed.addEventListener('keydown', (e) => {
         if (!(e.ctrlKey || e.metaKey)) return;
         const k = e.key.toLowerCase();
-        if (k === 'k') { e.preventDefault(); rememberEditable(ed); openLinkDialog(); }
+        if (k === 'k') { e.preventDefault(); rememberEditable(ed); markAnchor({ editor: ed }); openLinkDialog(); }
         else if (k === 'b' || k === 'i' || k === 'u') setTimeout(() => syncToolbars(root), 0);
       });
     });
@@ -1027,6 +1224,8 @@
         useTarget();
         if (b.dataset.cmd) { execCmd(b.dataset.cmd, b.dataset.arg); syncToolbars(root); return; }
         if (b.dataset.block) { toggleBlock(b.dataset.block); syncToolbars(root); return; }
+        // Dialog sisipan diletakkan dekat tombol & bilah alat ini
+        markAnchor({ btn: b, bar, editor: targetEl || activeEditable });
         switch (b.dataset.ins) {
           case 'formula': openFormulaDialog(); break;
           case 'palette': openPaletteDialog(); break;
@@ -1074,7 +1273,7 @@
         const pop = bar.querySelector(`[data-pop-for="${key}"]`);
         const wasOpen = pop && pop.classList.contains('is-open');
         bar.querySelectorAll('.rte-pop').forEach(p => p.classList.remove('is-open'));
-        if (pop && !wasOpen) pop.classList.add('is-open');
+        if (pop && !wasOpen) { pop.classList.add('is-open'); fitPop(pop); }
       }));
       bar.querySelectorAll('[data-fore]').forEach(sw => sw.addEventListener('click', () => {
         useTarget();
@@ -1094,16 +1293,47 @@
       }));
     });
 
-    // Klik di luar menutup popover
-    if (!root.dataset.rtePopReady) {
-      root.dataset.rtePopReady = '1';
+    // Klik di luar menutup popover — satu pendengar global untuk semua editor
+    // (sebelumnya satu per wadah sehingga menumpuk setiap modal dibuka).
+    if (!popCloserReady) {
+      popCloserReady = true;
       document.addEventListener('click', (e) => {
         if (e.target.closest && e.target.closest('.rte-pop-wrap')) return;
-        root.querySelectorAll('.rte-pop.is-open').forEach(p => p.classList.remove('is-open'));
+        document.querySelectorAll('.rte-pop.is-open').forEach(p => p.classList.remove('is-open'));
       });
     }
 
     syncToolbars(root);
+  }
+
+  /**
+   * Jaga popover (warna, stabilo, sunting tabel) tetap di dalam layar dan di
+   * dalam wadah bergulir (modal/kartu): balik ke kiri/kanan/atas bila perlu.
+   */
+  function fitPop(pop) {
+    pop.classList.remove('to-left', 'to-right', 'to-up');
+    const vb = visibleBox();
+    let clip = { left: 0, right: vb.width, top: vb.top, bottom: vb.top + vb.height };
+    for (let el = pop.parentElement; el && el !== document.body; el = el.parentElement) {
+      const cs = getComputedStyle(el);
+      if (/(auto|scroll|hidden|clip)/.test(cs.overflowX + cs.overflowY)) {
+        const r = el.getBoundingClientRect();
+        clip = { left: Math.max(clip.left, r.left), right: Math.min(clip.right, r.right),
+          top: Math.max(clip.top, r.top), bottom: Math.min(clip.bottom, r.bottom) };
+        break;
+      }
+    }
+    let r = pop.getBoundingClientRect();
+    if (r.right > clip.right - 6) pop.classList.add('to-left');
+    else if (r.left < clip.left + 6) pop.classList.add('to-right');
+    r = pop.getBoundingClientRect();
+    if (r.right > clip.right - 6 && pop.classList.contains('to-left') && r.left < clip.left + 6) {
+      pop.classList.remove('to-left');          // lebih lebar dari wadah: rata kiri saja
+    }
+    if (r.bottom > clip.bottom - 6) {
+      const wrap = pop.parentElement.getBoundingClientRect();
+      if (wrap.top - r.height - 6 >= clip.top) pop.classList.add('to-up');
+    }
   }
 
   /** hiliteColor tidak tersedia di semua peramban; kembalikan false bila gagal. */
@@ -1175,7 +1405,7 @@
    * ===================================================================*/
   global.Editor = {
     // toolbar & pemasangan
-    toolbarHtml, attach, syncToolbars, setHost,
+    toolbarHtml, attach, syncToolbars, setHost, markAnchor,
     // seleksi & penyisipan
     rememberEditable, saveRange, restoreRange, insertHtml, insertText, execCmd,
     // format blok & tabel

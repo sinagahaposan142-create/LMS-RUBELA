@@ -681,7 +681,7 @@
             <div class="form-group">
               <label for="ceRubric">Kriteria Penilaian Esai / Uraian</label>
               <textarea id="ceRubric" rows="4" placeholder="Contoh: Ketepatan konsep 50%, kelengkapan langkah 30%, kejelasan penjelasan 20%. Sebutkan jawaban/poin utama yang wajib ada.">${esc(draft.rubric)}</textarea>
-              <div class="muted small">Dipakai Gemini sebagai dasar saran nilai. AI tidak langsung menetapkan nilai—admin/tutor tetap meninjau atau menerapkan saran secara massal.</div>
+              <div class="muted small">Dipakai AI sebagai dasar saran nilai. AI tidak langsung menetapkan nilai—admin/tutor tetap meninjau atau menerapkan saran secara massal.</div>
             </div>
           </div>
 

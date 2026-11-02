@@ -7,6 +7,7 @@ const store = require('./store');
 const security = require('./security');
 const rules = require('./rules');
 const catalog = require('../../js/sync-catalog.js');
+const aiProviders = require('../../js/ai-providers.js');
 
 const SESSION_DAYS = 30;
 const PRESENCE_TTL = 90 * 1000;
@@ -761,7 +762,33 @@ async function blobDel(db, req, body) {
   return { ok: true };
 }
 
-/* ============================ AI PROXY ============================ */
+/* ============================ AI PROXY ============================
+ * Multi-penyedia: Gemini, Groq, Mistral, OpenRouter, atau endpoint
+ * kompatibel OpenAI. Permintaan berformat Gemini diterjemahkan oleh
+ * js/ai-providers.js. Bila penyedia utama gagal (kuota habis, kunci
+ * salah, server/jaringan bermasalah), penyedia lain yang kuncinya sudah
+ * diisi dicoba otomatis (dapat dimatikan: aiFallback = false). */
+const AI_DEADLINE_MS = 55000;
+
+/** Satu panggilan ke satu penyedia → { ok, status, data } atau { ok:false, code, error }. */
+async function callAiProvider(c, payload, timeoutMs, plain) {
+  const reqDef = aiProviders.buildRequest(c, payload, { plain, noJson: plain });
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+  try {
+    const res = await fetch(reqDef.url, { method: 'POST', headers: reqDef.headers, body: JSON.stringify(reqDef.body), signal: ctrl.signal });
+    let data = null;
+    try { data = await res.json(); } catch (e) { data = null; }
+    return aiProviders.normalizeResponse(c, res.status, data);
+  } catch (e) {
+    const timeout = e && e.name === 'AbortError';
+    return { ok: false, code: timeout ? 'timeout' : 'network',
+      error: timeout ? `${c.label}: permintaan melebihi batas waktu.` : `Server tidak dapat menghubungi ${c.label}.` };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 async function aiProxy(db, req, body) {
   const { user } = await requireUser(db, req);
   const now = Date.now();
@@ -769,30 +796,38 @@ async function aiProxy(db, req, body) {
   const st = await security.throttleState(db, key, now);
   if (st.lockedFor > 0) return { ok: true, status: 429, data: { error: { message: 'Batas permintaan AI tercapai.' } } };
   await security.throttleFail(db, key, { limit: 60, windowMs: 10 * 60000, lockMs: 2 * 60000 }, now);
-  const s = await store.readSettings(db, ['aiEnabled', 'geminiApiKey', 'geminiModel', 'aiTimeoutMs']);
-  const testKey = user.role === 'admin' ? str(body.testKey, 200).trim() : '';
-  const apiKey = testKey && testKey !== MASK ? testKey : String(s.geminiApiKey || '').trim();
-  if (s.aiEnabled === false && !testKey) return { ok: false, code: 'disabled', error: 'Fitur AI sedang dimatikan oleh admin pada menu Pengaturan.' };
-  if (!apiKey) return { ok: false, code: 'nokey', error: 'Kunci API Gemini belum diisi. Admin dapat menambahkannya di Pengaturan → Integrasi AI.' };
-  const model = /^[A-Za-z0-9._-]{1,80}$/.test(String(body.model || '')) ? body.model : (String(s.geminiModel || 'gemini-flash-latest'));
+  const s = await store.readSettings(db, aiProviders.SETTING_KEYS);
+  // Uji koneksi (admin saja): satu penyedia tertentu, boleh memakai kunci yang belum disimpan.
+  const isTest = user.role === 'admin' && body.test === true && !!aiProviders.PROVIDERS[str(body.provider, 30)];
+  const testKey = isTest ? str(body.testKey, 300).trim() : '';
+  if (s.aiEnabled === false && !isTest) return { ok: false, code: 'disabled', error: 'Fitur AI sedang dimatikan oleh admin pada menu Pengaturan.' };
   const payload = body.payload && typeof body.payload === 'object' ? body.payload : null;
   if (!payload || !Array.isArray(payload.contents)) throw bad('Permintaan AI tidak valid.');
-  const timeout = Math.min(55000, Math.max(5000, Number(s.aiTimeoutMs) || 30000));
-  const ctrl = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), timeout);
-  try {
-    const res = await fetch('https://generativelanguage.googleapis.com/v1beta/models/' + encodeURIComponent(model) + ':generateContent', {
-      method: 'POST', headers: { 'Content-Type': 'application/json', 'X-goog-api-key': apiKey },
-      body: JSON.stringify(payload), signal: ctrl.signal
-    });
-    let data = null;
-    try { data = await res.json(); } catch (e) { data = null; }
-    return { ok: true, status: res.status, data };
-  } catch (e) {
-    return { ok: false, code: e && e.name === 'AbortError' ? 'timeout' : 'network', error: e && e.name === 'AbortError' ? 'Permintaan ke AI melebihi batas waktu.' : 'Server tidak dapat menghubungi layanan AI.' };
-  } finally {
-    clearTimeout(timer);
+  const chain = isTest
+    ? aiProviders.chain(s, { only: str(body.provider, 30), key: testKey && testKey !== MASK ? testKey : '', model: str(body.model, 120), endpoint: str(body.endpoint, 300) })
+    : aiProviders.chain(s);
+  if (!chain.length) {
+    return { ok: false, code: 'nokey', error: isTest ? 'Kunci API/endpoint penyedia ini belum diisi atau tidak valid.'
+      : 'Kunci API AI belum diisi. Admin dapat menambahkannya di Pengaturan → Integrasi AI.' };
   }
+  const perCall = Math.min(AI_DEADLINE_MS, Math.max(5000, Number(s.aiTimeoutMs) || 30000));
+  const start = Date.now();
+  const tried = [];
+  let last = null;
+  for (const c of chain) {
+    const left = AI_DEADLINE_MS - (Date.now() - start);
+    if (tried.length && left < 6000) break;          // sisakan waktu agar fungsi server tidak terputus
+    let r = await callAiProvider(c, payload, Math.min(perCall, left), false);
+    if (!r.ok && r.retryPlain) r = await callAiProvider(c, payload, Math.min(perCall, Math.max(4000, AI_DEADLINE_MS - (Date.now() - start))), true);
+    tried.push(c.id);
+    if (r.ok && !aiProviders.shouldFallback(r)) {
+      return { ok: true, status: r.status, data: r.data, provider: c.id, model: c.model, tried };
+    }
+    last = { r, c };
+  }
+  const r = last ? last.r : null;
+  if (r && r.code) return { ok: false, code: r.code, error: r.error, provider: last.c.id, tried };
+  return { ok: true, status: r ? r.status : 502, data: r ? r.data : null, provider: last ? last.c.id : '', tried };
 }
 
 async function agentProxy(db, req, body) {

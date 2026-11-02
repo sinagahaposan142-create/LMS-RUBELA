@@ -65,7 +65,7 @@
   };
 
   /** Pengaturan yang berisi rahasia: tidak pernah dikirim ke non-admin. */
-  const SECRET_SETTINGS = ['geminiApiKey', 'tinyfishApiKey'];
+  const SECRET_SETTINGS = ['geminiApiKey', 'groqApiKey', 'mistralApiKey', 'openrouterApiKey', 'customAiApiKey', 'tinyfishApiKey'];
   /** Nilai pengganti rahasia untuk non-admin (menandakan "sudah diisi di server"). */
   const MASK = '__server__';
 

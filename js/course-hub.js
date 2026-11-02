@@ -4,11 +4,13 @@
  * Terpisah dari "Kelas" (yang memiliki tutor). Materi course tidak
  * pernah masuk ke materi kelas.
  *  Mentee : katalog, halaman course (hasil belajar, prasyarat, kurikulum),
- *           pemutar pelajaran (artikel, video, PDF/tautan, kuis), catatan,
- *           progres, sertifikat penyelesaian.
+ *           pemutar pelajaran (artikel, video, PDF/tautan, kuis 8 jenis
+ *           soal seperti CBT), catatan, progres, sertifikat penyelesaian.
  *  Admin  : buat/ubah course, kurikulum bab & pelajaran, sasaran peserta,
  *           mode pendaftaran, aktif/nonaktif, aktifkan ulang (siswa baru),
- *           jadwal buka bertahap (drip), statistik progres peserta.
+ *           jadwal buka bertahap (drip), urutan wajib (pelajaran/bab),
+ *           waktu belajar minimal per pelajaran, soal kuis dari Bank Soal,
+ *           pengeluaran otomatis peserta tidak aktif, statistik peserta.
  *  Orang tua: progres course anak (hanya baca).
  * ===================================================================*/
 (function (global) {
@@ -18,8 +20,15 @@
     article: { ic: '📄', label: 'Artikel' }, video: { ic: '🎬', label: 'Video' },
     pdf: { ic: '📑', label: 'Dokumen PDF' }, link: { ic: '🔗', label: 'Tautan' }, quiz: { ic: '📝', label: 'Kuis' }
   };
+  const QTYPE_IC = { 'Pilihan Ganda': '🔘', 'Pilihan Lebih dari Satu': '☑️', 'Benar/Salah': '⚖️', 'Isian Singkat': '✏️',
+    'Majemuk Kompleks': '🧩', 'Menjodohkan': '🔗', 'Urutan': '🔢', 'Esai': '📝' };
+  const SEQ_LABEL = { off: 'Bebas', lesson: 'Berurutan per pelajaran', section: 'Berurutan per bab' };
+  const MAX_QUIZ_QUESTIONS = 60;
   const nid = (p) => p + '_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
   const clone = (v) => JSON.parse(JSON.stringify(v));
+  const qIcon = (t) => QTYPE_IC[t] || '🔘';
+  const letter = (i) => String.fromCharCode(65 + Number(i));
+  const QUI = () => global.QuestionUI || null;
   let view = { mode: 'catalog', courseId: null, lessonId: null, tab: 'mine' };
   let readTimer = null;
   const stopTimer = () => { if (readTimer) { clearInterval(readTimer); readTimer = null; } };
@@ -27,8 +36,56 @@
   const lessonsOf = (c) => DB.hubLessons(c);
   const totalMin = (c) => lessonsOf(c).filter(l => l.active !== false).reduce((n, l) => n + (Number(l.durationMin) || 0), 0);
   const fmtMin = (m) => m >= 60 ? `${Math.floor(m / 60)} j ${m % 60} mnt` : `${m} mnt`;
+  function fmtSec(s) {
+    const n = Math.max(0, Math.round(Number(s) || 0));
+    if (!n) return '0 detik';
+    if (n < 60) return n + ' detik';
+    const m = Math.floor(n / 60), r = n % 60;
+    return r ? `${m} mnt ${r} dtk` : `${m} menit`;
+  }
   function coverHtml(c, cls) {
     return `<div class="hub-cover ${cls || ''}" style="--hub-c:${esc(c.color || '#4f46e5')}">${c.cover ? `<img src="${esc(c.cover)}" alt="" loading="lazy" />` : `<span>${esc((c.title || '?').slice(0, 1).toUpperCase())}</span>`}</div>`;
+  }
+  const sweep = (user) => { try { return DB.hubSweepInactive(user) || []; } catch (e) { console.warn('[LMS] course tidak aktif', e); return []; } };
+
+  /* ---------- Ringkasan & tinjauan soal kuis ---------- */
+  function keySummary(q) {
+    const t = DB.hubQType(q);
+    const P = (v, n) => RichText.plain(v || '', n || 60);
+    if (t === 'Pilihan Ganda' || t === 'Benar/Salah') {
+      const k = Number(q.correctIndex);
+      return (q.options || [])[k] != null ? `Kunci: ${letter(k)}. ${P(q.options[k])}` : 'Kunci belum dipilih';
+    }
+    if (t === 'Pilihan Lebih dari Satu') return `Kunci: ${(q.correctIndices || []).map(letter).join(', ') || '—'}`;
+    if (t === 'Isian Singkat') return `Jawaban diterima: ${(q.answers || []).filter(a => String(a).trim()).map(a => P(a, 30)).join(' / ') || '—'}${q.numeric ? ' (dibandingkan sebagai angka)' : ''}`;
+    if (t === 'Majemuk Kompleks') return `${(q.statements || []).length} pernyataan benar/salah`;
+    if (t === 'Menjodohkan') return `${(q.pairs || []).length} pasangan dijodohkan`;
+    if (t === 'Urutan') return `${(q.orderItems || []).length} item untuk diurutkan`;
+    return 'Dinilai manual — tidak masuk skor otomatis';
+  }
+  function gradeView(q, a) {
+    try {
+      if (!global.Exam || DB.hubQType(q) === 'Esai') return { auto: false, correct: false };
+      const qq = Object.assign({}, q);
+      if (qq.questionType === 'Pilihan Ganda' || qq.questionType === 'Benar/Salah') qq.correctIndex = Number(q.correctIndex);
+      if (qq.questionType === 'Pilihan Lebih dari Satu') qq.correctIndices = (q.correctIndices || []).map(Number);
+      return Exam.gradeQuestion(qq, a);
+    } catch (e) { return { auto: false, correct: false }; }
+  }
+  /** Kunci + pembahasan (hanya ditampilkan setelah kuis lulus). */
+  function keyReviewHtml(q) {
+    const t = DB.hubQType(q);
+    const R = (v) => RichText.render(v || '');
+    let body = '';
+    if (t === 'Pilihan Ganda' || t === 'Benar/Salah') { const k = Number(q.correctIndex); body = `${letter(k)}. ${R((q.options || [])[k])}`; }
+    else if (t === 'Pilihan Lebih dari Satu') body = (q.correctIndices || []).map(i => `${letter(i)}. ${R((q.options || [])[Number(i)])}`).join('<br>');
+    else if (t === 'Isian Singkat') body = (q.answers || []).filter(a => String(a).trim()).map(a => esc(a)).join(' / ');
+    else if (t === 'Majemuk Kompleks') body = (q.statements || []).map(s => `${s.value ? '✔ Benar' : '✘ Salah'} — ${R(s.text)}`).join('<br>');
+    else if (t === 'Menjodohkan') body = (q.pairs || []).map(p => `${R(p.left)} → ${R(p.right)}`).join('<br>');
+    else if (t === 'Urutan') body = `<ol>${(q.orderItems || []).map(it => `<li>${R(it)}</li>`).join('')}</ol>`;
+    const exp = q.explanation && RichText.plain(q.explanation) ? `<div class="mt-1"><strong>Pembahasan:</strong> <span class="rt-content">${R(q.explanation)}</span></div>` : '';
+    if (!body && !exp) return '';
+    return `<div class="hub-key">${body ? `<strong>Kunci:</strong><div class="rt-content">${body}</div>` : ''}${exp}</div>`;
   }
 
   /* =====================================================================
@@ -37,6 +94,7 @@
   function render(container, user) {
     stopTimer();
     const me = DB.getUser(user.id) || user;
+    sweep(me);
     if (view.mode === 'player' && view.courseId) return renderPlayer(container, me);
     if (view.mode === 'landing' && view.courseId) return renderLanding(container, me);
     return renderCatalog(container, me);
@@ -70,13 +128,15 @@
       empty: tab === 'mine' ? 'Belum mengikuti course.' : 'Belum ada course untukmu. Admin akan menambahkannya.',
       render: (rows, ctx) => `<div class="hub-grid">${rows.map(c => {
         const p = progress.find(x => x.courseId === c.id);
+        const rec = p ? null : DB.getHubProgressRecord(c.id, user.id);
         const pct = DB.hubPercent(c, p);
         const n = lessonsOf(c).filter(l => DB.hubLessonVisible(c, l, p)).length;
         return `<article class="hub-card" data-hub-open="${c.id}" tabindex="0" role="button" aria-label="Buka course ${esc(c.title)}">
           ${coverHtml(c)}<div class="hub-card-body"><span class="hub-cat">${esc(c.category || 'Umum')}</span>
           <h4>${ctx.highlight(c.title)}</h4><p>${esc(c.subtitle || '')}</p>
-          <div class="hub-meta">${n} pelajaran • ${fmtMin(totalMin(c))} • ${esc(c.level || 'Semua level')}</div>
+          <div class="hub-meta">${n} pelajaran • ${fmtMin(totalMin(c))} • ${esc(c.level || 'Semua level')}${c.sequential === 'lesson' || c.sequential === 'section' ? ' • 🔒 berurutan' : ''}</div>
           ${p ? `<div class="hub-prog"><i style="width:${pct}%"></i></div><div class="hub-meta">${p.completedAt ? '✅ Selesai' : `${pct}% selesai`}</div>`
+            : rec && rec.removedAt ? '<div class="hub-meta hub-meta-warn">⏳ Dikeluarkan karena tidak aktif — progres tersimpan</div>'
             : `<div class="hub-meta">${c.enrollMode === 'assigned' ? '🔐 Didaftarkan admin' : '🆓 Bebas bergabung'}</div>`}</div></article>`;
       }).join('')}</div>`,
       onPaint: (box) => box.querySelectorAll('[data-hub-open]').forEach(el => {
@@ -87,57 +147,87 @@
     });
   }
 
-  function lessonState(c, l, p) {
+  /** Status pelajaran untuk mentee: hidden | done | drip (terjadwal) | locked (urutan) | open. */
+  function lessonState(c, l, p, lock) {
     if (!DB.hubLessonVisible(c, l, p)) return 'hidden';
     if (p && (p.completed || {})[l.id]) return 'done';
     if (DB.hubLessonOpensAt(l, p)) return 'drip';
+    if (lock && lock[l.id]) return 'locked';
     return 'open';
   }
   function nextLesson(c, p) {
-    const ls = lessonsOf(c).filter(l => lessonState(c, l, p) === 'open');
-    return (p && ls.find(l => l.id === p.lastLessonId)) || ls[0] || lessonsOf(c).find(l => lessonState(c, l, p) === 'done') || null;
+    const lock = DB.hubLockMap(c, p);
+    const ls = lessonsOf(c).filter(l => lessonState(c, l, p, lock) === 'open');
+    return (p && ls.find(l => l.id === p.lastLessonId)) || ls[0] || lessonsOf(c).find(l => lessonState(c, l, p, lock) === 'done') || null;
   }
 
   function renderLanding(container, user) {
     const c = DB.getHubCourse(view.courseId);
     if (!c || c.active === false || !DB.hubAudienceIncludes(c, user)) { view = { mode: 'catalog', tab: 'explore' }; return renderCatalog(container, user); }
     const p = DB.getHubProgress(c.id, user.id);
+    const rec = p ? null : DB.getHubProgressRecord(c.id, user.id);
+    const removed = rec && rec.removedAt ? rec : null;
+    const lock = DB.hubLockMap(c, p);
     const pct = DB.hubPercent(c, p);
     const nl = p ? nextLesson(c, p) : null;
     const visibleCount = lessonsOf(c).filter(l => DB.hubLessonVisible(c, l, p)).length;
+    const inactDays = DB.hubInactivityDays(c);
+    const seq = c.sequential === 'lesson' || c.sequential === 'section' ? c.sequential : 'off';
+    let aside;
+    if (p) {
+      aside = `<div class="hub-prog is-lg"><i style="width:${pct}%"></i></div><div class="muted small">${pct}% selesai${p.completedAt ? ' • ✅ tuntas' : ''}</div>
+        <button type="button" class="btn btn-primary btn-block" id="hubContinue" ${nl ? '' : 'disabled'}>${pct === 0 ? 'Mulai belajar' : p.completedAt ? 'Ulas kembali' : 'Lanjutkan belajar'}</button>
+        ${p.completedAt && c.certificate ? '<button type="button" class="btn btn-secondary btn-block mt-1" id="hubCert">🎓 Lihat sertifikat</button>' : ''}
+        ${inactDays && !p.completedAt ? `<div class="muted small hub-inact-note">⏳ Peserta yang tidak aktif ${inactDays} hari dikeluarkan otomatis. Aktivitas terakhirmu ${esc(UI.fmtRelative(DB.hubLastActive(p)))}.</div>` : ''}`;
+    } else if (removed) {
+      aside = `<div class="alert alert-warning small">⏳ Kamu dikeluarkan dari course ini pada ${esc(UI.fmtDate(removed.removedAt))} karena tidak ada aktivitas selama ${Number(removed.removedAfterDays) || inactDays} hari.
+          Progresmu (${DB.hubPercent(c, removed)}%) dan catatanmu tetap tersimpan.</div>
+        ${c.enrollMode === 'assigned' ? '<div class="alert alert-info small">Course ini didaftarkan oleh admin. Hubungi admin agar didaftarkan kembali.</div>'
+          : '<button type="button" class="btn btn-primary btn-block" id="hubEnroll">↩ Bergabung kembali</button>'}`;
+    } else {
+      aside = c.enrollMode === 'assigned' ? '<div class="alert alert-info small">Course ini didaftarkan oleh admin. Hubungi admin bila ingin mengikutinya.</div>'
+        : '<button type="button" class="btn btn-primary btn-block" id="hubEnroll">Ikuti course — gratis</button>';
+    }
+    const stateLabel = (l, s) => {
+      if (s === 'done') return '✓ selesai';
+      if (s === 'drip') return `🔒 buka ${esc(UI.fmtDate(DB.hubLessonOpensAt(l, p)))}`;
+      if (s === 'locked') return `🔒 setelah "${esc(lock[l.id].title)}"`;
+      return l.durationMin ? l.durationMin + ' mnt' : TYPE[l.type].label;
+    };
     container.innerHTML = `
       <button type="button" class="btn btn-secondary btn-sm mb-2" id="hubBack">← Semua course</button>
       <section class="hub-landing" style="--hub-c:${esc(c.color || '#4f46e5')}">
         <div class="hub-landing-main"><span class="hub-cat">${esc(c.category || 'Umum')}</span>
           <h1>${esc(c.title)}</h1><p class="hub-sub">${esc(c.subtitle || '')}</p>
           <div class="hub-facts"><span>📚 ${visibleCount} pelajaran</span><span>⏱️ ${fmtMin(totalMin(c))}</span><span>📶 ${esc(c.level || 'Semua level')}</span>
-            <span>🌐 ${esc(c.language || 'Bahasa Indonesia')}</span><span>🏫 Disusun tim Rubela</span>${c.certificate ? '<span>🎓 Sertifikat</span>' : ''}</div></div>
-        <aside class="hub-landing-card">${coverHtml(c, 'is-lg')}
-          ${p ? `<div class="hub-prog is-lg"><i style="width:${pct}%"></i></div><div class="muted small">${pct}% selesai${p.completedAt ? ' • ✅ tuntas' : ''}</div>
-              <button type="button" class="btn btn-primary btn-block" id="hubContinue" ${nl ? '' : 'disabled'}>${pct === 0 ? 'Mulai belajar' : p.completedAt ? 'Ulas kembali' : 'Lanjutkan belajar'}</button>
-              ${p.completedAt && c.certificate ? '<button type="button" class="btn btn-secondary btn-block mt-1" id="hubCert">🎓 Lihat sertifikat</button>' : ''}`
-            : (c.enrollMode === 'assigned' ? '<div class="alert alert-info small">Course ini didaftarkan oleh admin. Hubungi admin bila ingin mengikutinya.</div>'
-              : '<button type="button" class="btn btn-primary btn-block" id="hubEnroll">Ikuti course — gratis</button>')}
-        </aside>
+            <span>🌐 ${esc(c.language || 'Bahasa Indonesia')}</span><span>🏫 Disusun tim Rubela</span>${c.certificate ? '<span>🎓 Sertifikat</span>' : ''}
+            ${seq !== 'off' ? `<span>🔒 ${esc(SEQ_LABEL[seq])}</span>` : ''}</div></div>
+        <aside class="hub-landing-card">${coverHtml(c, 'is-lg')}${aside}</aside>
       </section>
       ${(c.outcomes || []).length ? `<div class="card"><div class="card-header">${UI.secHead('✅', 'Yang akan kamu pelajari', '')}</div>
         <ul class="hub-outcomes">${c.outcomes.map(o => `<li>${esc(o)}</li>`).join('')}</ul></div>` : ''}
-      <div class="card"><div class="card-header">${UI.secHead('🧭', 'Kurikulum', `${(c.sections || []).length} bab • ${visibleCount} pelajaran`)}</div>
+      <div class="card"><div class="card-header">${UI.secHead('🧭', 'Kurikulum', `${(c.sections || []).length} bab • ${visibleCount} pelajaran${seq !== 'off' ? ' • ' + SEQ_LABEL[seq].toLowerCase() : ''}`)}</div>
         <div class="hub-curr">${(c.sections || []).map((sec, si) => {
           const ls = (sec.lessons || []).filter(l => DB.hubLessonVisible(c, l, p));
           if (!ls.length) return '';
-          return `<details class="hub-sec" ${si === 0 ? 'open' : ''}><summary><strong>${esc(sec.title)}</strong><span class="muted small">${ls.length} pelajaran • ${fmtMin(ls.reduce((n, l) => n + (Number(l.durationMin) || 0), 0))}</span></summary>
-            <ol>${ls.map(l => { const s = lessonState(c, l, p); const opens = DB.hubLessonOpensAt(l, p);
+          const states = ls.map(l => lessonState(c, l, p, lock));
+          const secLocked = p && states.every(s => s === 'locked');
+          return `<details class="hub-sec ${secLocked ? 'is-locked' : ''}" ${si === 0 ? 'open' : ''}><summary><strong>${secLocked ? '🔒 ' : ''}${esc(sec.title)}</strong><span class="muted small">${ls.length} pelajaran • ${fmtMin(ls.reduce((n, l) => n + (Number(l.durationMin) || 0), 0))}${secLocked ? ' • terkunci' : ''}</span></summary>
+            <ol>${ls.map((l, i) => { const s = states[i];
               return `<li class="hub-li is-${s}"><span>${TYPE[l.type].ic}</span><span class="hub-li-t">${esc(l.title)}</span>
-                <span class="muted small">${s === 'done' ? '✓ selesai' : s === 'drip' ? `🔒 buka ${UI.fmtDate(opens)}` : (l.durationMin ? l.durationMin + ' mnt' : TYPE[l.type].label)}</span>
-                ${p && s !== 'drip' ? `<button type="button" class="btn btn-sm btn-ghost" data-hub-lesson="${l.id}">Buka</button>` : ''}</li>`; }).join('')}</ol></details>`;
+                <span class="muted small">${stateLabel(l, s)}</span>
+                ${p && s !== 'drip' && s !== 'locked' ? `<button type="button" class="btn btn-sm btn-ghost" data-hub-lesson="${l.id}">Buka</button>` : ''}</li>`; }).join('')}</ol></details>`;
         }).join('') || '<div class="muted small">Kurikulum belum tersedia.</div>'}</div></div>
       ${(c.requirements || []).length ? `<div class="card"><div class="card-header">${UI.secHead('📋', 'Persyaratan', '')}</div><ul class="hub-req">${c.requirements.map(r => `<li>${esc(r)}</li>`).join('')}</ul></div>` : ''}
       ${c.description ? `<div class="card"><div class="card-header">${UI.secHead('📝', 'Deskripsi', '')}</div><div class="rt-content">${RichText.render(c.description)}</div></div>` : ''}`;
     container.querySelector('#hubBack').addEventListener('click', () => go(container, user, { mode: 'catalog', courseId: null }));
     const en = container.querySelector('#hubEnroll');
     if (en) en.addEventListener('click', () => {
-      try { DB.hubEnroll(c.id, user.id); UI.toast('Berhasil bergabung. Selamat belajar! 🎉'); go(container, user, {}); } catch (e) { UI.toast(e.message, 'error'); }
+      try {
+        DB.hubEnroll(c.id, user.id);
+        UI.toast(removed ? 'Selamat datang kembali! Progresmu sudah dipulihkan. 🎉' : 'Berhasil bergabung. Selamat belajar! 🎉');
+        go(container, user, {});
+      } catch (e) { UI.toast(e.message, 'error'); }
     });
     const cont = container.querySelector('#hubContinue');
     if (cont) cont.addEventListener('click', () => go(container, user, { mode: 'player', lessonId: nl ? nl.id : null }));
@@ -150,29 +240,62 @@
     const c = DB.getHubCourse(view.courseId);
     const p = c ? DB.getHubProgress(c.id, user.id) : null;
     if (!c || c.active === false || !p) { view.mode = 'landing'; return renderLanding(container, user); }
+    const lock = DB.hubLockMap(c, p);
     const all = lessonsOf(c).filter(l => DB.hubLessonVisible(c, l, p));
+    const accessible = (x) => !!x && !DB.hubLessonOpensAt(x, p) && !lock[x.id];
     let l = all.find(x => x.id === view.lessonId) || nextLesson(c, p);
     if (!l) { view.mode = 'landing'; return renderLanding(container, user); }
-    if (DB.hubLessonOpensAt(l, p)) { UI.toast('Pelajaran ini belum dibuka.', 'info'); l = nextLesson(c, p); if (!l) { view.mode = 'landing'; return renderLanding(container, user); } }
+    if (!accessible(l)) {
+      UI.toast(DB.hubLessonOpensAt(l, p) ? 'Pelajaran ini belum dibuka.' : `Selesaikan dulu "${lock[l.id].title}".`, 'info');
+      const blocker = lock[l.id] ? all.find(x => x.id === lock[l.id].id) : null;
+      l = accessible(blocker) ? blocker : nextLesson(c, p);
+      if (!accessible(l)) { view.mode = 'landing'; return renderLanding(container, user); }
+    }
     view.lessonId = l.id;
+    try { DB.hubTouch(c.id, user.id); } catch (e) { /* pencatatan aktivitas opsional */ }
     const idx = all.findIndex(x => x.id === l.id);
-    const prev = all.slice(0, idx).reverse().find(x => !DB.hubLessonOpensAt(x, p));
+    const prev = all.slice(0, idx).reverse().find(accessible);
     const nxt = all.slice(idx + 1).find(x => !DB.hubLessonOpensAt(x, p));
+    const nxtLock = nxt ? lock[nxt.id] : null;
     const done = !!(p.completed || {})[l.id];
     const pct = DB.hubPercent(c, p);
     const qr = (p.quiz || {})[l.id];
+    // Soal kuis: id stabil per posisi agar nama input unik walau soal lama belum ber-id.
+    const qs = l.type === 'quiz' ? (l.questions || []).map((q, i) => Object.assign({}, q, {
+      id: ('h' + i + '_' + String(q.id || '')).replace(/[^\w-]/g, '').slice(0, 60), questionType: DB.hubQType(q) })) : [];
+    const answers = {};
+    if (qr && Array.isArray(qr.answers)) qs.forEach((q, i) => { if (qr.answers[i] != null) answers[q.id] = clone(qr.answers[i]); });
+    const passed = !!(qr && qr.passed);
+
     let content = '';
     if (l.type === 'article') content = `<div class="rt-content hub-article">${RichText.render(l.content || '')}</div>`;
     else if (l.type === 'video') content = `${l.url ? Shared.videoEmbedHtml(l.url) : '<div class="muted">Video belum diatur.</div>'}<div class="rt-content mt-1">${RichText.render(l.content || '')}</div>`;
     else if (l.type === 'pdf' || l.type === 'link') content = `<div class="rt-content">${RichText.render(l.content || '')}</div>
       ${l.url ? `<a class="btn btn-secondary" href="${esc(l.url)}" target="_blank" rel="noopener noreferrer">${TYPE[l.type].ic} Buka ${l.type === 'pdf' ? 'dokumen' : 'tautan'} ↗</a>` : '<div class="muted">Tautan belum diatur.</div>'}`;
-    else content = `<div class="rt-content">${RichText.render(l.content || '')}</div>
-      <form id="hubQuiz" class="hub-quiz">${(l.questions || []).map((q, i) => `<fieldset class="ar-q"><legend><span class="ar-qn">${i + 1}</span>${esc(q.text)}</legend>
-        <div class="ar-opts">${q.options.map((o, k) => `<label class="ar-opt ${qr && qr.answers && qr.passed ? (k === q.correctIndex ? 'is-key' : (qr.answers[i] === k ? 'is-wrong' : '')) : ''}">
-          <input type="radio" name="hq${i}" value="${k}" ${qr && qr.answers && qr.answers[i] === k ? 'checked' : ''}/><span class="ar-letter">${String.fromCharCode(65 + k)}</span><span>${esc(o)}</span></label>`).join('')}</div></fieldset>`).join('')}
-        ${qr ? `<div class="alert ${qr.passed ? 'alert-success' : 'alert-warning'}">Skor terakhir ${qr.score} (lulus ≥ ${l.passScore || 70}) • ${qr.attempts || 1}× percobaan</div>` : ''}
-        <div class="flex-gap" style="justify-content:flex-end;"><button class="btn btn-primary" type="submit">${qr ? 'Kirim ulang' : 'Kirim jawaban'}</button></div></form>`;
+    else {
+      content = `<div class="rt-content">${RichText.render(l.content || '')}</div>
+      <form id="hubQuiz" class="hub-quiz" novalidate>
+        ${qr ? `<div class="alert ${qr.passed ? 'alert-success' : 'alert-warning'}">Skor terakhir <strong>${qr.score}</strong> (lulus ≥ ${l.passScore || 70})${qr.total ? ` • ${qr.correct}/${qr.total} benar` : ''} • ${qr.attempts || 1}× percobaan${qr.passed ? ' • kunci & pembahasan ditampilkan di bawah tiap soal.' : ' — perbaiki jawabanmu lalu kirim ulang.'}</div>` : ''}
+        ${qs.some(q => q.questionType === 'Esai') ? '<div class="muted small mb-1">📝 Soal esai adalah refleksi: wajib diisi, tetapi tidak memengaruhi skor.</div>' : ''}
+        <div id="hubQuizQs">${qs.map((q, i) => {
+          let res = '';
+          if (passed && qr.answers) {
+            const g = gradeView(q, qr.answers[i]);
+            res = !g.auto ? '<span class="badge badge-gray">📝 Tidak dinilai</span>' : g.correct ? '<span class="badge badge-success">✓ Benar</span>' : '<span class="badge badge-danger">✗ Salah</span>';
+          }
+          return `<div class="asg-q hub-q" data-qi="${i}">
+            <div class="asg-q-head"><span class="asg-q-n">${i + 1}</span><span class="badge badge-gray">${qIcon(q.questionType)} ${esc(q.questionType)}</span>${res}</div>
+            <div class="asg-q-text rt-content">${RichText.render(q.text || '')}</div>
+            <div class="asg-q-answer">${QUI() ? QUI().answerInputHtml(q, answers[q.id]) : '<div class="muted small">Komponen jawaban belum termuat. Muat ulang halaman.</div>'}</div>
+            ${passed ? keyReviewHtml(q) : ''}
+          </div>`;
+        }).join('')}</div>
+        <div class="flex-gap hub-quiz-foot"><button class="btn btn-primary" type="submit">${qr ? 'Kirim ulang' : 'Kirim jawaban'}</button></div>
+      </form>`;
+    }
 
+    const sideIcon = (x, s) => s === 'done' ? '✅' : (s === 'drip' || s === 'locked') ? '🔒' : TYPE[x.type].ic;
+    const sideTitle = (x, s) => s === 'drip' ? `Terbuka ${UI.fmtDate(DB.hubLessonOpensAt(x, p))}` : s === 'locked' ? `Selesaikan dulu "${lock[x.id].title}"` : '';
     container.innerHTML = `
       <div class="hub-player">
         <aside class="hub-side" aria-label="Kurikulum">
@@ -180,9 +303,9 @@
           <div class="hub-prog"><i style="width:${pct}%"></i></div><div class="muted small">${pct}% selesai</div>
           <nav class="hub-side-list">${(c.sections || []).map(sec => {
             const ls = (sec.lessons || []).filter(x => DB.hubLessonVisible(c, x, p));
-            return ls.length ? `<div class="hub-side-sec">${esc(sec.title)}</div>${ls.map(x => { const s = lessonState(c, x, p);
-              return `<button type="button" class="hub-side-item ${x.id === l.id ? 'is-cur' : ''} is-${s}" data-hub-lesson="${x.id}" ${s === 'drip' ? 'disabled' : ''}>
-                <span>${s === 'done' ? '✅' : s === 'drip' ? '🔒' : TYPE[x.type].ic}</span><span>${esc(x.title)}</span></button>`; }).join('')}` : '';
+            return ls.length ? `<div class="hub-side-sec">${esc(sec.title)}</div>${ls.map(x => { const s = lessonState(c, x, p, lock);
+              return `<button type="button" class="hub-side-item ${x.id === l.id ? 'is-cur' : ''} is-${s}" data-hub-lesson="${x.id}" ${s === 'drip' || s === 'locked' ? `disabled title="${esc(sideTitle(x, s))}"` : ''}>
+                <span>${sideIcon(x, s)}</span><span>${esc(x.title)}</span></button>`; }).join('')}` : '';
           }).join('')}</nav>
         </aside>
         <article class="card hub-main">
@@ -192,9 +315,10 @@
           <div class="hub-actions">
             <button type="button" class="btn btn-secondary" id="hubPrev" ${prev ? '' : 'disabled'}>← Sebelumnya</button>
             ${l.type !== 'quiz' ? (done ? '<span class="badge badge-success">✓ Pelajaran selesai</span>'
-              : '<button type="button" class="btn btn-primary" id="hubDone" disabled>Membaca…</button>') : ''}
-            <button type="button" class="btn btn-secondary" id="hubNext" ${nxt ? '' : 'disabled'}>Berikutnya →</button>
+              : '<button type="button" class="btn btn-primary" id="hubDone" disabled>Membaca…</button>') : (passed ? '<span class="badge badge-success">✓ Kuis lulus</span>' : '')}
+            <button type="button" class="btn btn-secondary" id="hubNext" ${nxt && !nxtLock ? '' : 'disabled'} ${nxtLock ? `title="${esc(`Terbuka setelah "${nxtLock.title}" selesai`)}"` : ''}>Berikutnya →</button>
           </div>
+          ${nxtLock ? `<div class="hub-lock-hint">🔒 Pelajaran berikutnya terbuka setelah ${nxtLock.id === l.id ? (l.type === 'quiz' ? 'kamu lulus kuis ini' : 'pelajaran ini ditandai selesai') : `"${esc(nxtLock.title)}" selesai`}.</div>` : ''}
           <div class="hub-notes"><label for="hubNote">📝 Catatan pribadi untuk pelajaran ini</label>
             <textarea id="hubNote" rows="3" maxlength="4000" placeholder="Tulis ringkasan atau pertanyaanmu…">${esc((p.notes || {})[l.id] || '')}</textarea>
             <span class="muted small" id="hubNoteSt">Tersimpan otomatis</span></div>
@@ -203,48 +327,76 @@
     container.querySelector('#hubToLanding').addEventListener('click', () => go(container, user, { mode: 'landing' }));
     container.querySelectorAll('[data-hub-lesson]').forEach(b => b.addEventListener('click', () => go(container, user, { lessonId: b.dataset.hubLesson })));
     const pv = container.querySelector('#hubPrev'); if (prev) pv.addEventListener('click', () => go(container, user, { lessonId: prev.id }));
-    const nx = container.querySelector('#hubNext'); if (nxt) nx.addEventListener('click', () => go(container, user, { lessonId: nxt.id }));
+    const nx = container.querySelector('#hubNext'); if (nxt && !nxtLock) nx.addEventListener('click', () => go(container, user, { lessonId: nxt.id }));
     // Catatan: simpan otomatis (debounce)
     const note = container.querySelector('#hubNote');
     let nt = null;
     note.addEventListener('input', () => {
       clearTimeout(nt);
       container.querySelector('#hubNoteSt').textContent = 'Menyimpan…';
-      nt = setTimeout(() => { try { DB.hubSaveNote(c.id, l.id, user.id, note.value); container.querySelector('#hubNoteSt').textContent = 'Tersimpan otomatis'; } catch (e) { UI.toast(e.message, 'error'); } }, 600);
+      nt = setTimeout(() => { try { DB.hubSaveNote(c.id, l.id, user.id, note.value); const st = container.querySelector('#hubNoteSt'); if (st) st.textContent = 'Tersimpan otomatis'; } catch (e) { UI.toast(e.message, 'error'); } }, 600);
     });
     // Penyelesaian: token durasi (artikel/video/tautan) atau kuis
     const doneBtn = container.querySelector('#hubDone');
     if (doneBtn) {
-      let tok;
-      try { tok = DB.beginLearning(user.id, 'materi', 'hub:' + l.id); } catch (e) { doneBtn.textContent = 'Tandai selesai'; doneBtn.disabled = true; }
+      const need = DB.hubLessonMinSec(l);
+      let tok = null;
+      try { tok = DB.beginLearning(user.id, 'materi', 'hub:' + l.id, { exactMinSec: need }); }
+      catch (e) { doneBtn.textContent = 'Tandai selesai'; doneBtn.disabled = true; doneBtn.title = e.message; }
       if (tok) {
+        const fmtWait = (w) => w >= 60 ? `${Math.floor(w / 60)}:${String(w % 60).padStart(2, '0')}` : `${w} dtk`;
         const tick = () => {
           const w = DB.learningTokenWait(tok.token);
           if (w == null || !doneBtn.isConnected) { stopTimer(); return; }
-          if (w > 0) doneBtn.textContent = `Pelajari dulu… ${w} dtk`;
+          if (w > 0) { doneBtn.disabled = true; doneBtn.textContent = `Pelajari dulu… ${fmtWait(w)}`; }
           else { doneBtn.disabled = false; doneBtn.textContent = '✓ Tandai selesai'; stopTimer(); }
         };
-        tick(); readTimer = setInterval(tick, 1000);
+        tick();
+        if (DB.learningTokenWait(tok.token) > 0) readTimer = setInterval(tick, 1000);
         doneBtn.addEventListener('click', () => {
           try {
             const r = DB.hubCompleteLesson(c.id, l.id, user.id, { token: tok.token });
-            UI.toast(r.progress.completedAt && !p.completedAt ? '🎓 Course selesai! Sertifikat tersedia.' : 'Pelajaran selesai ✓');
-            go(container, user, { lessonId: nxt ? nxt.id : l.id });
+            const streakNote = !r.streak && need < 40 && DB.getSettings().streakEnabled !== false
+              ? ' Belum menambah streak — streak dihitung bila belajar minimal 40 detik.' : '';
+            UI.toast(r.progress.completedAt && !p.completedAt ? '🎓 Course selesai! Sertifikat tersedia.' : 'Pelajaran selesai ✓' + streakNote);
+            const lock2 = DB.hubLockMap(c, r.progress);
+            go(container, user, { lessonId: nxt && !lock2[nxt.id] ? nxt.id : l.id });
           } catch (e) { UI.toast(e.message, 'error'); }
         });
       }
     }
     const qf = container.querySelector('#hubQuiz');
-    if (qf) qf.addEventListener('submit', (e) => {
-      e.preventDefault();
-      const answers = (l.questions || []).map((_, i) => { const v = qf.querySelector(`input[name=hq${i}]:checked`); return v ? Number(v.value) : null; });
-      if (answers.some(a => a == null)) { UI.toast('Jawab semua soal kuis.', 'error'); return; }
-      try {
-        const r = DB.hubCompleteLesson(c.id, l.id, user.id, { answers });
-        UI.toast(r.passed ? `Lulus dengan skor ${r.score}! 🎉` : `Skor ${r.score}. Belum mencapai ${l.passScore || 70}, coba lagi.`, r.passed ? 'success' : 'info');
-        go(container, user, {});
-      } catch (ex) { UI.toast(ex.message, 'error'); }
-    });
+    if (qf) {
+      const box = qf.querySelector('#hubQuizQs');
+      if (QUI()) QUI().bindAnswerInputs(box, answers, () => box.querySelectorAll('.hub-q.is-missing').forEach(el => el.classList.remove('is-missing')));
+      // Setelah lulus: tandai pilihan kunci & pilihan yang salah (format pilihan)
+      if (passed && qr.answers) qs.forEach((q, i) => {
+        const t = q.questionType;
+        if (!['Pilihan Ganda', 'Benar/Salah', 'Pilihan Lebih dari Satu'].includes(t)) return;
+        const keys = t === 'Pilihan Lebih dari Satu' ? (q.correctIndices || []).map(Number) : [Number(q.correctIndex)];
+        const mine = Array.isArray(qr.answers[i]) ? qr.answers[i].map(Number) : [Number(qr.answers[i])];
+        box.querySelectorAll(`.hub-q[data-qi="${i}"] .asg-opt`).forEach((lab, k) => {
+          if (keys.includes(k)) lab.classList.add('is-key');
+          else if (mine.includes(k)) lab.classList.add('is-wrong');
+        });
+      });
+      qf.addEventListener('submit', (e) => {
+        e.preventDefault();
+        const arr = qs.map(q => answers[q.id]);
+        const miss = qs.findIndex((q, i) => !DB.hubIsAnswered(q, arr[i]));
+        if (miss >= 0) {
+          const el = box.querySelector(`.hub-q[data-qi="${miss}"]`);
+          if (el) { el.classList.add('is-missing'); el.scrollIntoView({ behavior: 'smooth', block: 'center' }); }
+          UI.toast(`Soal ${miss + 1} belum dijawab lengkap.`, 'error');
+          return;
+        }
+        try {
+          const r = DB.hubCompleteLesson(c.id, l.id, user.id, { answers: arr });
+          UI.toast(r.passed ? `Lulus dengan skor ${r.score}! 🎉` : `Skor ${r.score}. Belum mencapai ${l.passScore || 70}, coba lagi.`, r.passed ? 'success' : 'info');
+          go(container, user, {});
+        } catch (ex) { UI.toast(ex.message, 'error'); }
+      });
+    }
   }
 
   function certId(c, user, p) {
@@ -269,15 +421,20 @@
    * ORANG TUA
    * ===================================================================*/
   function renderParent(container, child) {
-    const progress = DB.getHubProgressByStudent(child.id);
+    const progress = DB.getHubProgressHistoryByStudent(child.id);
     const rows = progress.map(p => ({ p, c: DB.getHubCourse(p.courseId) })).filter(x => x.c);
+    const status = (p) => {
+      if (p.removedAt) return `<span class="badge badge-warning">Dikeluarkan ${esc(UI.fmtDate(p.removedAt))}</span><div class="muted small">tidak aktif ${Number(p.removedAfterDays) || DB.HUB_DEFAULT_INACTIVE_DAYS} hari • progres tersimpan</div>`;
+      if (p.completedAt) return `<span class="badge badge-success">Selesai ${esc(UI.fmtDate(p.completedAt))}</span>`;
+      return `<span class="badge badge-info">Berjalan</span><div class="muted small">aktif ${esc(UI.fmtRelative(DB.hubLastActive(p)))}</div>`;
+    };
     container.innerHTML = `<div class="card"><div class="card-header">${UI.secHead('📚', `Course Mandiri ${esc(child.name)}`, 'course yang disusun tim Rubela (hanya baca)')}</div>
       ${rows.length ? `<div class="table-wrap"><table class="table"><thead><tr><th>Course</th><th>Bergabung</th><th>Progres</th><th>Kuis</th><th>Status</th></tr></thead>
         <tbody>${rows.map(({ p, c }) => { const qs = Object.values(p.quiz || {});
           return `<tr><td><strong>${esc(c.title)}</strong><div class="muted small">${esc(c.category || '')}</div></td><td>${UI.fmtDate(p.enrolledAt)}</td>
             <td style="min-width:140px;"><div class="hub-prog"><i style="width:${DB.hubPercent(c, p)}%"></i></div><span class="small">${DB.hubPercent(c, p)}%</span></td>
             <td>${qs.length ? qs.map(q => `${q.score}${q.passed ? '✓' : ''}`).join(', ') : '-'}</td>
-            <td>${p.completedAt ? `<span class="badge badge-success">Selesai ${UI.fmtDate(p.completedAt)}</span>` : '<span class="badge badge-info">Berjalan</span>'}</td></tr>`; }).join('')}</tbody></table></div>`
+            <td>${status(p)}</td></tr>`; }).join('')}</tbody></table></div>`
         : `<div class="empty"><div class="empty-icon">📭</div>${esc(child.name)} belum mengikuti course mandiri. Tersedia ${DB.hubCoursesForStudent(child.id).length} course.</div>`}</div>`;
   }
 
@@ -287,6 +444,8 @@
   let adm = { mode: 'list', draft: null };
   function renderAdmin(container, admin) {
     if (adm.mode === 'edit' && adm.draft) return renderEditor(container, admin);
+    const swept = sweep(admin);
+    if (swept.length) UI.toast(`${swept.length} peserta course dikeluarkan otomatis karena tidak aktif.`, 'info');
     const list = DB.getHubCourses();
     const prog = (id) => DB.getHubProgressByCourse(id);
     container.innerHTML = `<div class="card"><div class="card-header">${UI.secHead('📚', `Course Mandiri (${list.length})`, 'tanpa tutor — seluruh isi diatur admin; tidak tercampur dengan materi kelas')}
@@ -294,6 +453,7 @@
     container.querySelector('#hubNew').addEventListener('click', () => {
       adm = { mode: 'edit', draft: { id: null, title: '', subtitle: '', description: '', category: '', level: 'Pemula', language: 'Bahasa Indonesia', color: '#4f46e5', cover: '',
         outcomes: [], requirements: [], audience: { type: 'all', classes: [], studentIds: [] }, enrollMode: 'open', active: false, newStudentPolicy: 'all', certificate: true,
+        sequential: 'off', inactivityDays: DB.HUB_DEFAULT_INACTIVE_DAYS,
         sections: [{ id: nid('sec'), title: 'Bab 1', lessons: [] }] } };
       renderAdmin(container, admin);
     });
@@ -305,9 +465,12 @@
       render: (rows, ctx) => `<div class="table-wrap"><table class="table"><thead><tr><th>Course</th><th>Pelajaran</th><th>Sasaran</th><th>Peserta</th><th>Rata progres</th><th>Status</th><th>Aksi</th></tr></thead>
         <tbody>${rows.map(c => { const ps = prog(c.id); const avg = ps.length ? Math.round(ps.reduce((n, p) => n + DB.hubPercent(c, p), 0) / ps.length) : 0;
           const a = c.audience || {};
-          return `<tr><td><div class="user-cell">${coverHtml(c, 'is-sm')}<div><strong>${ctx.highlight(c.title)}</strong><div class="muted small">${esc(c.category || '-')} • ${c.enrollMode === 'assigned' ? 'didaftarkan admin' : 'bebas bergabung'}</div></div></div></td>
+          const rm = DB.getHubRemovedByCourse(c.id).length;
+          const days = DB.hubInactivityDays(c);
+          const seq = c.sequential === 'lesson' || c.sequential === 'section' ? c.sequential : 'off';
+          return `<tr><td><div class="user-cell">${coverHtml(c, 'is-sm')}<div><strong>${ctx.highlight(c.title)}</strong><div class="muted small">${esc(c.category || '-')} • ${c.enrollMode === 'assigned' ? 'didaftarkan admin' : 'bebas bergabung'}${seq !== 'off' ? ' • 🔒 ' + esc(SEQ_LABEL[seq].toLowerCase()) : ''}</div></div></div></td>
             <td>${lessonsOf(c).length}</td><td class="small">${a.type === 'kelas' ? esc((a.classes || []).join(', ') || '-') : a.type === 'students' ? `${(a.studentIds || []).length} mentee` : 'Semua mentee'}</td>
-            <td>${ps.length}<div class="muted small">${ps.filter(p => p.completedAt).length} selesai</div></td><td>${avg}%</td>
+            <td>${ps.length}<div class="muted small">${ps.filter(p => p.completedAt).length} selesai${rm ? ` • ${rm} dikeluarkan` : ''}</div><div class="muted small">${days ? `⏳ keluar otomatis ${days} hari` : 'tanpa keluar otomatis'}</div></td><td>${avg}%</td>
             <td>${c.active !== false ? '<span class="badge badge-success">Aktif</span>' : '<span class="badge badge-gray">Nonaktif</span>'}${c.newStudentPolicy === 'fromJoin' ? '<div class="muted small">siswa baru: konten baru</div>' : ''}</td>
             <td class="actions"><button type="button" class="btn btn-sm btn-primary" data-hub-edit="${c.id}">Edit</button>
               <button type="button" class="btn btn-sm btn-secondary" data-hub-stats="${c.id}">Peserta</button>
@@ -333,35 +496,56 @@
 
   function renderEditor(container, admin) {
     const d = adm.draft;
+    if (!d.sequential) d.sequential = 'off';
+    if (d.inactivityDays == null) d.inactivityDays = DB.HUB_DEFAULT_INACTIVE_DAYS;
     const classes = DB.getMainClasses();
     const students = DB.getUsers().filter(u => u.role === 'siswa');
+    const color = /^#[0-9a-f]{6}$/i.test(String(d.color || '')) ? d.color : '#4f46e5';
+    const lessonMeta = (l) => {
+      const parts = [TYPE[l.type].label];
+      if (l.durationMin) parts.push(l.durationMin + ' mnt');
+      if (l.type === 'quiz') parts.push(`${(l.questions || []).length} soal • lulus ≥ ${Number(l.passScore) || 70}`);
+      else parts.push('⏱ selesai setelah ' + fmtSec(DB.hubLessonMinSec(l)));
+      if (l.dripDays) parts.push(`buka H+${l.dripDays}`);
+      if (l.active === false) parts.push('nonaktif');
+      return parts.join(' • ');
+    };
     container.innerHTML = `
       <div class="flex-between mb-2"><button type="button" class="btn btn-secondary btn-sm" id="hubCancel">← Kembali tanpa menyimpan</button>
         <button type="button" class="btn btn-primary" id="hubSave">💾 Simpan Course</button></div>
       <div class="hub-editor">
-        <form class="card form" id="hubInfo"><div class="card-header">${UI.secHead('🧾', 'Informasi Course', 'tampil di halaman course mentee')}</div>
-          <div class="form-group"><label>Judul</label><input name="title" class="input" maxlength="140" required value="${esc(d.title)}" /></div>
-          <div class="form-group"><label>Subjudul</label><input name="subtitle" class="input" maxlength="240" value="${esc(d.subtitle)}" /></div>
-          <div class="form-row"><div class="form-group"><label>Kategori</label><input name="category" class="input" maxlength="60" value="${esc(d.category)}" /></div>
-            <div class="form-group"><label>Level</label><select name="level" class="input">${['Pemula', 'Menengah', 'Lanjutan', 'Semua level'].map(v => `<option ${d.level === v ? 'selected' : ''}>${v}</option>`).join('')}</select></div>
-            <div class="form-group"><label>Bahasa</label><input name="language" class="input" maxlength="40" value="${esc(d.language || 'Bahasa Indonesia')}" /></div></div>
-          <div class="form-row"><div class="form-group"><label>Warna tema</label><input type="color" name="color" value="${esc(d.color || '#4f46e5')}" /></div>
-            <div class="form-group"><label>Cover</label><div class="photo-field">${coverHtml(d, 'is-sm')}<input type="file" name="cover" class="input" accept="image/jpeg,image/png,image/webp" />
+        <form class="card form no-anim" id="hubInfo"><div class="card-header">${UI.secHead('🧾', 'Informasi Course', 'tampil di halaman course mentee')}</div>
+          <div class="form-group"><label for="hubTitle">Judul</label><input id="hubTitle" name="title" class="input" maxlength="140" required value="${esc(d.title)}" /></div>
+          <div class="form-group"><label for="hubSubtitle">Subjudul</label><input id="hubSubtitle" name="subtitle" class="input" maxlength="240" value="${esc(d.subtitle)}" /></div>
+          <div class="form-row"><div class="form-group"><label for="hubCat">Kategori</label><input id="hubCat" name="category" class="input" maxlength="60" value="${esc(d.category)}" /></div>
+            <div class="form-group"><label for="hubLevel">Level</label><select id="hubLevel" name="level" class="input">${['Pemula', 'Menengah', 'Lanjutan', 'Semua level'].map(v => `<option ${d.level === v ? 'selected' : ''}>${v}</option>`).join('')}</select></div>
+            <div class="form-group"><label for="hubLang">Bahasa</label><input id="hubLang" name="language" class="input" maxlength="40" value="${esc(d.language || 'Bahasa Indonesia')}" /></div></div>
+          <div class="form-row"><div class="form-group"><label for="hubColor">Warna tema</label>
+              ${UI.colorFieldHtml('color', color, 'id="hubColor"')}</div>
+            <div class="form-group"><label>Cover</label><div class="photo-field">${coverHtml(Object.assign({}, d, { color }), 'is-sm')}<input type="file" name="cover" class="input" accept="image/jpeg,image/png,image/webp" aria-label="Pilih gambar cover" />
               ${d.cover ? '<button type="button" class="btn btn-sm btn-ghost" id="hubRmCover">Hapus</button>' : ''}</div></div></div>
-          <div class="form-group"><label>Deskripsi</label>${Editor.toolbarHtml('hubDesc')}<div id="hubDesc" class="qe-editor" contenteditable="true">${d.description || ''}</div></div>
-          <div class="form-row"><div class="form-group"><label>Yang akan dipelajari (satu per baris)</label><textarea name="outcomes" rows="4">${esc((d.outcomes || []).join('\n'))}</textarea></div>
-            <div class="form-group"><label>Persyaratan (satu per baris)</label><textarea name="requirements" rows="4">${esc((d.requirements || []).join('\n'))}</textarea></div></div>
+          <div class="form-group"><label>Deskripsi</label>${Editor.toolbarHtml('hubDesc')}<div id="hubDesc" class="qe-editor" contenteditable="true" data-ph="Ceritakan isi course, sasaran, dan cara belajarnya…">${d.description || ''}</div></div>
+          <div class="form-row"><div class="form-group"><label for="hubOut">Yang akan dipelajari (satu per baris)</label><textarea id="hubOut" name="outcomes" rows="4">${esc((d.outcomes || []).join('\n'))}</textarea></div>
+            <div class="form-group"><label for="hubReq">Persyaratan (satu per baris)</label><textarea id="hubReq" name="requirements" rows="4">${esc((d.requirements || []).join('\n'))}</textarea></div></div>
           <h4>Peserta & akses</h4>
-          <div class="form-row"><div class="form-group"><label>Sasaran</label><select name="aud" class="input">
+          <div class="form-row"><div class="form-group"><label for="hubAud">Sasaran</label><select id="hubAud" name="aud" class="input">
               <option value="all" ${d.audience.type === 'all' ? 'selected' : ''}>Semua mentee</option><option value="kelas" ${d.audience.type === 'kelas' ? 'selected' : ''}>Kelas utama tertentu</option>
               <option value="students" ${d.audience.type === 'students' ? 'selected' : ''}>Mentee tertentu</option></select></div>
-            <div class="form-group"><label>Pendaftaran</label><select name="enroll" class="input"><option value="open" ${d.enrollMode !== 'assigned' ? 'selected' : ''}>Mentee bergabung sendiri</option>
+            <div class="form-group"><label for="hubEnrollMode">Pendaftaran</label><select id="hubEnrollMode" name="enroll" class="input"><option value="open" ${d.enrollMode !== 'assigned' ? 'selected' : ''}>Mentee bergabung sendiri</option>
               <option value="assigned" ${d.enrollMode === 'assigned' ? 'selected' : ''}>Didaftarkan admin</option></select></div></div>
           <div class="form-group ${d.audience.type === 'kelas' ? '' : 'hidden'}" id="hubAudKelas"><label>Kelas utama</label><div class="hub-checks">${classes.map(k => `<label class="check-row"><input type="checkbox" name="cls" value="${esc(k)}" ${(d.audience.classes || []).includes(k) ? 'checked' : ''}/> ${esc(k)}</label>`).join('')}</div></div>
           <div class="form-group ${d.audience.type === 'students' ? '' : 'hidden'}" id="hubAudStu"><label>Mentee</label><div class="hub-checks">${students.map(s => `<label class="check-row"><input type="checkbox" name="stu" value="${s.id}" ${(d.audience.studentIds || []).includes(s.id) ? 'checked' : ''}/> ${esc(s.name)} <span class="muted small">${esc(s.kelas || '')}</span></label>`).join('')}</div></div>
-          <div class="form-group"><label>Konten untuk mentee yang bergabung belakangan</label><select name="policy" class="input">
+          <div class="form-group"><label for="hubPolicy">Konten untuk mentee yang bergabung belakangan</label><select id="hubPolicy" name="policy" class="input">
             <option value="all" ${d.newStudentPolicy !== 'fromJoin' ? 'selected' : ''}>Langsung melihat semua pelajaran</option>
             <option value="fromJoin" ${d.newStudentPolicy === 'fromJoin' ? 'selected' : ''}>Hanya pelajaran baru / yang diaktifkan ulang</option></select></div>
+          <div class="form-row"><div class="form-group"><label for="hubSeq">Urutan belajar</label><select id="hubSeq" name="seq" class="input">
+              <option value="off" ${d.sequential === 'off' ? 'selected' : ''}>Bebas — semua pelajaran dapat dibuka</option>
+              <option value="lesson" ${d.sequential === 'lesson' ? 'selected' : ''}>Wajib berurutan per pelajaran</option>
+              <option value="section" ${d.sequential === 'section' ? 'selected' : ''}>Wajib berurutan per bab</option></select>
+              <div class="muted small">Pelajaran/bab berikutnya terkunci 🔒 sampai yang sebelumnya selesai (kuis harus lulus).</div></div>
+            <div class="form-group"><label for="hubInact">Keluarkan peserta yang tidak aktif setelah</label>
+              <div class="input-suffix"><input type="number" id="hubInact" name="inact" class="input" min="0" max="365" step="1" value="${Number(d.inactivityDays)}" /><span>hari</span></div>
+              <div class="muted small">0 = tidak pernah. Hanya Course Mandiri; kelas tidak terpengaruh. Progres tetap tersimpan bila mentee bergabung kembali.</div></div></div>
           <label class="check-row"><input type="checkbox" name="cert" ${d.certificate ? 'checked' : ''}/> Berikan sertifikat penyelesaian</label>
           <label class="check-row"><input type="checkbox" name="active" ${d.active !== false ? 'checked' : ''}/> Course aktif (tampil untuk mentee)</label>
         </form>
@@ -373,7 +557,7 @@
               <button type="button" class="btn btn-sm btn-ghost" data-sec-down="${si}" ${si < d.sections.length - 1 ? '' : 'disabled'} aria-label="Turunkan bab">↓</button>
               <button type="button" class="btn btn-sm btn-danger" data-sec-del="${si}">Hapus</button></div>
             <ol class="hub-elessons">${(sec.lessons || []).map((l, li) => `<li class="${l.active === false ? 'is-off' : ''}"><span>${TYPE[l.type].ic}</span><span class="hub-li-t">${esc(l.title || '(tanpa judul)')}</span>
-              <span class="muted small">${TYPE[l.type].label}${l.durationMin ? ' • ' + l.durationMin + ' mnt' : ''}${l.dripDays ? ` • buka H+${l.dripDays}` : ''}${l.active === false ? ' • nonaktif' : ''}</span>
+              <span class="muted small">${esc(lessonMeta(l))}</span>
               <span class="hub-li-act"><button type="button" class="btn btn-sm btn-ghost" data-les-up="${si}:${li}" ${li ? '' : 'disabled'} aria-label="Naikkan">↑</button>
                 <button type="button" class="btn btn-sm btn-ghost" data-les-down="${si}:${li}" ${li < sec.lessons.length - 1 ? '' : 'disabled'} aria-label="Turunkan">↓</button>
                 <button type="button" class="btn btn-sm btn-secondary" data-les-edit="${si}:${li}">Edit</button>
@@ -385,18 +569,24 @@
       </div>`;
     const info = container.querySelector('#hubInfo');
     Editor.attach(info);
+    const val = (sel) => info.querySelector(sel);
     const syncInfo = () => {
-      const f = info;
-      Object.assign(d, { title: f.title.value, subtitle: f.subtitle.value, category: f.category.value, level: f.level.value, language: f.language.value,
-        color: f.color.value, description: RichText.sanitize(f.querySelector('#hubDesc').innerHTML), outcomes: linesOf(f.outcomes.value), requirements: linesOf(f.requirements.value),
-        enrollMode: f.enroll.value, newStudentPolicy: f.policy.value, certificate: f.cert.checked, active: f.active.checked,
-        audience: { type: f.aud.value, classes: [...f.querySelectorAll('input[name=cls]:checked')].map(x => x.value), studentIds: [...f.querySelectorAll('input[name=stu]:checked')].map(x => x.value) } });
+      const inact = Number(val('#hubInact').value);
+      Object.assign(d, { title: val('#hubTitle').value, subtitle: val('#hubSubtitle').value, category: val('#hubCat').value, level: val('#hubLevel').value, language: val('#hubLang').value,
+        color: val('#hubColor').value, description: RichText.sanitize(val('#hubDesc').innerHTML), outcomes: linesOf(val('#hubOut').value), requirements: linesOf(val('#hubReq').value),
+        enrollMode: val('#hubEnrollMode').value, newStudentPolicy: val('#hubPolicy').value, certificate: info.cert.checked, active: info.active.checked,
+        sequential: val('#hubSeq').value, inactivityDays: isFinite(inact) && val('#hubInact').value !== '' ? Math.max(0, Math.min(365, Math.round(inact))) : DB.HUB_DEFAULT_INACTIVE_DAYS,
+        audience: { type: val('#hubAud').value, classes: [...info.querySelectorAll('input[name=cls]:checked')].map(x => x.value), studentIds: [...info.querySelectorAll('input[name=stu]:checked')].map(x => x.value) } });
       container.querySelectorAll('[data-sec-title]').forEach(inp => { d.sections[Number(inp.dataset.secTitle)].title = inp.value; });
     };
-    const rerender = () => { syncInfo(); renderEditor(container, admin); };
-    info.aud.addEventListener('change', () => {
-      container.querySelector('#hubAudKelas').classList.toggle('hidden', info.aud.value !== 'kelas');
-      container.querySelector('#hubAudStu').classList.toggle('hidden', info.aud.value !== 'students');
+    // Warna tema: pratinjau cover ikut berubah saat warna dipilih
+    val('#hubColor').addEventListener('input', () => {
+      const cv = info.querySelector('.photo-field .hub-cover');
+      if (cv) cv.style.setProperty('--hub-c', val('#hubColor').value);
+    });
+    val('#hubAud').addEventListener('change', () => {
+      container.querySelector('#hubAudKelas').classList.toggle('hidden', val('#hubAud').value !== 'kelas');
+      container.querySelector('#hubAudStu').classList.toggle('hidden', val('#hubAud').value !== 'students');
     });
     info.cover.addEventListener('change', async () => {
       const f = info.cover.files[0];
@@ -419,113 +609,391 @@
         renderEditor(container, admin);
       } catch (e) { UI.toast(e.message, 'error'); }
     });
-    container.querySelector('#hubAddSec').addEventListener('click', () => { syncInfo(); d.sections.push({ id: nid('sec'), title: `Bab ${d.sections.length + 1}`, lessons: [] }); renderEditor(container, admin); });
+    // Menyusun ulang kurikulum mempertahankan posisi gulir agar daftar tidak "melompat".
+    const rerender = () => { const y = global.scrollY; renderEditor(container, admin); global.scrollTo(0, y); };
+    container.querySelector('#hubAddSec').addEventListener('click', () => { syncInfo(); d.sections.push({ id: nid('sec'), title: `Bab ${d.sections.length + 1}`, lessons: [] }); rerender(); });
     const at = (v) => v.split(':').map(Number);
     const on = (sel, fn) => container.querySelectorAll(sel).forEach(b => b.addEventListener('click', () => { syncInfo(); fn(b); }));
-    on('[data-sec-up]', b => { const i = Number(b.dataset.secUp); [d.sections[i - 1], d.sections[i]] = [d.sections[i], d.sections[i - 1]]; renderEditor(container, admin); });
-    on('[data-sec-down]', b => { const i = Number(b.dataset.secDown); [d.sections[i + 1], d.sections[i]] = [d.sections[i], d.sections[i + 1]]; renderEditor(container, admin); });
-    on('[data-sec-del]', b => { const i = Number(b.dataset.secDel); if ((d.sections[i].lessons || []).length && !UI.confirmDialog('Hapus bab beserta pelajarannya?')) return; d.sections.splice(i, 1); renderEditor(container, admin); });
+    on('[data-sec-up]', b => { const i = Number(b.dataset.secUp); [d.sections[i - 1], d.sections[i]] = [d.sections[i], d.sections[i - 1]]; rerender(); });
+    on('[data-sec-down]', b => { const i = Number(b.dataset.secDown); [d.sections[i + 1], d.sections[i]] = [d.sections[i], d.sections[i + 1]]; rerender(); });
+    on('[data-sec-del]', b => { const i = Number(b.dataset.secDel); if ((d.sections[i].lessons || []).length && !UI.confirmDialog('Hapus bab beserta pelajarannya?')) return; d.sections.splice(i, 1); rerender(); });
     on('[data-les-add]', b => openLesson(container, admin, Number(b.dataset.lesAdd), -1));
     on('[data-les-edit]', b => { const [si, li] = at(b.dataset.lesEdit); openLesson(container, admin, si, li); });
-    on('[data-les-del]', b => { const [si, li] = at(b.dataset.lesDel); if (!UI.confirmDialog('Hapus pelajaran ini?')) return; d.sections[si].lessons.splice(li, 1); renderEditor(container, admin); });
-    on('[data-les-up]', b => { const [si, li] = at(b.dataset.lesUp); const ls = d.sections[si].lessons; [ls[li - 1], ls[li]] = [ls[li], ls[li - 1]]; renderEditor(container, admin); });
-    on('[data-les-down]', b => { const [si, li] = at(b.dataset.lesDown); const ls = d.sections[si].lessons; [ls[li + 1], ls[li]] = [ls[li], ls[li + 1]]; renderEditor(container, admin); });
-    on('[data-les-toggle]', b => { const [si, li] = at(b.dataset.lesToggle); const l = d.sections[si].lessons[li]; l.active = l.active === false; renderEditor(container, admin); });
+    on('[data-les-del]', b => { const [si, li] = at(b.dataset.lesDel); if (!UI.confirmDialog('Hapus pelajaran ini?')) return; d.sections[si].lessons.splice(li, 1); rerender(); });
+    on('[data-les-up]', b => { const [si, li] = at(b.dataset.lesUp); const ls = d.sections[si].lessons; [ls[li - 1], ls[li]] = [ls[li], ls[li - 1]]; rerender(); });
+    on('[data-les-down]', b => { const [si, li] = at(b.dataset.lesDown); const ls = d.sections[si].lessons; [ls[li + 1], ls[li]] = [ls[li], ls[li + 1]]; rerender(); });
+    on('[data-les-toggle]', b => { const [si, li] = at(b.dataset.lesToggle); const l = d.sections[si].lessons[li]; l.active = l.active === false; rerender(); });
     on('[data-les-re]', b => {
       const [si, li] = at(b.dataset.lesRe); const l = d.sections[si].lessons[li];
       l.active = true; l.reactivatedAt = Date.now();
       UI.toast('Pelajaran akan dibuka untuk mentee yang bergabung belakangan setelah course disimpan.', 'info');
-      renderEditor(container, admin);
+      rerender();
+    });
+  }
+
+  /* ---------- Editor pelajaran (modal, dapat layar penuh) ---------- */
+  function minSecHtml(l) {
+    const v = DB.hubLessonMinSec(l);
+    return `<div class="form-group les-min">
+      <label for="lesMin">Waktu belajar minimal sebelum tombol "Tandai selesai" aktif</label>
+      <div class="les-min-row">
+        <div class="input-suffix"><input type="number" id="lesMin" class="input" min="0" max="7200" step="1" value="${v}" /><span>detik</span></div>
+        <div class="les-min-quick" role="group" aria-label="Atur cepat waktu minimal">
+          <button type="button" class="btn btn-sm btn-secondary" data-min-set="0">Tanpa durasi (0 dtk)</button>
+          <button type="button" class="btn btn-sm btn-secondary" data-min-add="30">+30 dtk</button>
+          <button type="button" class="btn btn-sm btn-secondary" data-min-add="60">+1 mnt</button>
+          <button type="button" class="btn btn-sm btn-secondary" data-min-add="300">+5 mnt</button>
+          <button type="button" class="btn btn-sm btn-ghost" data-min-set="${DB.HUB_DEFAULT_MIN_SEC}">Bawaan (${DB.HUB_DEFAULT_MIN_SEC} dtk)</button>
+        </div>
+      </div>
+      <div class="muted small" id="lesMinHint"></div>
+    </div>`;
+  }
+  function minSecHint(v) {
+    if (!v) return 'Mentee dapat langsung menandai pelajaran selesai. Streak hanya bertambah bila mentee belajar minimal 40 detik.';
+    return `Tombol "Tandai selesai" aktif setelah ${fmtSec(v)}.${v < 40 ? ' Streak hanya bertambah bila mentee belajar minimal 40 detik.' : ''}`;
+  }
+
+  function copyFromBank(src) {
+    const q = clone(src);
+    const out = { id: nid('hq'), sourceId: src.id, questionType: DB.hubQType(src) };
+    ['text', 'options', 'correctIndex', 'correctIndices', 'answers', 'numeric', 'numericTolerance', 'shortAnswerPolicy',
+      'statements', 'pairs', 'orderItems', 'keywords', 'explanation', 'subject', 'difficulty'].forEach(k => { if (q[k] !== undefined && q[k] !== null) out[k] = q[k]; });
+    if (out.questionType === 'Benar/Salah' && !(out.options || []).length) out.options = ['Benar', 'Salah'];
+    return out;
+  }
+
+  /** Pemilih soal dari Bank Soal (semua jenis soal CBT). Soal disalin ke kuis. */
+  function openBankPicker(l, onAdd) {
+    const used = new Set(l.questions.map(q => q.sourceId).filter(Boolean));
+    Editor.openSubDialog('Ambil Soal dari Bank Soal', `
+      <div class="form-row">
+        <div class="form-group"><label for="hbSub">Subtest</label><select id="hbSub" class="input"><option value="">Semua subtest</option>
+          ${DB.SUBTESTS.map(s => `<option value="${esc(s.name)}">${s.icon} ${esc(s.name)}</option>`).join('')}</select></div>
+        <div class="form-group"><label for="hbType">Jenis soal</label><select id="hbType" class="input"><option value="">Semua jenis</option>
+          ${DB.HUB_QTYPES.map(t => `<option value="${esc(t)}">${qIcon(t)} ${esc(t)}</option>`).join('')}</select></div>
+      </div>
+      <div class="form-group"><label for="hbQ">Cari</label><input type="search" id="hbQ" class="input" placeholder="kata kunci soal…" autocomplete="off" /></div>
+      <label class="check-row small"><input type="checkbox" id="hbAll" /> Pilih semua soal yang tampil</label>
+      <div id="hbList" class="ce-pick-list"></div>
+      <p class="muted small" style="margin:8px 0 0;">Soal disalin ke kuis ini, sehingga mengubah atau menghapus soal di Bank Soal tidak merusak kuis.</p>
+      <div class="flex-gap mt-2" style="justify-content:space-between;">
+        <span class="muted small" id="hbCount"></span>
+        <div class="flex-gap"><button type="button" class="btn btn-secondary" data-cancel>Tutup</button><button type="button" class="btn btn-primary" data-ok>Tambahkan Terpilih</button></div>
+      </div>`, (back, close) => {
+      const listEl = back.querySelector('#hbList');
+      const subEl = back.querySelector('#hbSub');
+      const typeEl = back.querySelector('#hbType');
+      const qEl = back.querySelector('#hbQ');
+      const allEl = back.querySelector('#hbAll');
+      const countEl = back.querySelector('#hbCount');
+      const chosen = new Set();
+      let shown = [];
+      const room = () => MAX_QUIZ_QUESTIONS - l.questions.length;
+      const count = () => { countEl.textContent = `${shown.length} soal cocok • ${chosen.size} dipilih • sisa kuota ${Math.max(0, room())} soal`; };
+      function paintList() {
+        let list = DB.getQuestions();
+        if (subEl.value) list = list.filter(x => x.subject === subEl.value);
+        if (typeEl.value) list = list.filter(x => DB.hubQType(x) === typeEl.value);
+        const needle = qEl.value.trim().toLowerCase();
+        if (needle) list = list.filter(x => RichText.plain(x.text, 400).toLowerCase().includes(needle));
+        shown = list;
+        allEl.checked = !!list.length && list.every(x => used.has(x.id) || chosen.has(x.id));
+        count();
+        if (!list.length) { listEl.innerHTML = '<div class="empty" style="padding:22px;"><div class="empty-icon">🔎</div>Tidak ada soal yang cocok.</div>'; return; }
+        listEl.innerHTML = list.slice(0, 300).map(x => {
+          const already = used.has(x.id);
+          const prob = DB.hubQuestionProblem(x);
+          return `<label class="ce-pick-item ${already ? 'is-used' : ''}">
+            <input type="checkbox" value="${esc(x.id)}" ${chosen.has(x.id) ? 'checked' : ''} ${already ? 'disabled' : ''} />
+            <div><div class="cp-meta"><span class="badge badge-gray">${qIcon(DB.hubQType(x))} ${esc(DB.hubQType(x))}</span><span class="muted small">${esc(x.subject || '-')}</span>
+              ${x.difficulty ? `<span class="muted small">• ${esc(x.difficulty)}</span>` : ''}
+              ${already ? '<span class="badge badge-success">sudah di kuis</span>' : ''}${prob ? `<span class="badge badge-warning">perlu dilengkapi: ${esc(prob)}</span>` : ''}</div>
+              <div class="cp-text">${esc(RichText.plain(x.text, 160))}</div></div></label>`;
+        }).join('') + (list.length > 300 ? `<div class="muted small" style="padding:10px;">Menampilkan 300 dari ${list.length} soal. Persempit dengan filter atau kata kunci.</div>` : '');
+      }
+      listEl.addEventListener('change', (e) => {
+        const cb = e.target.closest('input[type="checkbox"]');
+        if (!cb) return;
+        if (cb.checked) {
+          if (chosen.size >= room()) { cb.checked = false; UI.toast(`Kuis maksimal ${MAX_QUIZ_QUESTIONS} soal.`, 'info'); return; }
+          chosen.add(cb.value);
+        } else chosen.delete(cb.value);
+        count();
+      });
+      allEl.addEventListener('change', () => {
+        shown.slice(0, 300).forEach(x => {
+          if (used.has(x.id)) return;
+          if (allEl.checked) { if (chosen.size < room()) chosen.add(x.id); } else chosen.delete(x.id);
+        });
+        paintList();
+      });
+      subEl.addEventListener('change', paintList);
+      typeEl.addEventListener('change', paintList);
+      qEl.addEventListener('input', paintList);
+      back.querySelector('[data-cancel]').addEventListener('click', close);
+      back.querySelector('[data-ok]').addEventListener('click', () => {
+        if (!chosen.size) { UI.toast('Belum ada soal yang dipilih.', 'info'); return; }
+        const bank = DB.getQuestions();
+        const picked = [...chosen].map(id => bank.find(x => x.id === id)).filter(Boolean).map(copyFromBank);
+        close();
+        onAdd(picked);
+      });
+      paintList();
     });
   }
 
   function openLesson(container, admin, si, li) {
     const d = adm.draft;
     const isNew = li < 0;
-    const l = isNew ? { id: nid('les'), title: '', type: 'article', durationMin: 5, dripDays: 0, active: true, createdAt: Date.now(), content: '', url: '', questions: [], passScore: 70 } : clone(d.sections[si].lessons[li]);
-    if (!l.questions) l.questions = [];
-    const paint = () => {
-      UI.modal.open(isNew ? 'Tambah Pelajaran' : 'Edit Pelajaran', `<form id="lesForm" class="form">
-        <div class="form-row"><div class="form-group"><label>Judul pelajaran</label><input name="title" class="input" maxlength="140" required value="${esc(l.title)}" /></div>
-          <div class="form-group"><label>Jenis</label><select name="type" class="input">${Object.keys(TYPE).map(k => `<option value="${k}" ${l.type === k ? 'selected' : ''}>${TYPE[k].ic} ${TYPE[k].label}</option>`).join('')}</select></div></div>
-        <div class="form-row"><div class="form-group"><label>Durasi (menit)</label><input type="number" name="dur" class="input" min="0" max="600" value="${Number(l.durationMin) || 0}" /></div>
-          <div class="form-group"><label>Buka setelah H+ hari bergabung (0 = langsung)</label><input type="number" name="drip" class="input" min="0" max="365" value="${Number(l.dripDays) || 0}" /></div></div>
-        ${['video', 'pdf', 'link'].includes(l.type) ? `<div class="form-group"><label>${l.type === 'video' ? 'URL video (YouTube/Vimeo)' : 'URL dokumen/tautan'} — https://</label><input name="url" class="input" type="url" maxlength="500" value="${esc(l.url || '')}" /></div>` : ''}
-        <div class="form-group"><label>${l.type === 'quiz' ? 'Petunjuk kuis' : 'Isi / keterangan'}</label>${Editor.toolbarHtml('lesBody')}<div id="lesBody" class="qe-editor ${l.type === 'article' ? 'ce-editor-tall' : ''}" contenteditable="true">${l.content || ''}</div></div>
-        ${l.type === 'quiz' ? `<div class="form-group"><label>Nilai lulus (%)</label><input type="number" name="pass" class="input" min="1" max="100" value="${Number(l.passScore) || 70}" style="max-width:140px;" /></div>
-          <div id="lesQs">${l.questions.map((q, i) => `<fieldset class="rt-q" data-qi="${i}"><legend>Soal ${i + 1} <button type="button" class="btn btn-sm btn-ghost" data-rmq="${i}">Hapus</button></legend>
-            <input class="input" data-f="text" placeholder="Pertanyaan" value="${esc(q.text || '')}" />
-            ${(q.options || ['', '', '', '']).map((o, k) => `<div class="flex-gap mt-1"><input type="radio" name="lk${i}" value="${k}" ${q.correctIndex === k ? 'checked' : ''} aria-label="Kunci ${String.fromCharCode(65 + k)}"/><input class="input" data-f="opt" style="flex:1" value="${esc(o)}" placeholder="Pilihan ${String.fromCharCode(65 + k)}" /></div>`).join('')}
-            </fieldset>`).join('')}</div>
-          <button type="button" class="btn btn-sm btn-secondary" id="lesAddQ">+ Soal</button>` : ''}
-        <div id="lesErr" class="alert alert-error hidden"></div>
-        <div class="flex-gap" style="justify-content:flex-end;"><button type="button" class="btn btn-secondary" data-close>Batal</button><button class="btn btn-primary" type="submit">Simpan Pelajaran</button></div></form>`);
-      const f = document.getElementById('lesForm');
-      Editor.attach(f);
-      const collect = () => {
-        l.title = f.title.value; l.durationMin = Math.max(0, Math.round(Number(f.dur.value) || 0)); l.dripDays = Math.max(0, Math.min(365, Math.round(Number(f.drip.value) || 0)));
-        l.content = RichText.sanitize(f.querySelector('#lesBody').innerHTML);
-        if (f.url) l.url = f.url.value.trim();
-        if (f.pass) l.passScore = Math.max(1, Math.min(100, Math.round(Number(f.pass.value) || 70)));
-        f.querySelectorAll('[data-qi]').forEach(fs => {
-          const q = l.questions[Number(fs.dataset.qi)];
-          q.text = fs.querySelector('[data-f=text]').value;
-          q.options = [...fs.querySelectorAll('[data-f=opt]')].map(x => x.value);
-          const k = fs.querySelector('input[type=radio]:checked'); q.correctIndex = k ? Number(k.value) : -1;
-        });
-      };
-      f.type.addEventListener('change', () => { collect(); l.type = f.type.value; paint(); });
-      const addQ = f.querySelector('#lesAddQ');
-      if (addQ) addQ.addEventListener('click', () => { collect(); if (l.questions.length >= 20) return; l.questions.push({ text: '', options: ['', '', '', ''], correctIndex: 0 }); paint(); });
-      f.querySelectorAll('[data-rmq]').forEach(b => b.addEventListener('click', () => { collect(); l.questions.splice(Number(b.dataset.rmq), 1); paint(); }));
-      f.querySelector('[data-close]').addEventListener('click', () => UI.modal.close());
-      f.addEventListener('submit', (e) => {
-        e.preventDefault();
-        collect();
-        const err = f.querySelector('#lesErr');
-        const fail = (m) => { err.textContent = m; err.classList.remove('hidden'); };
-        if (!l.title.trim()) return fail('Judul wajib diisi.');
-        if (['video', 'pdf', 'link'].includes(l.type) && l.url && !/^https:\/\//i.test(l.url)) return fail('Tautan harus diawali https://');
-        if (l.type === 'quiz') {
-          if (!l.questions.length) return fail('Tambahkan minimal satu soal.');
-          for (let i = 0; i < l.questions.length; i++) {
-            const q = l.questions[i];
-            q.options = q.options.map(o => o.trim()).filter(Boolean);
-            if (!q.text.trim() || q.options.length < 2 || !(q.correctIndex >= 0 && q.correctIndex < q.options.length)) return fail(`Soal ${i + 1}: isi pertanyaan, minimal 2 pilihan, dan pilih kunci.`);
-          }
-        }
-        if (isNew) d.sections[si].lessons.push(l); else d.sections[si].lessons[li] = l;
-        UI.modal.close();
-        renderEditor(container, admin);
-      });
+    const l = isNew ? { id: nid('les'), title: '', type: 'article', durationMin: 5, minSec: DB.HUB_DEFAULT_MIN_SEC, dripDays: 0, active: true, createdAt: Date.now(), content: '', url: '', questions: [], passScore: 70 }
+      : clone(d.sections[si].lessons[li]);
+    if (!Array.isArray(l.questions)) l.questions = [];
+    // Soal lama (tanpa id/jenis) dianggap Pilihan Ganda. Isi form informasi course
+    // sudah disalin ke draf oleh pemanggil (on → syncInfo) sebelum modal dibuka.
+    l.questions.forEach(q => { if (!q.id) q.id = nid('hq'); q.questionType = DB.hubQType(q); });
+
+    UI.modal.open(isNew ? 'Tambah Pelajaran' : 'Edit Pelajaran', `<form id="lesForm" class="form les-form no-anim" novalidate>
+      <div class="form-row"><div class="form-group"><label for="lesTitle">Judul pelajaran</label><input id="lesTitle" class="input" maxlength="140" required value="${esc(l.title)}" /></div>
+        <div class="form-group"><label for="lesType">Jenis</label><select id="lesType" class="input">${Object.keys(TYPE).map(k => `<option value="${k}" ${l.type === k ? 'selected' : ''}>${TYPE[k].ic} ${TYPE[k].label}</option>`).join('')}</select></div></div>
+      <div class="form-row"><div class="form-group"><label for="lesDur">Estimasi durasi (menit)</label><input type="number" id="lesDur" class="input" min="0" max="600" value="${Number(l.durationMin) || 0}" />
+          <div class="muted small">Ditampilkan ke mentee. 0 = tanpa estimasi.</div></div>
+        <div class="form-group"><label for="lesDrip">Buka setelah H+ hari bergabung</label><input type="number" id="lesDrip" class="input" min="0" max="365" value="${Number(l.dripDays) || 0}" />
+          <div class="muted small">0 = langsung terbuka.</div></div></div>
+      <div id="lesTypeBox"></div>
+      <div class="form-group"><label id="lesBodyLabel" for="lesBody">${l.type === 'quiz' ? 'Petunjuk kuis' : 'Isi / keterangan'}</label>${Editor.toolbarHtml('lesBody')}<div id="lesBody" class="qe-editor ${l.type === 'article' ? 'ce-editor-tall' : ''}" contenteditable="true" data-ph="Tulis isi pelajaran…">${l.content || ''}</div></div>
+      <div id="lesQuizBox"></div>
+      <div id="lesErr" class="alert alert-error hidden" role="alert"></div>
+      <div class="flex-gap" style="justify-content:flex-end;"><button type="button" class="btn btn-secondary" data-close>Batal</button><button class="btn btn-primary" type="submit">Simpan Pelajaran</button></div></form>`,
+      { fullscreenToggle: true, fullKey: 'hub-lesson' });
+
+    const f = document.getElementById('lesForm');
+    const typeBox = f.querySelector('#lesTypeBox');
+    const quizBox = f.querySelector('#lesQuizBox');
+    const errBox = f.querySelector('#lesErr');
+    Editor.attach(f);
+    const num = (el, lo, hi, dflt) => { const n = Math.round(Number(el.value)); return el.value === '' || !isFinite(n) ? dflt : Math.max(lo, Math.min(hi, n)); };
+
+    const collect = () => {
+      l.title = f.querySelector('#lesTitle').value;
+      l.durationMin = num(f.querySelector('#lesDur'), 0, 600, 0);
+      l.dripDays = num(f.querySelector('#lesDrip'), 0, 365, 0);
+      l.content = RichText.sanitize(f.querySelector('#lesBody').innerHTML);
+      const u = f.querySelector('#lesUrl'); if (u) l.url = u.value.trim();
+      const m = f.querySelector('#lesMin'); if (m) l.minSec = num(m, 0, 7200, DB.HUB_DEFAULT_MIN_SEC);
+      const ps = f.querySelector('#lesPass'); if (ps) l.passScore = num(ps, 1, 100, 70);
     };
-    // Simpan isi form informasi sebelum membuka modal agar tidak hilang.
-    const info = container.querySelector('#hubInfo');
-    if (info) {
-      d.title = info.title.value; d.subtitle = info.subtitle.value;
-      container.querySelectorAll('[data-sec-title]').forEach(inp => { d.sections[Number(inp.dataset.secTitle)].title = inp.value; });
+
+    /* --- Bagian khusus jenis (URL & waktu minimal) — dirender ulang tanpa membuka ulang modal --- */
+    function paintType() {
+      const t = l.type;
+      typeBox.innerHTML = `
+        ${['video', 'pdf', 'link'].includes(t) ? `<div class="form-group"><label for="lesUrl">${t === 'video' ? 'URL video (YouTube/Vimeo)' : 'URL dokumen/tautan'} — https://</label><input id="lesUrl" class="input" type="url" maxlength="500" value="${esc(l.url || '')}" placeholder="https://…" /></div>` : ''}
+        ${t !== 'quiz' ? minSecHtml(l) : ''}`;
+      const m = typeBox.querySelector('#lesMin');
+      if (m) {
+        const hint = typeBox.querySelector('#lesMinHint');
+        const upd = () => { hint.textContent = minSecHint(num(m, 0, 7200, DB.HUB_DEFAULT_MIN_SEC)); };
+        m.addEventListener('input', upd);
+        upd();
+      }
+      f.querySelector('#lesBodyLabel').textContent = t === 'quiz' ? 'Petunjuk kuis' : 'Isi / keterangan';
+      f.querySelector('#lesBody').classList.toggle('ce-editor-tall', t === 'article');
+      paintQuiz();
     }
-    paint();
+    typeBox.addEventListener('click', (e) => {
+      const b = e.target.closest('[data-min-set], [data-min-add]');
+      if (!b) return;
+      const m = typeBox.querySelector('#lesMin');
+      const cur = num(m, 0, 7200, DB.HUB_DEFAULT_MIN_SEC);
+      const next = b.dataset.minSet != null ? Number(b.dataset.minSet) : cur + Number(b.dataset.minAdd);
+      m.value = Math.max(0, Math.min(7200, next));
+      m.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+
+    /* --- Kuis: daftar soal (8 jenis CBT) + Bank Soal; hanya daftar yang dirender ulang --- */
+    function qItemHtml(q, i) {
+      const prob = DB.hubQuestionProblem(q);
+      const t = DB.hubQType(q);
+      return `<li class="hub-qitem ${prob ? 'is-bad' : ''}" data-qi="${i}">
+        <span class="hub-qn">${i + 1}</span>
+        <div class="hub-qbody">
+          <div class="hub-qmeta"><span class="badge badge-gray">${qIcon(t)} ${esc(t)}</span>${q.sourceId ? '<span class="badge badge-info">📚 Bank Soal</span>' : ''}
+            ${t === 'Esai' ? '<span class="badge badge-warning">tidak dinilai</span>' : ''}${prob ? `<span class="badge badge-danger">belum lengkap: ${esc(prob)}</span>` : ''}</div>
+          <div class="hub-qtext">${esc(RichText.plain(q.text, 180) || '(tanpa teks)')}</div>
+          <div class="muted small">${esc(keySummary(q))}</div>
+        </div>
+        <span class="hub-qact">
+          <button type="button" class="btn btn-sm btn-ghost" data-qup="${i}" ${i ? '' : 'disabled'} aria-label="Naikkan soal ${i + 1}">↑</button>
+          <button type="button" class="btn btn-sm btn-ghost" data-qdown="${i}" ${i < l.questions.length - 1 ? '' : 'disabled'} aria-label="Turunkan soal ${i + 1}">↓</button>
+          <button type="button" class="btn btn-sm btn-secondary" data-qedit="${i}">✏️ Edit</button>
+          <button type="button" class="btn btn-sm btn-ghost" data-qdup="${i}" title="Gandakan soal" aria-label="Gandakan soal ${i + 1}">⧉</button>
+          <button type="button" class="btn btn-sm btn-danger" data-qdel="${i}" aria-label="Hapus soal ${i + 1}">✕</button>
+        </span></li>`;
+    }
+    function paintQs(focusIndex) {
+      const ol = quizBox.querySelector('#lesQs');
+      if (!ol) return;
+      ol.innerHTML = l.questions.length ? l.questions.map(qItemHtml).join('')
+        : '<li class="hub-qempty muted small">Belum ada soal. Klik "＋ Soal baru" atau "📚 Ambil dari Bank Soal".</li>';
+      const cnt = quizBox.querySelector('#lesQCount');
+      if (cnt) {
+        const auto = l.questions.filter(q => DB.hubQType(q) !== 'Esai').length;
+        cnt.textContent = `${l.questions.length} soal • ${auto} dinilai otomatis${l.questions.length - auto ? ` • ${l.questions.length - auto} esai (refleksi, tidak dinilai)` : ''} • maks ${MAX_QUIZ_QUESTIONS}`;
+      }
+      if (focusIndex != null) {
+        const it = ol.querySelector(`[data-qi="${focusIndex}"]`);
+        if (it) { it.classList.add('is-new'); it.scrollIntoView({ block: 'nearest' }); setTimeout(() => it.classList.remove('is-new'), 1400); }
+      }
+    }
+    function paintQuiz() {
+      if (l.type !== 'quiz') { quizBox.innerHTML = ''; return; }
+      quizBox.innerHTML = `<div class="hub-quiz-edit">
+        <div class="hub-quiz-head">
+          <div class="form-group" style="margin:0;"><label for="lesPass">Nilai lulus (%)</label><input type="number" id="lesPass" class="input" min="1" max="100" value="${Number(l.passScore) || 70}" style="max-width:120px;" /></div>
+          <div class="hub-quiz-tools">
+            <button type="button" class="btn btn-sm btn-primary" id="lesAddQ">＋ Soal baru</button>
+            <button type="button" class="btn btn-sm btn-secondary" id="lesBankQ">📚 Ambil dari Bank Soal</button>
+          </div>
+        </div>
+        <div class="muted small" id="lesQCount"></div>
+        <ol class="hub-qlist" id="lesQs"></ol>
+      </div>`;
+      paintQs();
+    }
+    const openQ = (i) => {
+      if (!global.QEditor) { UI.toast('Editor soal belum termuat.', 'error'); return; }
+      const isAdd = i == null;
+      if (isAdd && l.questions.length >= MAX_QUIZ_QUESTIONS) { UI.toast(`Kuis maksimal ${MAX_QUIZ_QUESTIONS} soal.`, 'info'); return; }
+      const src = isAdd ? null : l.questions[i];
+      QEditor.open(admin, null, (payload) => {
+        if (!payload) return;
+        if (isAdd) { l.questions.push(payload); paintQs(l.questions.length - 1); }
+        else { l.questions[i] = payload; paintQs(i); }
+        errBox.classList.add('hidden');
+      }, { detached: true, question: src, subtest: src && src.subject });
+    };
+    quizBox.addEventListener('click', (e) => {
+      const b = e.target.closest('button');
+      if (!b || b.disabled) return;
+      collect();
+      if (b.id === 'lesAddQ') return openQ(null);
+      if (b.id === 'lesBankQ') {
+        if (l.questions.length >= MAX_QUIZ_QUESTIONS) { UI.toast(`Kuis maksimal ${MAX_QUIZ_QUESTIONS} soal.`, 'info'); return; }
+        return openBankPicker(l, (picked) => {
+          const start = l.questions.length;
+          picked.slice(0, MAX_QUIZ_QUESTIONS - start).forEach(q => l.questions.push(q));
+          paintQs(start);
+          const bad = picked.filter(q => DB.hubQuestionProblem(q)).length;
+          UI.toast(`${picked.length} soal ditambahkan dari Bank Soal.${bad ? ` ${bad} soal perlu dilengkapi (klik ✏️ Edit).` : ''}`, bad ? 'info' : 'success');
+        });
+      }
+      const ds = b.dataset;
+      if (ds.qedit != null) return openQ(Number(ds.qedit));
+      if (ds.qdel != null) {
+        const i = Number(ds.qdel);
+        if (!UI.confirmDialog(`Hapus soal ${i + 1}?`)) return;
+        l.questions.splice(i, 1); paintQs();
+        return;
+      }
+      if (ds.qdup != null) {
+        if (l.questions.length >= MAX_QUIZ_QUESTIONS) { UI.toast(`Kuis maksimal ${MAX_QUIZ_QUESTIONS} soal.`, 'info'); return; }
+        const i = Number(ds.qdup);
+        const copy = Object.assign(clone(l.questions[i]), { id: nid('hq') });
+        l.questions.splice(i + 1, 0, copy); paintQs(i + 1);
+        return;
+      }
+      if (ds.qup != null) { const i = Number(ds.qup); if (i > 0) { [l.questions[i - 1], l.questions[i]] = [l.questions[i], l.questions[i - 1]]; paintQs(i - 1); } return; }
+      if (ds.qdown != null) { const i = Number(ds.qdown); if (i < l.questions.length - 1) { [l.questions[i + 1], l.questions[i]] = [l.questions[i], l.questions[i + 1]]; paintQs(i + 1); } }
+    });
+
+    f.querySelector('#lesType').addEventListener('change', (e) => {
+      collect();
+      l.type = e.target.value;
+      if (l.type === 'quiz' && !l.passScore) l.passScore = 70;
+      paintType();
+    });
+    f.querySelector('[data-close]').addEventListener('click', () => UI.modal.close());
+    f.addEventListener('submit', (e) => {
+      e.preventDefault();
+      collect();
+      const fail = (m, el) => {
+        errBox.textContent = m;
+        errBox.classList.remove('hidden');
+        errBox.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+        if (el) try { el.focus({ preventScroll: true }); } catch (x) { /* noop */ }
+      };
+      if (!l.title.trim()) return fail('Judul wajib diisi.', f.querySelector('#lesTitle'));
+      if (['video', 'pdf', 'link'].includes(l.type) && l.url && !/^https:\/\//i.test(l.url)) return fail('Tautan harus diawali https://', f.querySelector('#lesUrl'));
+      if (l.type === 'quiz') {
+        if (!l.questions.length) return fail('Tambahkan minimal satu soal.');
+        const bad = l.questions.findIndex(q => DB.hubQuestionProblem(q));
+        if (bad >= 0) return fail(`Soal ${bad + 1} belum lengkap: ${DB.hubQuestionProblem(l.questions[bad])}. Klik ✏️ Edit pada soal tersebut untuk melengkapinya.`);
+        if (!l.questions.some(q => DB.hubQType(q) !== 'Esai')) return fail('Tambahkan minimal satu soal yang dinilai otomatis (selain Esai).');
+      }
+      l.title = l.title.trim();
+      if (isNew) d.sections[si].lessons.push(l); else d.sections[si].lessons[li] = l;
+      UI.modal.close();
+      const y = global.scrollY;
+      renderEditor(container, admin);
+      global.scrollTo(0, y);
+      UI.toast('Pelajaran tersimpan di draf. Klik 💾 Simpan Course untuk menerapkannya.', 'info');
+    });
+    paintType();
   }
 
   function openStats(container, admin, id) {
     const c = DB.getHubCourse(id);
+    if (!c) return;
     const ps = DB.getHubProgressByCourse(id);
-    const eligible = DB.getUsers().filter(u => u.role === 'siswa' && DB.hubAudienceIncludes(c, u) && !ps.some(p => p.studentId === u.id));
+    const removed = DB.getHubRemovedByCourse(id);
+    const days = DB.hubInactivityDays(c);
+    const eligible = DB.getUsers().filter(u => u.role === 'siswa' && DB.hubAudienceIncludes(c, u) && !DB.getHubProgressRecord(c.id, u.id));
+    const name = (sid) => { const u = DB.getUser(sid); return u ? u.name : '-'; };
+    // Daftar course di belakang modal ikut diperbarui (jumlah peserta) tanpa menutup modal.
+    const refreshBehind = () => { if (adm.mode !== 'edit' && container.isConnected) { const y = global.scrollY; renderAdmin(container, admin); global.scrollTo(0, y); } };
+    const kelas = (sid) => { const u = DB.getUser(sid); return u ? u.kelas || '' : ''; };
     UI.modal.open(`Peserta — ${c.title}`, `<div class="ai-modal">
-      ${eligible.length ? `<form id="hubEnrollForm" class="flex-gap mb-2"><select class="input" name="sid" style="flex:1">${eligible.map(u => `<option value="${u.id}">${esc(u.name)} — ${esc(u.kelas || '-')}</option>`).join('')}</select>
+      <div class="muted small mb-1">${days ? `⏳ Peserta yang tidak aktif ${days} hari dikeluarkan otomatis (progres tetap tersimpan).` : 'Pengeluaran otomatis peserta tidak aktif: nonaktif.'}</div>
+      ${eligible.length ? `<form id="hubEnrollForm" class="flex-gap mb-2"><select class="input" name="sid" style="flex:1" aria-label="Pilih mentee">${eligible.map(u => `<option value="${u.id}">${esc(u.name)} — ${esc(u.kelas || '-')}</option>`).join('')}</select>
         <button class="btn btn-primary btn-sm" type="submit">+ Daftarkan</button></form>` : ''}
-      ${ps.length ? `<div class="table-wrap"><table class="table"><thead><tr><th>Mentee</th><th>Bergabung</th><th>Progres</th><th>Kuis</th><th>Selesai</th></tr></thead>
-      <tbody>${ps.map(p => { const u = DB.getUser(p.studentId); return `<tr><td><strong>${esc(u ? u.name : '-')}</strong><div class="muted small">${esc(u ? u.kelas || '' : '')}</div></td>
-        <td>${UI.fmtDate(p.enrolledAt)}</td><td>${DB.hubPercent(c, p)}%</td><td>${Object.values(p.quiz || {}).map(q => q.score).join(', ') || '-'}</td>
-        <td>${p.completedAt ? UI.fmtDate(p.completedAt) : '-'}</td></tr>`; }).join('')}</tbody></table></div>` : '<div class="empty"><div class="empty-icon">📭</div>Belum ada peserta.</div>'}</div>`);
+      ${ps.length ? `<div class="table-wrap"><table class="table"><thead><tr><th>Mentee</th><th>Bergabung</th><th>Aktif terakhir</th><th>Progres</th><th>Kuis</th><th>Selesai</th></tr></thead>
+      <tbody>${ps.map(p => `<tr><td><strong>${esc(name(p.studentId))}</strong><div class="muted small">${esc(kelas(p.studentId))}</div></td>
+        <td>${UI.fmtDate(p.enrolledAt)}</td><td class="small">${esc(UI.fmtRelative(DB.hubLastActive(p)))}</td><td>${DB.hubPercent(c, p)}%</td><td>${Object.values(p.quiz || {}).map(q => q.score).join(', ') || '-'}</td>
+        <td>${p.completedAt ? UI.fmtDate(p.completedAt) : '-'}</td></tr>`).join('')}</tbody></table></div>` : '<div class="empty"><div class="empty-icon">📭</div>Belum ada peserta aktif.</div>'}
+      ${removed.length ? `<h4 class="mt-2">⏳ Dikeluarkan otomatis (${removed.length})</h4>
+        <div class="table-wrap"><table class="table"><thead><tr><th>Mentee</th><th>Dikeluarkan</th><th>Aktif terakhir</th><th>Progres tersimpan</th><th>Aksi</th></tr></thead>
+        <tbody>${removed.map(p => `<tr><td><strong>${esc(name(p.studentId))}</strong><div class="muted small">${esc(kelas(p.studentId))}</div></td>
+          <td>${UI.fmtDate(p.removedAt)}<div class="muted small">tidak aktif ${Number(p.removedAfterDays) || days} hari</div></td>
+          <td class="small">${UI.fmtDate(DB.hubLastActive(p))}</td><td>${DB.hubPercent(c, p)}%</td>
+          <td><button type="button" class="btn btn-sm btn-primary" data-hub-readd="${esc(p.studentId)}">↩ Daftarkan kembali</button></td></tr>`).join('')}</tbody></table></div>` : ''}
+      </div>`);
     const f = document.getElementById('hubEnrollForm');
     if (f) f.addEventListener('submit', (e) => {
       e.preventDefault();
-      try { DB.hubEnroll(id, f.sid.value); DB.addNotification({ userId: f.sid.value, icon: '📚', title: 'Kamu didaftarkan ke course baru', body: c.title, link: 'course' }); UI.toast('Mentee didaftarkan.'); openStats(container, admin, id); }
-      catch (ex) { UI.toast(ex.message, 'error'); }
+      try {
+        DB.hubEnroll(id, f.sid.value);
+        DB.addNotification({ userId: f.sid.value, icon: '📚', title: 'Kamu didaftarkan ke course baru', body: c.title, link: 'course' });
+        UI.toast('Mentee didaftarkan.');
+        refreshBehind();
+        openStats(container, admin, id);
+      } catch (ex) { UI.toast(ex.message, 'error'); }
     });
+    document.querySelectorAll('#modalBody [data-hub-readd]').forEach(b => b.addEventListener('click', () => {
+      try {
+        DB.hubEnroll(id, b.dataset.hubReadd);
+        DB.addNotification({ userId: b.dataset.hubReadd, icon: '📚', title: 'Kamu didaftarkan kembali ke course', body: `${c.title} — progresmu sebelumnya sudah dipulihkan.`, link: 'course' });
+        UI.toast('Mentee didaftarkan kembali. Progres lamanya dipulihkan.');
+        refreshBehind();
+        openStats(container, admin, id);
+      } catch (ex) { UI.toast(ex.message, 'error'); }
+    }));
   }
 
-  global.CourseHub = { render, renderAdmin, renderParent, reset: () => { view = { mode: 'catalog', tab: 'mine' }; adm = { mode: 'list' }; stopTimer(); } };
+  global.CourseHub = {
+    render, renderAdmin, renderParent,
+    /** Jalankan pengeluaran otomatis peserta tidak aktif (dipanggil saat dashboard dibuka). */
+    sweep: (user) => sweep(user),
+    reset: () => { view = { mode: 'catalog', tab: 'mine' }; adm = { mode: 'list' }; stopTimer(); }
+  };
 })(window);
