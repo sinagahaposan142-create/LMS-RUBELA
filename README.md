@@ -290,8 +290,11 @@ Tekan *Export Excel* untuk mengunduh template berisi kolom lengkap (termasuk dat
 2. Vercel → **Storage/Integrations → Turso → Connect Project** ke project ini. Vercel akan membuat
    env `TURSO_DATABASE_URL` dan `TURSO_AUTH_TOKEN`. **Redeploy** setelah menghubungkan.
 3. Buka `https://<domain>/api/rubela?action=health` → harus `"configured": true, "ready": true`.
-4. Masuk sebagai **admin** dengan password awal yang diberikan terpisah (tidak ditulis di repositori),
-   lalu segera ganti password di menu **Admin & Staff**.
+4. Masuk sebagai **admin** dengan password bawaan **`rubela2026`** (ditetapkan di `api/_lib/store.js`,
+   konstanta `ADMIN_PASSWORD`). Server otomatis menyesuaikan hash-nya saat deploy — jika database sudah
+   dibuat sebelumnya dengan password lain, cukup **Redeploy** sekali, lalu login kembali dengan
+   `rubela2026`. Untuk mengganti password, ubah `ADMIN_PASSWORD` lalu redeploy, atau ganti dari menu
+   **Admin & Staff** (lihat `docs/BACKEND-SYNC.md`).
 
 Tabel database dibuat otomatis pada permintaan pertama. Database baru hanya berisi akun admin dan
 data dasar (pengaturan, bank soal verifikasi login, kata motivasi, ayat, reading text, course contoh).

@@ -631,6 +631,13 @@ async function applyChanges(db, req, tokenHash, changes, now, afterStmts) {
           writes.push({ sql: 'INSERT INTO auth (user_id, hash, updated_at) VALUES (?, ?, ?) ON CONFLICT(user_id) DO UPDATE SET hash = excluded.hash, updated_at = excluded.updated_at', args: [c.id, pwHashes.get(c.id), now] });
           // Password berubah: keluarkan sesi lain (sesi sendiri tetap berlaku).
           writes.push({ sql: 'DELETE FROM sessions WHERE user_id = ? AND token_hash <> ?', args: [c.id, c.id === ctx.id ? tokenHash : ''] });
+          // Admin mengganti password bawaannya sendiri → hentikan penyelarasan otomatis
+          // dari ADMIN_PASSWORD di kode agar pilihan admin tidak ditimpa saat boot.
+          const uname = String((value && value.username) || (before && before.username) || '').toLowerCase();
+          if (uname === 'admin' && store.ADMIN_PASSWORD) {
+            const codeTag = security.sha256('code:' + store.ADMIN_PASSWORD).slice(0, 24);
+            writes.push({ sql: "INSERT INTO meta (name, value) VALUES ('admin_pw_src', ?) ON CONFLICT(name) DO UPDATE SET value = excluded.value", args: ['ui:' + codeTag] });
+          }
         }
         if (value == null) {
           writes.push({ sql: 'DELETE FROM auth WHERE user_id = ?', args: [c.id] });

@@ -5,11 +5,14 @@ const security = require('./security');
 const catalog = require('../../js/sync-catalog.js');
 const seedBase = require('./seed-base.json');
 
-/* Hash password admin awal (username "admin"). Kata sandinya TIDAK pernah
- * ditulis di repositori; hanya hash scrypt ini yang disimpan. Ganti password
- * setelah login pertama, atau atur env ADMIN_INITIAL_PASSWORD sebelum
- * database pertama kali dibuat. */
-const BOOTSTRAP_ADMIN_HASH = 'scrypt$16384$8$1$XT7xIoet34Oik+ocwj7rNQ==$9DHUrFKwsNAjAR1gRRFFupZLWHYDfQfJJ3zl46YOEzQ=';
+/* ============================ PASSWORD ADMIN ============================
+ * Password admin bawaan ditaruh di sini agar mudah: begitu di-deploy, langsung
+ * bisa dipakai masuk sebagai username "admin" tanpa perlu mengatur apa pun di
+ * Turso/Vercel. Server membuat sendiri hash-nya, jadi yang tersimpan di
+ * database tetap hash (bukan teks). Ganti nilai ini lalu redeploy untuk
+ * mengubah password admin — server akan menyesuaikan otomatis saat boot.
+ * Boleh juga ditimpa lewat env ADMIN_PASSWORD di Vercel. */
+const ADMIN_PASSWORD = String(process.env.ADMIN_PASSWORD || 'rubela2026');
 const BOOTSTRAP_ADMIN = {
   id: 'u_admin', role: 'admin', username: 'admin', name: 'Administrator', email: 'admin@rubela.edu',
   status: 'Aktif', birthDate: '', photo: '', religion: '', streakShare: false
@@ -65,7 +68,7 @@ async function ensureReady(db) {
     cached.ready = (async () => {
       await db.run(SCHEMA);
       await initialize(db);
-      await maybeResetAdmin(db);
+      await ensureAdminPassword(db);
     })().catch(e => { cached.ready = null; throw e; });
   }
   return cached.ready;
@@ -93,8 +96,9 @@ async function initialize(db) {
   const done = await db.query("SELECT value FROM meta WHERE name = 'initialized'");
   if (done.length) return;
   const now = Date.now();
-  const initialPw = String(process.env.ADMIN_INITIAL_PASSWORD || '');
-  const adminHash = initialPw.length >= 10 ? await security.hashPassword(initialPw) : BOOTSTRAP_ADMIN_HASH;
+  // Hash dibuat oleh runtime server sendiri → selalu cocok (tidak ada risiko
+  // beda parameter scrypt antar lingkungan).
+  const adminHash = await security.hashPassword(ADMIN_PASSWORD || 'rubela2026');
   await db.transaction(async tx => {
     const [, verRows, initRows] = await tx.run([
       "UPDATE meta SET value = value WHERE name = 'ver'",
@@ -121,21 +125,52 @@ async function initialize(db) {
   });
 }
 
-/** Darurat: env ADMIN_RESET_PASSWORD mengganti password akun admin pertama. */
-async function maybeResetAdmin(db) {
-  const pw = String(process.env.ADMIN_RESET_PASSWORD || '');
-  if (pw.length < 10) return;
-  const admins = await db.query(
-    "SELECT id FROM kv WHERE k = 'lms_users' AND v IS NOT NULL AND json_extract(v, '$.role') = 'admin' ORDER BY seq LIMIT 1");
-  if (!admins.length) return;
-  const id = admins[0].id;
-  const cur = await db.query('SELECT hash FROM auth WHERE user_id = ?', [id]);
-  if (cur.length && await security.verifyPassword(pw, cur[0].hash)) return;
+/**
+ * Jaga agar akun "admin" selalu bisa masuk dengan ADMIN_PASSWORD di kode.
+ * Dijalankan tiap boot. Bila hash tersimpan belum cocok dengan password di
+ * kode (mis. database terlanjur dibuat dengan hash lama, atau password di kode
+ * baru diganti lalu redeploy), hash diperbaiki otomatis — tanpa perlu
+ * menghapus database atau mengatur apa pun.
+ *
+ * Agar admin yang SUDAH mengganti passwordnya sendiri lewat UI tidak
+ * ditimpa kembali, server mencatat penanda (meta `admin_pw_src`): begitu
+ * password diubah dari UI, penyelarasan otomatis berhenti untuk password
+ * lama itu. Mengganti ADMIN_PASSWORD di kode ke nilai baru akan mengaktifkan
+ * kembali penyelarasan ke nilai baru tersebut.
+ */
+async function ensureAdminPassword(db) {
+  const pw = ADMIN_PASSWORD;
+  if (!pw || process.env.ADMIN_PASSWORD_LOCK === '1') return;
+  const rows = await db.query(
+    "SELECT id FROM kv WHERE k = 'lms_users' AND v IS NOT NULL AND lower(json_extract(v, '$.username')) = 'admin' ORDER BY seq LIMIT 1");
+  if (!rows.length) return;
+  const id = rows[0].id;
+  const [authRows, srcRows] = await Promise.all([
+    db.query('SELECT hash FROM auth WHERE user_id = ?', [id]),
+    db.query("SELECT value FROM meta WHERE name = 'admin_pw_src'")
+  ]);
+  const curHash = authRows.length ? authRows[0].hash : null;
+  const codeTag = security.sha256('code:' + pw).slice(0, 24);
+  const srcTag = srcRows.length ? String(srcRows[0].value) : '';
+  // Sudah cocok dengan password di kode → tidak perlu apa-apa.
+  if (curHash && await security.verifyPassword(pw, curHash)) {
+    if (srcTag !== codeTag) await db.run([{ sql: "INSERT INTO meta (name, value) VALUES ('admin_pw_src', ?) ON CONFLICT(name) DO UPDATE SET value = excluded.value", args: [codeTag] }]);
+    return;
+  }
+  // Admin sudah ganti password sendiri (penanda = 'ui') dan nilai di kode belum
+  // berubah sejak itu → hormati pilihan admin, jangan timpa.
+  if (srcTag === 'ui:' + codeTag) return;
   const hash = await security.hashPassword(pw);
   await db.run([
     { sql: 'INSERT INTO auth (user_id, hash, updated_at) VALUES (?, ?, ?) ON CONFLICT(user_id) DO UPDATE SET hash = excluded.hash, updated_at = excluded.updated_at', args: [id, hash, Date.now()] },
-    { sql: 'DELETE FROM sessions WHERE user_id = ?', args: [id] }
+    { sql: "INSERT INTO meta (name, value) VALUES ('admin_pw_src', ?) ON CONFLICT(name) DO UPDATE SET value = excluded.value", args: [codeTag] }
   ]);
+}
+
+/** Dipanggil saat admin mengganti passwordnya sendiri lewat UI (menonaktifkan penyelarasan). */
+async function markAdminPasswordChanged(db) {
+  const codeTag = security.sha256('code:' + ADMIN_PASSWORD).slice(0, 24);
+  await db.run([{ sql: "INSERT INTO meta (name, value) VALUES ('admin_pw_src', ?) ON CONFLICT(name) DO UPDATE SET value = excluded.value", args: ['ui:' + codeTag] }]);
 }
 
 /** Baca beberapa properti lms_settings → objek. */
@@ -167,5 +202,5 @@ const DUMMY_HASH = 'scrypt$16384$8$1$AAAAAAAAAAAAAAAAAAAAAA==$AAAAAAAAAAAAAAAAAA
 
 module.exports = {
   getDb, dbInfo, ensureReady, parse, rowsForKey, readSettings, findUserByUsername, getRecord,
-  BOOTSTRAP_ADMIN, DUMMY_HASH, catalog
+  BOOTSTRAP_ADMIN, DUMMY_HASH, ADMIN_PASSWORD, markAdminPasswordChanged, catalog
 };

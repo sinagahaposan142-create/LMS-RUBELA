@@ -42,7 +42,20 @@ function send(res, status, obj) {
 
 function queryOf(req) {
   if (req.query && typeof req.query === 'object') return req.query;
-  try { return Object.fromEntries(new URL(req.url, 'http://x').searchParams); } catch (e) { return {}; }
+  // Parse query string manual (tanpa url.parse / new URL) agar bebas DeprecationWarning DEP0169.
+  const out = {};
+  const url = String(req.url || '');
+  const q = url.indexOf('?');
+  if (q < 0) return out;
+  url.slice(q + 1).split('&').forEach(pair => {
+    if (!pair) return;
+    const eq = pair.indexOf('=');
+    const k = eq < 0 ? pair : pair.slice(0, eq);
+    const v = eq < 0 ? '' : pair.slice(eq + 1);
+    try { out[decodeURIComponent(k.replace(/\+/g, ' '))] = decodeURIComponent(v.replace(/\+/g, ' ')); }
+    catch (e) { out[k] = v; }
+  });
+  return out;
 }
 
 module.exports = async function handler(req, res) {

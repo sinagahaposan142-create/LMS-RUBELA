@@ -23,11 +23,27 @@ Tidak ada password, token database, atau service key di repositori. Kunci Supaba
 |---|---|---|
 | `TURSO_DATABASE_URL` | ya | dibuat otomatis saat database Turso di-*Connect Project* (prefiks kustom juga dikenali, mis. `STORAGE_TURSO_DATABASE_URL`) |
 | `TURSO_AUTH_TOKEN` | ya | token database Turso |
-| `ADMIN_INITIAL_PASSWORD` | tidak | password admin awal (≥ 10 karakter) **hanya** dipakai saat database pertama kali dibuat; bila kosong dipakai password awal yang hash-nya tertanam di `api/_lib/store.js` |
-| `ADMIN_RESET_PASSWORD` | tidak | darurat bila password admin hilang: isi (≥ 10 karakter), redeploy, masuk sebagai `admin`, ganti password, lalu **hapus env ini** dan redeploy lagi |
+| `ADMIN_PASSWORD` | tidak | menimpa password admin bawaan. Bila kosong, dipakai nilai `ADMIN_PASSWORD` di `api/_lib/store.js` (lihat **Password admin** di bawah). Tidak perlu diisi untuk pemakaian normal |
+| `ADMIN_PASSWORD_LOCK` | tidak | set `1` untuk mematikan penyelarasan password admin otomatis (mis. bila password hanya ingin dikelola dari UI) |
 
 Setelah env diubah, lakukan **Redeploy** (env hanya berlaku untuk deployment baru).
 Cek status: `GET /api/rubela?action=health` → `configured`, `ready`, region database & fungsi.
+
+## Password admin (sederhana)
+
+Password admin bawaan ditulis langsung di `api/_lib/store.js` pada konstanta `ADMIN_PASSWORD`
+(nilai saat ini: `rubela2026`, username `admin`). Tidak perlu mengatur apa pun di Turso atau Vercel.
+
+- Server **membuat sendiri** hash scrypt dari nilai itu di runtime, jadi yang tersimpan di database
+  tetap hash (bukan teks), dan tidak pernah ada masalah beda parameter antar lingkungan.
+- Setiap boot, server memastikan akun `admin` bisa masuk dengan `ADMIN_PASSWORD`. Bila database
+  sudah terlanjur berisi hash yang salah, server **memperbaikinya otomatis** saat redeploy — tanpa
+  perlu menghapus database.
+- Untuk **mengganti** password admin: ubah nilai `ADMIN_PASSWORD` di `api/_lib/store.js`, commit,
+  lalu redeploy. Password baru langsung berlaku.
+- Bila admin mengganti passwordnya sendiri lewat **UI** (menu Admin & Staff), server mencatatnya dan
+  **berhenti** menyelaraskan ke nilai di kode, sehingga pilihan admin tidak tertimpa saat redeploy
+  berikutnya. (Mengubah `ADMIN_PASSWORD` ke nilai baru akan mengaktifkan kembali penyelarasan.)
 
 Untuk performa, samakan *Function Region* Vercel dengan region database (mis. Turso
 `aws-ap-northeast-1` → Vercel `hnd1`). Kartu **Pengaturan → Server & Sinkronisasi** menampilkan
