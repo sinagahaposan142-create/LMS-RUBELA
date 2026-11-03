@@ -1,32 +1,15 @@
 /* =====================================================================
- * js/landing.js — interaksi ringan halaman utama (index.html):
- * reveal saat scroll, taburan bintang (mode gelap), parallax halus,
- * toggle tema, dan tombol "Masuk" / "Daftar" yang menggulir ke kartu.
- * Tidak mengganggu login.js (semua elemen form tetap sama).
+ * js/landing.js — interaksi ringan halaman awal (index.html):
+ * reveal saat scroll, parallax skyline halus, toggle tema, tombol
+ * tampil/sembunyi password, deteksi Caps Lock, tombol "Masuk"/"Daftar",
+ * dan slot foto kampus opsional (CC BY/CC0). Semua elemen form login
+ * tetap sama, jadi login.js tidak terganggu.
  * ===================================================================*/
 (function () {
   'use strict';
   var reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
-  /* Taburan bintang untuk mode gelap */
-  var starField = document.getElementById('lpStars');
-  if (starField) {
-    var n = window.innerWidth < 600 ? 26 : 50;
-    var frag = document.createDocumentFragment();
-    for (var i = 0; i < n; i++) {
-      var s = document.createElement('span');
-      s.className = 'lp-star';
-      s.style.left = (Math.random() * 100) + '%';
-      s.style.top = (Math.random() * 62) + '%';
-      s.style.animationDelay = (Math.random() * 3).toFixed(2) + 's';
-      var sz = (Math.random() * 2 + 1.5).toFixed(1);
-      s.style.width = sz + 'px'; s.style.height = sz + 'px';
-      frag.appendChild(s);
-    }
-    starField.appendChild(frag);
-  }
-
-  /* Reveal saat scroll */
+  /* ----- Reveal saat scroll ----- */
   var reveals = [].slice.call(document.querySelectorAll('.lp-reveal'));
   if (reduce || !('IntersectionObserver' in window)) {
     reveals.forEach(function (el) { el.classList.add('is-in'); });
@@ -36,27 +19,57 @@
         if (e.isIntersecting) { e.target.classList.add('is-in'); io.unobserve(e.target); }
       });
     }, { threshold: 0.12 });
-    reveals.forEach(function (el, idx) { el.style.transitionDelay = Math.min(idx * 60, 360) + 'ms'; io.observe(el); });
+    reveals.forEach(function (el, idx) { el.style.transitionDelay = Math.min(idx * 55, 320) + 'ms'; io.observe(el); });
   }
 
-  /* Parallax halus pada benda langit mengikuti scroll (dilewati bila reduce motion) */
+  /* ----- Parallax skyline halus (SVG inline → layer langsung di dokumen) ----- */
   if (!reduce) {
-    var sun = document.querySelector('.lp-sun');
-    var campus = document.querySelector('.lp-campus svg');
+    var campus = document.querySelector('.lp-campus');
+    var layers = campus ? [].slice.call(campus.querySelectorAll('.cs-layer')) : [];
     var ticking = false;
-    window.addEventListener('scroll', function () {
-      if (ticking) return;
-      ticking = true;
-      requestAnimationFrame(function () {
-        var y = window.pageYOffset || 0;
-        if (sun) sun.style.transform = 'translateY(' + (y * 0.18) + 'px)';
-        if (campus) campus.style.transform = 'translateY(' + (y * -0.04) + 'px)';
-        ticking = false;
-      });
-    }, { passive: true });
+    if (campus && layers.length) {
+      window.addEventListener('scroll', function () {
+        if (ticking) return;
+        ticking = true;
+        requestAnimationFrame(function () {
+          var rect = campus.getBoundingClientRect();
+          var vh = window.innerHeight || 1;
+          var prog = 1 - (rect.top + rect.height / 2) / vh; // -1..1 saat melintas viewport
+          layers.forEach(function (ly) {
+            var d = parseFloat(ly.getAttribute('data-depth')) || 10;
+            ly.style.transform = 'translate3d(0,' + (prog * d * -0.6).toFixed(2) + 'px,0)';
+          });
+          ticking = false;
+        });
+      }, { passive: true });
+    }
   }
 
-  /* Tombol CTA: gulir mulus ke kartu login / buka registrasi */
+  /* ----- Tombol tampil/sembunyi password + Caps Lock ----- */
+  var pass = document.getElementById('password');
+  var toggle = document.getElementById('lpPassToggle');
+  if (toggle && pass) {
+    toggle.addEventListener('click', function () {
+      var show = pass.type === 'password';
+      pass.type = show ? 'text' : 'password';
+      toggle.setAttribute('aria-pressed', show ? 'true' : 'false');
+      toggle.setAttribute('aria-label', show ? 'Sembunyikan password' : 'Tampilkan password');
+      try { pass.focus({ preventScroll: true }); } catch (e) {}
+    });
+  }
+  var capsHint = document.getElementById('lpCapsHint');
+  function caps(e) {
+    if (!capsHint || !e.getModifierState) return;
+    capsHint.classList.toggle('hidden', !e.getModifierState('CapsLock'));
+  }
+  [document.getElementById('username'), pass].forEach(function (el) {
+    if (!el) return;
+    el.addEventListener('keyup', caps);
+    el.addEventListener('keydown', caps);
+    el.addEventListener('blur', function () { if (capsHint) capsHint.classList.add('hidden'); });
+  });
+
+  /* ----- CTA: gulir ke kartu login / buka registrasi ----- */
   function scrollToCard() {
     var card = document.getElementById('lpAuthCard');
     if (card) card.scrollIntoView({ behavior: reduce ? 'auto' : 'smooth', block: 'center' });
@@ -67,6 +80,8 @@
     scrollToCard();
     setTimeout(function () { var u = document.getElementById('username'); if (u) try { u.focus({ preventScroll: true }); } catch (x) {} }, reduce ? 0 : 450);
   });
+  var ctaMasukHero = document.getElementById('lpCtaMasukHero');
+  if (ctaMasukHero) ctaMasukHero.addEventListener('click', function (e) { e.preventDefault(); if (ctaMasuk) ctaMasuk.click(); });
   var ctaDaftar = document.getElementById('lpCtaDaftar');
   if (ctaDaftar) ctaDaftar.addEventListener('click', function (e) {
     e.preventDefault();
@@ -74,16 +89,17 @@
     if (open) open.click();
   });
 
-  /* Tombol tema di topbar landing (memakai Effects bila ada) */
+  /* ----- Tombol tema di topbar (label mengikuti mode; ikon via CSS) ----- */
   var themeBtn = document.getElementById('lpThemeBtn');
-  function syncThemeIcon() {
+  function syncThemeLabel() {
     if (!themeBtn) return;
     var dark = document.documentElement.getAttribute('data-theme') === 'dark';
-    themeBtn.textContent = dark ? '☀️ Terang' : '🌙 Gelap';
+    var label = themeBtn.querySelector('.lp-ic-label');
+    if (label) label.textContent = dark ? 'Terang' : 'Gelap';
     themeBtn.setAttribute('aria-label', dark ? 'Ganti ke mode terang' : 'Ganti ke mode gelap');
   }
   if (themeBtn) {
-    syncThemeIcon();
+    syncThemeLabel();
     themeBtn.addEventListener('click', function () {
       if (window.Effects && Effects.toggleTheme) Effects.toggleTheme();
       else {
@@ -91,7 +107,26 @@
         document.documentElement.setAttribute('data-theme', dark ? 'light' : 'dark');
         try { localStorage.setItem('lms_theme', dark ? 'light' : 'dark'); } catch (e) {}
       }
-      syncThemeIcon();
+      syncThemeLabel();
     });
+    // Jika tema diubah dari slot di dalam kartu (Effects), label tetap sinkron.
+    var mo = new MutationObserver(syncThemeLabel);
+    mo.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
+  }
+
+  /* ----- Slot foto kampus opsional (Rute A1) -----
+   * Aktif hanya bila .lp-campus punya atribut data-campus-photo berisi path foto
+   * berlisensi CC BY/CC0 (mis. data-campus-photo="assets/campus/skyline.webp").
+   * Tanpa atribut itu, ilustrasi SVG tetap dipakai. */
+  var campusEl = document.querySelector('.lp-campus');
+  if (campusEl && campusEl.getAttribute('data-campus-photo')) {
+    var src = campusEl.getAttribute('data-campus-photo');
+    var pic = campusEl.querySelector('.lp-campus-photo');
+    if (pic) {
+      var img = new Image();
+      img.src = src; img.alt = 'Panorama kampus'; img.loading = 'lazy'; img.decoding = 'async';
+      img.onerror = function () { campusEl.removeAttribute('data-campus-photo'); }; // fallback ke SVG
+      pic.appendChild(img);
+    }
   }
 })();

@@ -1,0 +1,227 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1440 420" preserveAspectRatio="xMidYMax slice" role="img" aria-label="Ilustrasi siluet kampus Indonesia" class="cs-root">
+  <title>Ilustrasi kampus Indonesia</title>
+  <desc>Siluet lima gedung kampus bergaya semi-flat: dari kiri ke kanan UGM, ITB, UI (tengah, tertinggi), IPB, dan Unair. Ilustrasi orisinal, bukan salinan foto, tanpa logo atau nama resmi.</desc>
+  <defs>
+    <linearGradient id="csSky" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="var(--cs-sky-0)"/>
+      <stop offset="1" stop-color="var(--cs-sky-1)"/>
+    </linearGradient>
+    <linearGradient id="csHaze" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="var(--cs-haze)" stop-opacity="0"/>
+      <stop offset="1" stop-color="var(--cs-haze)" stop-opacity=".9"/>
+    </linearGradient>
+    <linearGradient id="csFar" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="var(--cs-far-0)"/>
+      <stop offset="1" stop-color="var(--cs-far-1)"/>
+    </linearGradient>
+    <linearGradient id="csMid" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="var(--cs-mid-0)"/>
+      <stop offset="1" stop-color="var(--cs-mid-1)"/>
+    </linearGradient>
+    <linearGradient id="csWallA" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="var(--cs-wall-0)"/>
+      <stop offset="1" stop-color="var(--cs-wall-1)"/>
+    </linearGradient>
+    <linearGradient id="csWallB" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="var(--cs-wallb-0)"/>
+      <stop offset="1" stop-color="var(--cs-wallb-1)"/>
+    </linearGradient>
+    <linearGradient id="csGround" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="var(--cs-ground-0)"/>
+      <stop offset="1" stop-color="var(--cs-ground-1)"/>
+    </linearGradient>
+    <linearGradient id="csWin" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="var(--cs-win-0)"/>
+      <stop offset="1" stop-color="var(--cs-win-1)"/>
+    </linearGradient>
+
+    <!-- ============ UGM — Gedung Pusat (neo-klasik, portico berkolom) ============ -->
+    <symbol id="csUGM" viewBox="0 0 300 220">
+      <!-- sayap kiri-kanan, 2 lantai, atap pelana rendah -->
+      <rect x="6" y="104" width="288" height="112" fill="url(#csWallA)"/>
+      <rect x="2" y="96" width="296" height="12" rx="3" fill="var(--cs-roof-a)"/>
+      <!-- arkade lengkung lantai bawah -->
+      <g fill="var(--cs-arch)">
+        <path d="M22 176a12 12 0 0 1 24 0v40H22z"/><path d="M58 176a12 12 0 0 1 24 0v40H58z"/>
+        <path d="M242 176a12 12 0 0 1 24 0v40h-24z"/><path d="M278 176a12 12 0 0 1 16 0v40h-16z"/>
+      </g>
+      <!-- jendela deret sayap -->
+      <g fill="url(#csWin)">
+        <rect x="24" y="120" width="18" height="26" rx="2"/><rect x="50" y="120" width="18" height="26" rx="2" class="cs-lit a"/>
+        <rect x="246" y="120" width="18" height="26" rx="2" class="cs-lit b"/><rect x="272" y="120" width="18" height="26" rx="2"/>
+      </g>
+      <!-- portico tengah: pelana segitiga + 8 kolom -->
+      <polygon points="96,96 204,96 150,52" fill="var(--cs-roof-a)"/>
+      <rect x="92" y="94" width="116" height="10" fill="var(--cs-roof-a2)"/>
+      <g fill="var(--cs-col)">
+        <rect x="100" y="110" width="9" height="106"/><rect x="115" y="110" width="9" height="106"/>
+        <rect x="130" y="110" width="9" height="106"/><rect x="145" y="110" width="9" height="106"/>
+        <rect x="160" y="110" width="9" height="106"/><rect x="175" y="110" width="9" height="106"/>
+        <rect x="190" y="110" width="9" height="106"/>
+      </g>
+      <rect x="96" y="106" width="108" height="8" fill="var(--cs-col)"/>
+      <!-- tangga + pintu -->
+      <rect x="138" y="182" width="24" height="34" rx="2" fill="var(--cs-door)"/>
+      <rect x="124" y="210" width="52" height="6" fill="var(--cs-step)"/>
+      <!-- tiang bendera -->
+      <rect x="148" y="18" width="4" height="36" fill="var(--cs-pole)"/>
+      <path d="M152 20h22l-6 7 6 7h-22z" class="cs-flag" fill="var(--cs-flag-r)"/>
+    </symbol>
+
+    <!-- ============ ITB — Aula (atap joglo/limas, teritis lebar) ============ -->
+    <symbol id="csITB" viewBox="0 0 300 220">
+      <!-- badan bangunan -->
+      <rect x="54" y="150" width="192" height="66" fill="url(#csWallB)"/>
+      <!-- selasar atas: tiang putih berbalok -->
+      <g fill="var(--cs-col)"><rect x="66" y="150" width="7" height="40"/><rect x="92" y="150" width="7" height="40"/><rect x="118" y="150" width="7" height="40"/><rect x="144" y="150" width="7" height="40"/><rect x="170" y="150" width="7" height="40"/><rect x="196" y="150" width="7" height="40"/><rect x="222" y="150" width="7" height="40"/></g>
+      <rect x="58" y="148" width="184" height="7" fill="var(--cs-beam)"/>
+      <!-- atap limas bertingkat dengan overhang lebar -->
+      <polygon points="150,44 268,150 32,150" fill="var(--cs-roof-b)"/>
+      <polygon points="150,70 232,134 68,134" fill="var(--cs-roof-b2)"/>
+      <polygon points="150,44 160,52 150,60 140,52" fill="var(--cs-roof-b3)"/>
+      <!-- jendela deret bawah -->
+      <g fill="url(#csWin)"><rect x="72" y="196" width="16" height="20" rx="2" class="cs-lit a"/><rect x="104" y="196" width="16" height="20" rx="2"/><rect x="136" y="196" width="16" height="20" rx="2" class="cs-lit c"/><rect x="168" y="196" width="16" height="20" rx="2"/><rect x="200" y="196" width="16" height="20" rx="2" class="cs-lit b"/></g>
+    </symbol>
+
+    <!-- ============ UI — Rektorat (menara berundak, atap limas terakota) ============ -->
+    <symbol id="csUI" viewBox="0 0 260 320">
+      <!-- inti kaca gelap vertikal -->
+      <rect x="112" y="92" width="36" height="228" fill="var(--cs-glass)"/>
+      <!-- tingkat berundak kiri & kanan, tiap tingkat punya visor terakota -->
+      <g>
+        <!-- kanan -->
+        <g>
+          <rect x="148" y="300" width="86" height="20" fill="url(#csWallA)"/><rect x="146" y="296" width="90" height="7" fill="var(--cs-roof-a)"/>
+          <rect x="148" y="272" width="78" height="22" fill="url(#csWallA)"/><rect x="146" y="268" width="82" height="7" fill="var(--cs-roof-a)"/>
+          <rect x="148" y="244" width="70" height="22" fill="url(#csWallA)"/><rect x="146" y="240" width="74" height="7" fill="var(--cs-roof-a)"/>
+          <rect x="148" y="216" width="62" height="22" fill="url(#csWallA)"/><rect x="146" y="212" width="66" height="7" fill="var(--cs-roof-a)"/>
+          <rect x="148" y="188" width="54" height="22" fill="url(#csWallA)"/><rect x="146" y="184" width="58" height="7" fill="var(--cs-roof-a)"/>
+          <rect x="148" y="160" width="46" height="22" fill="url(#csWallA)"/><rect x="146" y="156" width="50" height="7" fill="var(--cs-roof-a)"/>
+          <rect x="148" y="132" width="38" height="22" fill="url(#csWallA)"/><rect x="146" y="128" width="42" height="7" fill="var(--cs-roof-a)"/>
+        </g>
+        <!-- kiri (cermin) -->
+        <g>
+          <rect x="26" y="300" width="86" height="20" fill="url(#csWallA)"/><rect x="24" y="296" width="90" height="7" fill="var(--cs-roof-a)"/>
+          <rect x="34" y="272" width="78" height="22" fill="url(#csWallA)"/><rect x="32" y="268" width="82" height="7" fill="var(--cs-roof-a)"/>
+          <rect x="42" y="244" width="70" height="22" fill="url(#csWallA)"/><rect x="40" y="240" width="74" height="7" fill="var(--cs-roof-a)"/>
+          <rect x="50" y="216" width="62" height="22" fill="url(#csWallA)"/><rect x="48" y="212" width="66" height="7" fill="var(--cs-roof-a)"/>
+          <rect x="58" y="188" width="54" height="22" fill="url(#csWallA)"/><rect x="56" y="184" width="58" height="7" fill="var(--cs-roof-a)"/>
+          <rect x="66" y="160" width="46" height="22" fill="url(#csWallA)"/><rect x="64" y="156" width="50" height="7" fill="var(--cs-roof-a)"/>
+          <rect x="74" y="132" width="38" height="22" fill="url(#csWallA)"/><rect x="72" y="128" width="42" height="7" fill="var(--cs-roof-a)"/>
+        </g>
+      </g>
+      <!-- jendela pita gelap -->
+      <g fill="var(--cs-ribbon)" opacity=".55">
+        <rect x="150" y="306" width="78" height="5"/><rect x="150" y="278" width="70" height="5"/><rect x="150" y="250" width="62" height="5"/><rect x="150" y="222" width="54" height="5"/>
+        <rect x="34" y="306" width="74" height="5"/><rect x="42" y="278" width="66" height="5"/><rect x="50" y="250" width="58" height="5"/><rect x="58" y="222" width="50" height="5"/>
+      </g>
+      <!-- panel putih + lambang bundar polos -->
+      <rect x="104" y="96" width="52" height="34" rx="3" fill="var(--cs-panel)"/>
+      <circle cx="130" cy="113" r="9" fill="none" stroke="var(--cs-roof-a)" stroke-width="3"/>
+      <!-- mahkota limas terakota (tertinggi) -->
+      <polygon points="130,16 176,92 84,92" fill="var(--cs-roof-a)"/>
+      <polygon points="130,16 142,36 130,46 118,36" fill="var(--cs-roof-a2)"/>
+    </symbol>
+
+    <!-- ============ IPB — Gedung berundak horizontal + atap limas ============ -->
+    <symbol id="csIPB" viewBox="0 0 300 240">
+      <!-- teras bertingkat: makin ke atas makin kecil -->
+      <rect x="18" y="196" width="264" height="44" fill="url(#csWallA)"/>
+      <rect x="40" y="158" width="220" height="40" fill="url(#csWallA)"/>
+      <rect x="66" y="122" width="168" height="38" fill="url(#csWallA)"/>
+      <rect x="92" y="90" width="116" height="34" fill="url(#csWallA)"/>
+      <!-- panel merah-oranye di bawah pita jendela -->
+      <g fill="var(--cs-accent)">
+        <rect x="30" y="214" width="240" height="7"/><rect x="50" y="178" width="200" height="6"/><rect x="74" y="142" width="152" height="6"/><rect x="100" y="110" width="100" height="6"/>
+      </g>
+      <!-- jendela pita -->
+      <g fill="url(#csWin)">
+        <rect x="30" y="202" width="240" height="9" rx="2" class="cs-lit a"/><rect x="50" y="166" width="200" height="8" rx="2"/><rect x="74" y="130" width="152" height="8" rx="2" class="cs-lit b"/><rect x="100" y="98" width="100" height="8" rx="2"/>
+      </g>
+      <!-- atap limas cokelat -->
+      <polygon points="150,44 206,90 94,90" fill="var(--cs-roof-c)"/>
+      <polygon points="150,44 162,58 150,68 138,58" fill="var(--cs-roof-c2)"/>
+      <!-- entrance batu + dua lambang bundar biru polos -->
+      <rect x="130" y="212" width="40" height="28" fill="var(--cs-stone)"/>
+      <circle cx="120" cy="226" r="5" fill="none" stroke="var(--cs-blue)" stroke-width="2.5"/>
+      <circle cx="180" cy="226" r="5" fill="none" stroke="var(--cs-blue)" stroke-width="2.5"/>
+      <!-- tiang tinggi -->
+      <rect x="276" y="150" width="4" height="90" fill="var(--cs-pole)"/>
+    </symbol>
+
+    <!-- ============ Unair — Rektorat simetris, atap berlis, checkerboard ============ -->
+    <symbol id="csUNAIR" viewBox="0 0 300 220">
+      <rect x="40" y="120" width="220" height="96" fill="url(#csWallA)"/>
+      <!-- lantai dasar berkolom -->
+      <g fill="var(--cs-col)"><rect x="54" y="168" width="10" height="48"/><rect x="82" y="168" width="10" height="48"/><rect x="110" y="168" width="10" height="48"/><rect x="180" y="168" width="10" height="48"/><rect x="208" y="168" width="10" height="48"/><rect x="236" y="168" width="10" height="48"/></g>
+      <!-- balkon balustrade -->
+      <rect x="44" y="150" width="212" height="8" fill="var(--cs-col)"/>
+      <!-- atap bertingkat lis biru & merah -->
+      <polygon points="150,60 236,120 64,120" fill="var(--cs-roof-d)"/>
+      <rect x="66" y="112" width="168" height="8" fill="var(--cs-blue)"/>
+      <rect x="78" y="100" width="144" height="6" fill="var(--cs-roof-a)"/>
+      <polygon points="150,60 160,70 150,80 140,70" fill="var(--cs-panel)"/>
+      <!-- jendela checkerboard biru-putih di atas tengah -->
+      <g>
+        <rect x="128" y="84" width="44" height="30" fill="var(--cs-panel)"/>
+        <g fill="var(--cs-blue)"><rect x="128" y="84" width="11" height="10"/><rect x="150" y="84" width="11" height="10"/><rect x="139" y="94" width="11" height="10"/><rect x="161" y="94" width="11" height="10"/><rect x="128" y="104" width="11" height="10"/><rect x="150" y="104" width="11" height="10"/></g>
+      </g>
+      <!-- pintu ganda + jendela kisi grid -->
+      <rect x="138" y="182" width="24" height="34" rx="2" fill="var(--cs-door)"/>
+      <g fill="url(#csWin)"><rect x="128" y="128" width="20" height="16" rx="2" class="cs-lit c"/><rect x="152" y="128" width="20" height="16" rx="2"/></g>
+      <!-- tiang bendera -->
+      <rect x="148" y="30" width="4" height="30" fill="var(--cs-pole)"/>
+      <path d="M152 32h20l-5 6 5 6h-20z" class="cs-flag" fill="var(--cs-flag-r)"/>
+    </symbol>
+
+    <!-- pohon sederhana -->
+    <symbol id="csTree" viewBox="0 0 80 100">
+      <rect x="35" y="56" width="10" height="44" rx="3" fill="var(--cs-trunk)"/>
+      <circle cx="40" cy="42" r="34" fill="var(--cs-leaf-0)"/>
+      <circle cx="22" cy="54" r="22" fill="var(--cs-leaf-1)"/>
+      <circle cx="58" cy="54" r="22" fill="var(--cs-leaf-1)"/>
+    </symbol>
+  </defs>
+
+  <!-- ===================== Lapisan ===================== -->
+  <!-- langit -->
+  <rect x="0" y="0" width="1440" height="420" fill="url(#csSky)"/>
+  <!-- bintang (mode gelap) -->
+  <g class="cs-stars" fill="#fff">
+    <circle cx="140" cy="60" r="1.4"/><circle cx="320" cy="40" r="1"/><circle cx="520" cy="72" r="1.5"/><circle cx="760" cy="36" r="1.1"/>
+    <circle cx="980" cy="58" r="1.4"/><circle cx="1180" cy="44" r="1"/><circle cx="1320" cy="70" r="1.5"/><circle cx="640" cy="90" r="1"/>
+    <circle cx="420" cy="104" r="1.1"/><circle cx="1060" cy="100" r="1.2"/>
+  </g>
+  <!-- matahari / bulan -->
+  <circle class="cs-orb" cx="1190" cy="92" r="46" fill="var(--cs-orb)"/>
+
+  <!-- siluet perbukitan jauh -->
+  <path class="cs-layer cs-far" data-depth="6" d="M0 250 Q 220 196 440 236 T 880 232 T 1440 244 V 420 H 0 Z" fill="url(#csFar)"/>
+  <!-- bangunan latar menengah -->
+  <g class="cs-layer cs-mid" data-depth="14" fill="url(#csMid)">
+    <rect x="70" y="232" width="120" height="120"/><rect x="250" y="252" width="90" height="100"/>
+    <rect x="1120" y="244" width="110" height="108"/><rect x="1300" y="262" width="96" height="90"/>
+    <rect x="470" y="256" width="80" height="96"/><rect x="900" y="250" width="92" height="102"/>
+  </g>
+
+  <!-- ===== 5 landmark depan (UGM, ITB, UI tengah tertinggi, IPB, Unair) ===== -->
+  <g class="cs-layer cs-front" data-depth="26">
+    <use class="cs-b cs-b-ugm"   href="#csUGM"   x="30"   y="190" width="300" height="220"/>
+    <use class="cs-b cs-b-itb"   href="#csITB"   x="300"  y="176" width="300" height="220"/>
+    <use class="cs-b cs-b-ui"    href="#csUI"    x="596"  y="80"  width="260" height="320"/>
+    <use class="cs-b cs-b-ipb"   href="#csIPB"   x="852"  y="168" width="300" height="240"/>
+    <use class="cs-b cs-b-unair" href="#csUNAIR" x="1130" y="190" width="300" height="220"/>
+  </g>
+
+  <!-- tanah + pepohonan depan -->
+  <rect class="cs-ground" x="0" y="388" width="1440" height="32" fill="url(#csGround)"/>
+  <path d="M0 392 Q 360 378 720 392 T 1440 392 V 420 H 0 Z" fill="var(--cs-ground-1)" opacity=".6"/>
+  <g class="cs-layer cs-trees" data-depth="34">
+    <use href="#csTree" x="20"   y="320" width="80" height="100"/>
+    <use href="#csTree" x="560"  y="330" width="66" height="84"/>
+    <use href="#csTree" x="836"  y="330" width="66" height="84"/>
+    <use href="#csTree" x="1350" y="322" width="80" height="100"/>
+  </g>
+  <!-- kabut kaki langit -->
+  <rect x="0" y="300" width="1440" height="120" fill="url(#csHaze)" opacity=".35"/>
+</svg>

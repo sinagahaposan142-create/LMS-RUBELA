@@ -5,73 +5,79 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
   <title data-page="Masuk">LMS Rubela - Belajar Menuju Kampus Impian</title>
   <meta name="description" content="LMS Rubela — platform belajar bimbel UTBK: kelas, tugas, CBT/tryout, nilai, dan pemantauan orang tua. Masuk untuk mulai." />
-  <meta name="theme-color" content="#6d5efc" />
-  <link rel="stylesheet" href="css/style.css" />
+  <meta name="theme-color" content="#4338ca" />
+  <!-- Preload font utama agar teks hero tampil cepat (LCP) -->
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" />
+  <link rel="preload" as="style" href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" />
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" media="all" />
+  <link rel="stylesheet" href="css/style.css" />
   <link rel="stylesheet" href="css/responsive.css" />
   <link rel="stylesheet" href="css/design-system.css" />
   <link rel="stylesheet" href="css/landing.css" />
-  <!-- Apply saved theme before first paint to avoid a flash of the wrong mode -->
+  <!-- Terapkan tema tersimpan sebelum paint pertama agar tidak berkedip -->
   <script>
     try {
       var _t = localStorage.getItem('lms_theme');
+      if (!_t && window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) _t = 'dark';
       document.documentElement.setAttribute('data-theme', _t === 'dark' ? 'dark' : 'light');
     } catch (e) { /* noop */ }
   </script>
 </head>
 <body class="lp-body">
-  <!-- ===================== Langit & suasana ===================== -->
-  <div class="lp-sky" aria-hidden="true">
-    <div class="lp-stars" id="lpStars"></div>
-    <div class="lp-sun"></div>
-    <div class="lp-cloud c1"></div>
-    <div class="lp-cloud c2"></div>
-    <div class="lp-cloud c3"></div>
-    <div class="lp-bird">🕊️</div>
-    <div class="lp-bird b2">🐦</div>
-    <div class="lp-balloon">🎈</div>
+  <a href="#lpAuthCard" class="lp-skip">Lewati ke form masuk</a>
+
+  <!-- Dekorasi latar: murni hiasan, tidak pernah menimpa teks/form -->
+  <div class="lp-decor" aria-hidden="true">
+    <span class="lp-blob b1"></span>
+    <span class="lp-blob b2"></span>
+    <span class="lp-grid"></span>
   </div>
 
   <div class="lp-wrap">
     <!-- ===================== Topbar ===================== -->
     <header class="lp-topbar">
-      <div class="lp-logo">
-        <div class="lp-mark brand-logo">R</div>
-        <div><b data-app-name>LMS Rubela</b><span>Learning Management System</span></div>
-      </div>
+      <a class="lp-logo" href="#top" aria-label="LMS Rubela beranda">
+        <span class="lp-mark brand-logo" aria-hidden="true">R</span>
+        <span class="lp-logo-txt"><b data-app-name>LMS Rubela</b><span>Learning Management System</span></span>
+      </a>
       <div class="lp-top-actions">
-        <button type="button" class="lp-ghost-btn" id="lpThemeBtn">🌙 Gelap</button>
-        <button type="button" class="lp-ghost-btn" id="lpCtaMasuk">Masuk</button>
+        <button type="button" class="lp-icon-btn" id="lpThemeBtn" aria-label="Ganti mode terang / gelap" title="Ganti mode terang / gelap">
+          <svg class="lp-ic-moon" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8Z"/></svg>
+          <svg class="lp-ic-sun" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>
+          <span class="lp-ic-label">Gelap</span>
+        </button>
+        <button type="button" class="lp-btn lp-btn-ghost" id="lpCtaMasuk">Masuk</button>
       </div>
     </header>
 
     <!-- ===================== Hero + kartu login ===================== -->
-    <section class="lp-hero">
+    <section class="lp-hero" id="top">
       <div class="lp-hero-copy">
-        <span class="lp-badge"><span class="dot"></span> Siap menuju PTN impianmu</span>
-        <h1>Belajar seru,<br />raih <span class="hl">kampus impian</span> 🎓</h1>
-        <p class="lead">LMS Rubela menyatukan kelas, materi, tugas, tryout CBT, nilai, dan pemantauan orang tua dalam satu tempat yang menyenangkan — tersinkron langsung di semua perangkatmu.</p>
+        <span class="lp-badge"><span class="dot" aria-hidden="true"></span> Siap menuju PTN impianmu</span>
+        <h1>Belajar terarah, raih <span class="hl">kampus impian</span></h1>
+        <p class="lead">LMS Rubela menyatukan kelas, materi, tugas, tryout CBT, nilai, dan pemantauan orang tua dalam satu platform yang rapi — tersinkron langsung di semua perangkatmu.</p>
         <div class="lp-cta-row">
-          <a href="#" class="lp-cta primary" id="lpCtaDaftar">🚀 Daftar Gratis</a>
-          <a href="#" class="lp-cta ghost" id="lpCtaMasukHero" onclick="document.getElementById('lpCtaMasuk').click();return false;">Sudah punya akun? Masuk</a>
+          <a href="#" class="lp-btn lp-btn-primary" id="lpCtaDaftar">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
+            Daftar Gratis
+          </a>
+          <a href="#" class="lp-btn lp-btn-soft" id="lpCtaMasukHero">Masuk</a>
         </div>
-        <div class="lp-stats">
-          <div class="lp-stat"><b>7</b><span>Subtest UTBK</span></div>
-          <div class="lp-stat"><b>4</b><span>Peran pengguna</span></div>
-          <div class="lp-stat"><b>24/7</b><span>Akses & sinkron</span></div>
-        </div>
+        <dl class="lp-stats">
+          <div class="lp-stat"><dt>7</dt><dd>Subtest UTBK</dd></div>
+          <div class="lp-stat"><dt>4</dt><dd>Peran pengguna</dd></div>
+          <div class="lp-stat"><dt>24/7</dt><dd>Akses &amp; sinkron</dd></div>
+        </dl>
       </div>
 
-      <!-- Kartu login (seluruh elemen fungsional dipertahankan) -->
-      <main class="lp-authcard" id="lpAuthCard">
-        <div class="flex-between" style="align-items:flex-start;gap:12px;">
+      <!-- Kartu login (seluruh elemen fungsional dipertahankan; .auth-card dipakai efek shake) -->
+      <main class="lp-authcard auth-card" id="lpAuthCard">
+        <div class="lp-authcard-head">
           <div>
             <h2>Masuk ke Akun Anda</h2>
             <p class="lp-sub">Pilih peran dan masukkan kredensial Anda.</p>
           </div>
-          <div id="authThemeSlot"></div>
         </div>
 
         <div class="role-tabs" role="tablist" aria-label="Pilih peran">
@@ -81,16 +87,27 @@
           <button class="role-tab" data-role="orangtua" type="button" role="tab" aria-selected="false">Orang Tua</button>
         </div>
 
-        <form id="loginForm" class="form">
+        <form id="loginForm" class="form" novalidate>
           <div class="form-group">
             <label for="username">Username</label>
-            <input type="text" id="username" name="username" autocomplete="username" required />
+            <div class="lp-field">
+              <svg class="lp-field-ic" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+              <input type="text" id="username" name="username" autocomplete="username" required />
+            </div>
           </div>
           <div class="form-group">
             <label for="password">Password</label>
-            <input type="password" id="password" name="password" autocomplete="current-password" required />
+            <div class="lp-field">
+              <svg class="lp-field-ic" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+              <input type="password" id="password" name="password" autocomplete="current-password" required />
+              <button type="button" class="lp-pass-toggle" id="lpPassToggle" aria-label="Tampilkan password" aria-pressed="false">
+                <svg class="lp-ic-eye" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg>
+                <svg class="lp-ic-eye-off" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9.9 4.2A10.9 10.9 0 0 1 12 4c6.5 0 10 7 10 7a18.4 18.4 0 0 1-3.2 4.2M6.7 6.7A18.4 18.4 0 0 0 2 11s3.5 7 10 7a10.9 10.9 0 0 0 3.1-.5M3 3l18 18"/></svg>
+              </button>
+            </div>
+            <p class="lp-caps hidden" id="lpCapsHint" aria-live="polite">⇪ Caps Lock aktif</p>
           </div>
-          <div id="loginError" class="alert alert-error hidden"></div>
+          <div id="loginError" class="alert alert-error hidden" role="alert" aria-live="polite"></div>
           <button type="submit" class="btn btn-primary btn-block">Masuk</button>
         </form>
 
@@ -112,160 +129,154 @@
       </main>
     </section>
 
-    <!-- ===================== Pita berjalan ===================== -->
-    <div class="lp-ticker" aria-hidden="true">
-      <div class="lp-ticker-track">
-        <span>📚 Materi &amp; Modul</span><span>📝 Tugas &amp; Penilaian</span><span>🖥️ CBT / Tryout UTBK</span>
-        <span>📊 Skor IRT 200–800</span><span>🎯 Streak Belajar</span><span>🎥 Rekaman Kelas</span>
-        <span>🗓️ Jadwal &amp; Presensi</span><span>👨‍👩‍👧 Pantauan Orang Tua</span><span>🏆 Papan Peringkat</span>
-        <span>📚 Materi &amp; Modul</span><span>📝 Tugas &amp; Penilaian</span><span>🖥️ CBT / Tryout UTBK</span>
-        <span>📊 Skor IRT 200–800</span><span>🎯 Streak Belajar</span><span>🎥 Rekaman Kelas</span>
-        <span>🗓️ Jadwal &amp; Presensi</span><span>👨‍👩‍👧 Pantauan Orang Tua</span><span>🏆 Papan Peringkat</span>
-      </div>
-    </div>
-
     <!-- ===================== Fitur ===================== -->
-    <section class="lp-features">
-      <div class="lp-features-head lp-reveal">
-        <h2>Semua yang kamu butuhkan untuk belajar</h2>
-        <p>Satu platform, empat peran, tak terbatas kemungkinan.</p>
+    <section class="lp-features" aria-labelledby="lpFeatHead">
+      <div class="lp-section-head lp-reveal">
+        <h2 id="lpFeatHead">Semua yang kamu butuhkan untuk belajar</h2>
+        <p>Satu platform, empat peran, satu tujuan: kampus impian.</p>
       </div>
       <div class="lp-feature-grid">
-        <article class="lp-feat c1 lp-reveal">
-          <div class="ic">📚</div>
+        <article class="lp-feat lp-reveal">
+          <span class="ic c1" aria-hidden="true"><svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2Z"/></svg></span>
           <h3>Kelas &amp; Materi</h3>
-          <p>Kelola kelas, materi, modul, dan rekaman video. Semua rapi per mata pelajaran dan mudah diakses kapan saja.</p>
+          <p>Kelola kelas, materi, modul, dan rekaman video — rapi per mata pelajaran dan mudah diakses kapan saja.</p>
         </article>
-        <article class="lp-feat c2 lp-reveal">
-          <div class="ic">🖥️</div>
+        <article class="lp-feat lp-reveal">
+          <span class="ic c2" aria-hidden="true"><svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg></span>
           <h3>CBT &amp; Tryout UTBK</h3>
           <p>Ujian berbasis komputer dengan 7 subtest, timer per bagian, pemantauan, dan skor skala 200–800 ala UTBK.</p>
         </article>
-        <article class="lp-feat c3 lp-reveal">
-          <div class="ic">📝</div>
+        <article class="lp-feat lp-reveal">
+          <span class="ic c3" aria-hidden="true"><svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z"/><path d="M14 2v6h6M9 15l2 2 4-4"/></svg></span>
           <h3>Tugas &amp; Nilai</h3>
           <p>Kumpulkan tugas, dapat penilaian plus umpan balik, dan lihat perkembangan nilai secara langsung.</p>
         </article>
-        <article class="lp-feat c4 lp-reveal">
-          <div class="ic">🎯</div>
+        <article class="lp-feat lp-reveal">
+          <span class="ic c4" aria-hidden="true"><svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="6"/><path d="M8.2 13.9 7 22l5-3 5 3-1.2-8.1"/></svg></span>
           <h3>Gamifikasi &amp; Streak</h3>
           <p>Jaga konsistensi dengan streak belajar, poin, lencana, dan papan peringkat yang bikin semangat.</p>
         </article>
-        <article class="lp-feat c5 lp-reveal">
-          <div class="ic">👨‍👩‍👧</div>
+        <article class="lp-feat lp-reveal">
+          <span class="ic c5" aria-hidden="true"><svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.9M16 3.1a4 4 0 0 1 0 7.8"/></svg></span>
           <h3>Pantauan Orang Tua</h3>
           <p>Orang tua memantau kehadiran, nilai, pembayaran, dan kemajuan anak — otomatis terhubung ke akunnya.</p>
         </article>
-        <article class="lp-feat c6 lp-reveal">
-          <div class="ic">☁️</div>
-          <h3>Sinkron Semua Device</h3>
+        <article class="lp-feat lp-reveal">
+          <span class="ic c6" aria-hidden="true"><svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.5 19a4.5 4.5 0 0 0 .5-9 6 6 0 0 0-11.6-1.6A4 4 0 0 0 6.5 19Z"/><path d="M12 12v6M9.5 14.5 12 12l2.5 2.5"/></svg></span>
+          <h3>Sinkron Semua Perangkat</h3>
           <p>Data tersimpan di server. Perubahan dari HP, tablet, atau laptop langsung terlihat di perangkat lain.</p>
         </article>
       </div>
     </section>
 
-    <!-- ===================== Panorama kampus (SVG, tanpa gambar luar) ===================== -->
+    <!-- ===================== Cara kerja ===================== -->
+    <section class="lp-steps" aria-labelledby="lpStepHead">
+      <div class="lp-section-head lp-reveal">
+        <h2 id="lpStepHead">Mulai dalam tiga langkah</h2>
+      </div>
+      <ol class="lp-step-grid">
+        <li class="lp-step lp-reveal"><span class="n">1</span><h3>Masuk sesuai peran</h3><p>Pilih Admin, Guru, Siswa, atau Orang Tua lalu masuk dengan akun dari admin bimbel.</p></li>
+        <li class="lp-step lp-reveal"><span class="n">2</span><h3>Belajar &amp; berlatih</h3><p>Akses materi, kerjakan tugas, dan ikuti tryout CBT dengan skor ala UTBK.</p></li>
+        <li class="lp-step lp-reveal"><span class="n">3</span><h3>Pantau kemajuan</h3><p>Lihat nilai, streak, dan rekap — orang tua pun ikut memantau secara otomatis.</p></li>
+      </ol>
+    </section>
+
+    <!-- ===================== Panorama kampus =====================
+         Rute A1 (hybrid): tampilan bawaan adalah ilustrasi SVG orisinal (ringan,
+         selalu tampil, tanpa logo/nama). Untuk memakai FOTO berlisensi CC BY/CC0:
+           1) taruh berkas di assets/campus/skyline.webp (atau .jpg),
+           2) tambahkan atribut  data-campus-photo  pada elemen .lp-campus di bawah,
+           3) isi blok .lp-campus-credit + assets/campus/KREDIT.md.
+         Tanpa langkah itu, hanya SVG yang dipakai dan halaman tetap utuh. -->
     <div class="lp-campus" aria-hidden="true">
-      <svg viewBox="0 0 1440 340" preserveAspectRatio="xMidYMax slice" role="img">
-        <defs>
-          <linearGradient id="lpGrass" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0" stop-color="#4ade80" /><stop offset="1" stop-color="#16a34a" />
-          </linearGradient>
-          <linearGradient id="lpBrick" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0" stop-color="#f7a8c0" /><stop offset="1" stop-color="#ef5a84" />
-          </linearGradient>
-          <linearGradient id="lpBrick2" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0" stop-color="#cbd5ff" /><stop offset="1" stop-color="#93a3ff" />
-          </linearGradient>
-          <linearGradient id="lpRoof" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0" stop-color="#7c3aed" /><stop offset="1" stop-color="#5b21b6" />
-          </linearGradient>
-        </defs>
-
-        <!-- Pepohonan belakang -->
-        <g opacity=".9">
-          <circle cx="120" cy="250" r="40" fill="#34d399" /><rect x="114" y="250" width="12" height="40" fill="#8b5e3c" />
-          <circle cx="1330" cy="252" r="46" fill="#34d399" /><rect x="1323" y="252" width="14" height="44" fill="#8b5e3c" />
-          <circle cx="1230" cy="262" r="30" fill="#4ade80" /><rect x="1225" y="262" width="10" height="32" fill="#8b5e3c" />
-        </g>
-
-        <!-- Gedung kiri (fakultas) -->
-        <g>
-          <rect x="70" y="150" width="210" height="160" fill="url(#lpBrick2)" />
-          <polygon points="60,150 290,150 175,96" fill="url(#lpRoof)" />
-          <rect x="150" y="60" width="50" height="60" fill="url(#lpRoof)" />
-          <polygon points="150,60 200,60 175,34" fill="#4c1d95" />
-          <rect x="172" y="30" width="6" height="18" fill="#4c1d95" /><rect x="178" y="32" width="18" height="12" class="lp-flag" fill="#ec4899" />
-          <g fill="#ffe8a3">
-            <rect x="95" y="170" width="26" height="30" rx="3" class="lp-win-lit" />
-            <rect x="135" y="170" width="26" height="30" rx="3" class="lp-win-lit w2" />
-            <rect x="188" y="170" width="26" height="30" rx="3" />
-            <rect x="228" y="170" width="26" height="30" rx="3" class="lp-win-lit w3" />
-            <rect x="95" y="215" width="26" height="30" rx="3" />
-            <rect x="135" y="215" width="26" height="30" rx="3" class="lp-win-lit w4" />
-            <rect x="188" y="215" width="26" height="30" rx="3" class="lp-win-lit w5" />
-            <rect x="228" y="215" width="26" height="30" rx="3" />
+      <picture class="lp-campus-photo">
+        <!-- Sumber foto opsional diaktifkan via JS saat data-campus-photo ada -->
+      </picture>
+      <div class="lp-campus-svg">
+        <!-- Ilustrasi inline (berbagi dokumen → mewarisi token --cs-* dari landing.css).
+             Berkas assets/campus-skyline.svg disimpan sebagai referensi/aset lepas. -->
+        <svg viewBox="0 0 1440 420" preserveAspectRatio="xMidYMax slice" role="img" aria-label="Ilustrasi siluet kampus Indonesia" class="cs-root">
+          <title>Ilustrasi kampus Indonesia</title>
+          <defs>
+            <linearGradient id="csSky" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="var(--cs-sky-0)"/><stop offset="1" stop-color="var(--cs-sky-1)"/></linearGradient>
+            <linearGradient id="csHaze" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="var(--cs-haze)" stop-opacity="0"/><stop offset="1" stop-color="var(--cs-haze)" stop-opacity=".9"/></linearGradient>
+            <linearGradient id="csFar" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="var(--cs-far-0)"/><stop offset="1" stop-color="var(--cs-far-1)"/></linearGradient>
+            <linearGradient id="csMid" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="var(--cs-mid-0)"/><stop offset="1" stop-color="var(--cs-mid-1)"/></linearGradient>
+            <linearGradient id="csWallA" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="var(--cs-wall-0)"/><stop offset="1" stop-color="var(--cs-wall-1)"/></linearGradient>
+            <linearGradient id="csWallB" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="var(--cs-wallb-0)"/><stop offset="1" stop-color="var(--cs-wallb-1)"/></linearGradient>
+            <linearGradient id="csGround" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="var(--cs-ground-0)"/><stop offset="1" stop-color="var(--cs-ground-1)"/></linearGradient>
+            <linearGradient id="csWin" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="var(--cs-win-0)"/><stop offset="1" stop-color="var(--cs-win-1)"/></linearGradient>
+            <symbol id="csUGM" viewBox="0 0 300 220">
+              <rect x="6" y="104" width="288" height="112" fill="url(#csWallA)"/><rect x="2" y="96" width="296" height="12" rx="3" fill="var(--cs-roof-a)"/>
+              <g fill="var(--cs-arch)"><path d="M22 176a12 12 0 0 1 24 0v40H22z"/><path d="M58 176a12 12 0 0 1 24 0v40H58z"/><path d="M242 176a12 12 0 0 1 24 0v40h-24z"/><path d="M278 176a12 12 0 0 1 16 0v40h-16z"/></g>
+              <g fill="url(#csWin)"><rect x="24" y="120" width="18" height="26" rx="2"/><rect x="50" y="120" width="18" height="26" rx="2" class="cs-lit a"/><rect x="246" y="120" width="18" height="26" rx="2" class="cs-lit b"/><rect x="272" y="120" width="18" height="26" rx="2"/></g>
+              <polygon points="96,96 204,96 150,52" fill="var(--cs-roof-a)"/><rect x="92" y="94" width="116" height="10" fill="var(--cs-roof-a2)"/>
+              <g fill="var(--cs-col)"><rect x="100" y="110" width="9" height="106"/><rect x="115" y="110" width="9" height="106"/><rect x="130" y="110" width="9" height="106"/><rect x="145" y="110" width="9" height="106"/><rect x="160" y="110" width="9" height="106"/><rect x="175" y="110" width="9" height="106"/><rect x="190" y="110" width="9" height="106"/></g>
+              <rect x="96" y="106" width="108" height="8" fill="var(--cs-col)"/>
+              <rect x="138" y="182" width="24" height="34" rx="2" fill="var(--cs-door)"/><rect x="124" y="210" width="52" height="6" fill="var(--cs-step)"/>
+              <rect x="148" y="18" width="4" height="36" fill="var(--cs-pole)"/><path d="M152 20h22l-6 7 6 7h-22z" class="cs-flag" fill="var(--cs-flag-r)"/>
+            </symbol>
+            <symbol id="csITB" viewBox="0 0 300 220">
+              <rect x="54" y="150" width="192" height="66" fill="url(#csWallB)"/>
+              <g fill="var(--cs-col)"><rect x="66" y="150" width="7" height="40"/><rect x="92" y="150" width="7" height="40"/><rect x="118" y="150" width="7" height="40"/><rect x="144" y="150" width="7" height="40"/><rect x="170" y="150" width="7" height="40"/><rect x="196" y="150" width="7" height="40"/><rect x="222" y="150" width="7" height="40"/></g>
+              <rect x="58" y="148" width="184" height="7" fill="var(--cs-beam)"/>
+              <polygon points="150,44 268,150 32,150" fill="var(--cs-roof-b)"/><polygon points="150,70 232,134 68,134" fill="var(--cs-roof-b2)"/><polygon points="150,44 160,52 150,60 140,52" fill="var(--cs-roof-b3)"/>
+              <g fill="url(#csWin)"><rect x="72" y="196" width="16" height="20" rx="2" class="cs-lit a"/><rect x="104" y="196" width="16" height="20" rx="2"/><rect x="136" y="196" width="16" height="20" rx="2" class="cs-lit c"/><rect x="168" y="196" width="16" height="20" rx="2"/><rect x="200" y="196" width="16" height="20" rx="2" class="cs-lit b"/></g>
+            </symbol>
+            <symbol id="csUI" viewBox="0 0 260 320">
+              <rect x="112" y="92" width="36" height="228" fill="var(--cs-glass)"/>
+              <g>
+                <g><rect x="148" y="300" width="86" height="20" fill="url(#csWallA)"/><rect x="146" y="296" width="90" height="7" fill="var(--cs-roof-a)"/><rect x="148" y="272" width="78" height="22" fill="url(#csWallA)"/><rect x="146" y="268" width="82" height="7" fill="var(--cs-roof-a)"/><rect x="148" y="244" width="70" height="22" fill="url(#csWallA)"/><rect x="146" y="240" width="74" height="7" fill="var(--cs-roof-a)"/><rect x="148" y="216" width="62" height="22" fill="url(#csWallA)"/><rect x="146" y="212" width="66" height="7" fill="var(--cs-roof-a)"/><rect x="148" y="188" width="54" height="22" fill="url(#csWallA)"/><rect x="146" y="184" width="58" height="7" fill="var(--cs-roof-a)"/><rect x="148" y="160" width="46" height="22" fill="url(#csWallA)"/><rect x="146" y="156" width="50" height="7" fill="var(--cs-roof-a)"/><rect x="148" y="132" width="38" height="22" fill="url(#csWallA)"/><rect x="146" y="128" width="42" height="7" fill="var(--cs-roof-a)"/></g>
+                <g><rect x="26" y="300" width="86" height="20" fill="url(#csWallA)"/><rect x="24" y="296" width="90" height="7" fill="var(--cs-roof-a)"/><rect x="34" y="272" width="78" height="22" fill="url(#csWallA)"/><rect x="32" y="268" width="82" height="7" fill="var(--cs-roof-a)"/><rect x="42" y="244" width="70" height="22" fill="url(#csWallA)"/><rect x="40" y="240" width="74" height="7" fill="var(--cs-roof-a)"/><rect x="50" y="216" width="62" height="22" fill="url(#csWallA)"/><rect x="48" y="212" width="66" height="7" fill="var(--cs-roof-a)"/><rect x="58" y="188" width="54" height="22" fill="url(#csWallA)"/><rect x="56" y="184" width="58" height="7" fill="var(--cs-roof-a)"/><rect x="66" y="160" width="46" height="22" fill="url(#csWallA)"/><rect x="64" y="156" width="50" height="7" fill="var(--cs-roof-a)"/><rect x="74" y="132" width="38" height="22" fill="url(#csWallA)"/><rect x="72" y="128" width="42" height="7" fill="var(--cs-roof-a)"/></g>
+              </g>
+              <g fill="var(--cs-ribbon)" opacity=".55"><rect x="150" y="306" width="78" height="5"/><rect x="150" y="278" width="70" height="5"/><rect x="150" y="250" width="62" height="5"/><rect x="150" y="222" width="54" height="5"/><rect x="34" y="306" width="74" height="5"/><rect x="42" y="278" width="66" height="5"/><rect x="50" y="250" width="58" height="5"/><rect x="58" y="222" width="50" height="5"/></g>
+              <rect x="104" y="96" width="52" height="34" rx="3" fill="var(--cs-panel)"/><circle cx="130" cy="113" r="9" fill="none" stroke="var(--cs-roof-a)" stroke-width="3"/>
+              <polygon points="130,16 176,92 84,92" fill="var(--cs-roof-a)"/><polygon points="130,16 142,36 130,46 118,36" fill="var(--cs-roof-a2)"/>
+            </symbol>
+            <symbol id="csIPB" viewBox="0 0 300 240">
+              <rect x="18" y="196" width="264" height="44" fill="url(#csWallA)"/><rect x="40" y="158" width="220" height="40" fill="url(#csWallA)"/><rect x="66" y="122" width="168" height="38" fill="url(#csWallA)"/><rect x="92" y="90" width="116" height="34" fill="url(#csWallA)"/>
+              <g fill="var(--cs-accent)"><rect x="30" y="214" width="240" height="7"/><rect x="50" y="178" width="200" height="6"/><rect x="74" y="142" width="152" height="6"/><rect x="100" y="110" width="100" height="6"/></g>
+              <g fill="url(#csWin)"><rect x="30" y="202" width="240" height="9" rx="2" class="cs-lit a"/><rect x="50" y="166" width="200" height="8" rx="2"/><rect x="74" y="130" width="152" height="8" rx="2" class="cs-lit b"/><rect x="100" y="98" width="100" height="8" rx="2"/></g>
+              <polygon points="150,44 206,90 94,90" fill="var(--cs-roof-c)"/><polygon points="150,44 162,58 150,68 138,58" fill="var(--cs-roof-c2)"/>
+              <rect x="130" y="212" width="40" height="28" fill="var(--cs-stone)"/><circle cx="120" cy="226" r="5" fill="none" stroke="var(--cs-blue)" stroke-width="2.5"/><circle cx="180" cy="226" r="5" fill="none" stroke="var(--cs-blue)" stroke-width="2.5"/>
+              <rect x="276" y="150" width="4" height="90" fill="var(--cs-pole)"/>
+            </symbol>
+            <symbol id="csUNAIR" viewBox="0 0 300 220">
+              <rect x="40" y="120" width="220" height="96" fill="url(#csWallA)"/>
+              <g fill="var(--cs-col)"><rect x="54" y="168" width="10" height="48"/><rect x="82" y="168" width="10" height="48"/><rect x="110" y="168" width="10" height="48"/><rect x="180" y="168" width="10" height="48"/><rect x="208" y="168" width="10" height="48"/><rect x="236" y="168" width="10" height="48"/></g>
+              <rect x="44" y="150" width="212" height="8" fill="var(--cs-col)"/>
+              <polygon points="150,60 236,120 64,120" fill="var(--cs-roof-d)"/><rect x="66" y="112" width="168" height="8" fill="var(--cs-blue)"/><rect x="78" y="100" width="144" height="6" fill="var(--cs-roof-a)"/><polygon points="150,60 160,70 150,80 140,70" fill="var(--cs-panel)"/>
+              <g><rect x="128" y="84" width="44" height="30" fill="var(--cs-panel)"/><g fill="var(--cs-blue)"><rect x="128" y="84" width="11" height="10"/><rect x="150" y="84" width="11" height="10"/><rect x="139" y="94" width="11" height="10"/><rect x="161" y="94" width="11" height="10"/><rect x="128" y="104" width="11" height="10"/><rect x="150" y="104" width="11" height="10"/></g></g>
+              <rect x="138" y="182" width="24" height="34" rx="2" fill="var(--cs-door)"/>
+              <g fill="url(#csWin)"><rect x="128" y="128" width="20" height="16" rx="2" class="cs-lit c"/><rect x="152" y="128" width="20" height="16" rx="2"/></g>
+              <rect x="148" y="30" width="4" height="30" fill="var(--cs-pole)"/><path d="M152 32h20l-5 6 5 6h-20z" class="cs-flag" fill="var(--cs-flag-r)"/>
+            </symbol>
+            <symbol id="csTree" viewBox="0 0 80 100"><rect x="35" y="56" width="10" height="44" rx="3" fill="var(--cs-trunk)"/><circle cx="40" cy="42" r="34" fill="var(--cs-leaf-0)"/><circle cx="22" cy="54" r="22" fill="var(--cs-leaf-1)"/><circle cx="58" cy="54" r="22" fill="var(--cs-leaf-1)"/></symbol>
+          </defs>
+          <rect x="0" y="0" width="1440" height="420" fill="url(#csSky)"/>
+          <g class="cs-stars" fill="#fff"><circle cx="140" cy="60" r="1.4"/><circle cx="320" cy="40" r="1"/><circle cx="520" cy="72" r="1.5"/><circle cx="760" cy="36" r="1.1"/><circle cx="980" cy="58" r="1.4"/><circle cx="1180" cy="44" r="1"/><circle cx="1320" cy="70" r="1.5"/><circle cx="640" cy="90" r="1"/><circle cx="420" cy="104" r="1.1"/><circle cx="1060" cy="100" r="1.2"/></g>
+          <circle class="cs-orb" cx="1190" cy="92" r="46" fill="var(--cs-orb)"/>
+          <path class="cs-layer cs-far" data-depth="6" d="M0 250 Q 220 196 440 236 T 880 232 T 1440 244 V 420 H 0 Z" fill="url(#csFar)"/>
+          <g class="cs-layer cs-mid" data-depth="14" fill="url(#csMid)"><rect x="70" y="232" width="120" height="120"/><rect x="250" y="252" width="90" height="100"/><rect x="1120" y="244" width="110" height="108"/><rect x="1300" y="262" width="96" height="90"/><rect x="470" y="256" width="80" height="96"/><rect x="900" y="250" width="92" height="102"/></g>
+          <g class="cs-layer cs-front" data-depth="26">
+            <use class="cs-b cs-b-ugm"   href="#csUGM"   x="30"   y="190" width="300" height="220"/>
+            <use class="cs-b cs-b-itb"   href="#csITB"   x="300"  y="176" width="300" height="220"/>
+            <use class="cs-b cs-b-ui"    href="#csUI"    x="596"  y="80"  width="260" height="320"/>
+            <use class="cs-b cs-b-ipb"   href="#csIPB"   x="852"  y="168" width="300" height="240"/>
+            <use class="cs-b cs-b-unair" href="#csUNAIR" x="1130" y="190" width="300" height="220"/>
           </g>
-          <rect x="155" y="262" width="40" height="48" rx="4" fill="#5b21b6" />
-        </g>
-
-        <!-- Gedung utama (rektorat berkubah) -->
-        <g>
-          <rect x="560" y="120" width="320" height="190" fill="url(#lpBrick)" />
-          <polygon points="545,120 895,120 720,70" fill="url(#lpRoof)" />
-          <ellipse cx="720" cy="70" rx="46" ry="30" fill="#7c3aed" />
-          <path d="M674 70 a46 30 0 0 1 92 0 z" fill="#8b5cf6" />
-          <rect x="716" y="20" width="8" height="26" fill="#4c1d95" /><circle cx="720" cy="18" r="7" fill="#ffd36e" />
-          <!-- Pilar -->
-          <g fill="#fdf2f8">
-            <rect x="590" y="200" width="16" height="110" /><rect x="640" y="200" width="16" height="110" />
-            <rect x="690" y="200" width="16" height="110" /><rect x="740" y="200" width="16" height="110" />
-            <rect x="790" y="200" width="16" height="110" /><rect x="834" y="200" width="16" height="110" />
-          </g>
-          <rect x="576" y="188" width="288" height="14" fill="#fff0f6" />
-          <g fill="#ffe8a3">
-            <rect x="588" y="140" width="30" height="34" rx="3" class="lp-win-lit w3" />
-            <rect x="636" y="140" width="30" height="34" rx="3" />
-            <rect x="690" y="140" width="30" height="34" rx="3" class="lp-win-lit" />
-            <rect x="744" y="140" width="30" height="34" rx="3" />
-            <rect x="798" y="140" width="30" height="34" rx="3" class="lp-win-lit w2" />
-          </g>
-          <!-- Pintu utama + tangga -->
-          <rect x="698" y="250" width="44" height="60" rx="6" fill="#5b21b6" />
-          <rect x="686" y="306" width="68" height="6" fill="#fff0f6" /><rect x="678" y="312" width="84" height="6" fill="#fde4ef" />
-        </g>
-
-        <!-- Gedung kanan (perpustakaan/menara) -->
-        <g>
-          <rect x="1020" y="110" width="150" height="200" fill="url(#lpBrick2)" />
-          <rect x="1180" y="170" width="120" height="140" fill="url(#lpBrick)" />
-          <polygon points="1010,110 1180,110 1095,70" fill="url(#lpRoof)" />
-          <polygon points="1172,170 1308,170 1240,134" fill="url(#lpRoof)" />
-          <rect x="1088" y="40" width="14" height="34" fill="url(#lpRoof)" /><circle cx="1095" cy="36" r="8" fill="#ffd36e" />
-          <g fill="#ffe8a3">
-            <rect x="1040" y="130" width="24" height="28" rx="3" class="lp-win-lit w4" />
-            <rect x="1078" y="130" width="24" height="28" rx="3" />
-            <rect x="1118" y="130" width="24" height="28" rx="3" class="lp-win-lit w5" />
-            <rect x="1040" y="175" width="24" height="28" rx="3" />
-            <rect x="1078" y="175" width="24" height="28" rx="3" class="lp-win-lit" />
-            <rect x="1118" y="175" width="24" height="28" rx="3" />
-            <rect x="1200" y="195" width="26" height="30" rx="3" class="lp-win-lit w2" />
-            <rect x="1250" y="195" width="26" height="30" rx="3" />
-            <rect x="1200" y="240" width="26" height="30" rx="3" />
-            <rect x="1250" y="240" width="26" height="30" rx="3" class="lp-win-lit w3" />
-          </g>
-        </g>
-
-        <!-- Rumput -->
-        <rect x="0" y="300" width="1440" height="40" fill="url(#lpGrass)" />
-        <path d="M0 304 Q 360 288 720 304 T 1440 304 V 340 H 0 Z" fill="#22c55e" opacity=".55" />
-        <!-- Jalan setapak ke gerbang -->
-        <polygon points="690,340 750,340 800,310 640,310" fill="#e9d8c4" opacity=".9" />
-      </svg>
+          <rect class="cs-ground" x="0" y="388" width="1440" height="32" fill="url(#csGround)"/>
+          <path d="M0 392 Q 360 378 720 392 T 1440 392 V 420 H 0 Z" fill="var(--cs-ground-1)" opacity=".6"/>
+          <g class="cs-layer cs-trees" data-depth="34"><use href="#csTree" x="20" y="320" width="80" height="100"/><use href="#csTree" x="560" y="330" width="66" height="84"/><use href="#csTree" x="836" y="330" width="66" height="84"/><use href="#csTree" x="1350" y="322" width="80" height="100"/></g>
+          <rect x="0" y="300" width="1440" height="120" fill="url(#csHaze)" opacity=".35"/>
+        </svg>
+      </div>
+      <p class="lp-campus-cap">Ilustrasi kampus Indonesia</p>
+      <p class="lp-campus-credit" hidden></p>
     </div>
 
     <footer class="lp-footer">
-      &copy; <span data-year>2026</span> <span data-app-name>LMS Rubela</span> — Belajar tanpa batas menuju kampus impian. 🎓
+      <p>&copy; <span data-year>2026</span> <span data-app-name>LMS Rubela</span> — Belajar tanpa batas menuju kampus impian.</p>
     </footer>
   </div>
 
@@ -274,7 +285,7 @@
     <div class="modal-content">
       <header class="modal-header">
         <h3>Registrasi Siswa</h3>
-        <button class="icon-btn" id="closeRegister" type="button">&times;</button>
+        <button class="icon-btn" id="closeRegister" type="button" aria-label="Tutup">&times;</button>
       </header>
       <form id="registerForm" class="form">
         <div class="form-group">
