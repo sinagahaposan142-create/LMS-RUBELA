@@ -65,16 +65,22 @@
         </div>`;
     }
 
+    const tutorIds = new Set(tutors.map(t => t.id));
+    const others = DB.ownerCandidates().filter(t => t.id !== DB.ADMIN_OWNER && !tutorIds.has(t.id));
+    const sel = current || (tutors[0] && tutors[0].id) || DB.ADMIN_OWNER;
+    const orphan = sel && sel !== DB.ADMIN_OWNER && !DB.getUser(sel);
     return `
       <div class="form-group">
-        <label for="ceOwner">Tutor Penanggung Jawab</label>
+        <label for="ceOwner">Pembuat / Penanggung Jawab</label>
         <select name="ownerId" id="ceOwner" required>
-          ${tutors.map(t => `<option value="${esc(t.id)}" ${current === t.id ? 'selected' : ''}>${esc(t.name)}</option>`).join('')}
-          ${tutors.length === 0 ? '<option value="">(kelas ini belum punya tutor)</option>' : ''}
+          ${orphan ? `<option value="${esc(sel)}" selected>Pembuat lama (akun dihapus) — pilih pengganti</option>` : ''}
+          ${tutors.length ? `<optgroup label="Tutor kelas ini">${tutors.map(t => `<option value="${esc(t.id)}" ${sel === t.id ? 'selected' : ''}>${esc(t.name)}</option>`).join('')}</optgroup>` : ''}
+          <optgroup label="Manajemen"><option value="${DB.ADMIN_OWNER}" ${sel === DB.ADMIN_OWNER ? 'selected' : ''}>Admin Rubela</option></optgroup>
+          ${others.length ? `<optgroup label="Tutor lain (mis. tutor angkatan baru)">${others.map(t => `<option value="${esc(t.id)}" ${sel === t.id ? 'selected' : ''}>${esc(t.name)}</option>`).join('')}</optgroup>` : ''}
         </select>
         <div class="muted small">
-          Anda mencatat sebagai admin. Pilih tutor yang benar-benar mengajarkan materi ini agar
-          rekapan keaktifan tutor tetap akurat. Sistem menyimpan bahwa admin yang mengetiknya.
+          Anda mencatat sebagai admin. Pilih tutor yang mengajarkan konten ini agar rekapan keaktifan tutor akurat,
+          atau "Admin Rubela" bila konten milik manajemen. Sistem menyimpan bahwa admin yang mengetiknya.
         </div>
       </div>`;
   }
@@ -85,7 +91,7 @@
     const val = el ? String(el.value || '').trim() : '';
     if (val) return val;
     if (user.role === 'guru') return user.id;
-    return (DB.courseTeachers(course)[0] || {}).id || null;
+    return (DB.courseTeachers(course)[0] || {}).id || DB.ADMIN_OWNER;
   }
 
   /* =====================================================================

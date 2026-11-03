@@ -210,7 +210,8 @@
     const plans = DB.getClassPlansForStudent(siswa.id);
 
     // Tugas yang seharusnya dikerjakan berdasarkan kelas yang diikuti
-    const dueAssignments = courses.flatMap(c => DB.getAssignmentsByCourse(c.id));
+    // (hanya tugas yang memang terlihat oleh siswa ini: aktif, dirilis untuk angkatannya, dst.)
+    const dueAssignments = courses.flatMap(c => DB.studentContent('assignment', siswa.id, c.id));
     const submittedIds = new Set(subs.map(s => s.assignmentId));
     const missing = dueAssignments.filter(a => !submittedIds.has(a.id));
     const late = subs.filter(s => {
@@ -914,11 +915,11 @@
         <div class="table-wrap"><table class="table">
           <thead><tr><th>Kelas</th><th>Subtest</th><th>Tutor</th><th>Jadwal</th><th>Kehadiran</th><th>Tugas</th><th>Rata Tugas</th><th>CBT</th><th>Rata CBT (200–800)</th></tr></thead>
           <tbody>${r.courses.map(c => {
-            const asg = DB.getAssignmentsByCourse(c.id);
+            const asg = DB.studentContent('assignment', r.user.id, c.id);
             const asgIds = asg.map(a => a.id);
             const mySubs = r.subList.filter(x => asgIds.includes(x.assignmentId));
             const myGraded = mySubs.filter(x => x.grade != null);
-            const cbtIds = DB.getCbtsByCourse(c.id).map(x => x.id);
+            const cbtIds = DB.studentContent('cbt', r.user.id, c.id).map(x => x.id);
             const myAtt = r.attemptList.filter(a => cbtIds.includes(a.cbtId));
             const att = r.att.filter(a => a.courseId === c.id);
             return `<tr>

@@ -30,7 +30,7 @@
         qid: it.qid, subtest: it.subtest, type: q.questionType,
         correctIndex: q.correctIndex, correctIndices: q.correctIndices,
         answers: q.answers, numeric: q.numeric, shortAnswerPolicy: q.shortAnswerPolicy,
-        statements: q.statements, pairs: q.pairs, orderItems: q.orderItems
+        statements: q.statements, columns: q.columns, pairs: q.pairs, orderItems: q.orderItems
       };
     });
     const data = JSON.stringify({ form, attempts: attempts.map(a => ({

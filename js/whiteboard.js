@@ -92,6 +92,97 @@
    * v1 menyimpan goresan {tool,color,width,points:[{x,y}]} dengan koordinat
    * 0..1 terhadap kanvas. v2 memakai px papan. Konversi dilakukan di memori;
    * ditulis ulang hanya ketika editor menyimpan. */
+  /* ============================ watermark & halaman (ekspor) ============================
+   * Diatur admin di Pengaturan → Ekspor Whiteboard. Logo khusus watermark
+   * (wbWatermarkLogo) dipakai bila ada; bila kosong memakai logo aplikasi. */
+  const MAX_PAGES = 30;
+  function wmSettings() {
+    const st = (global.DB && DB.getSettings) ? DB.getSettings() : {};
+    return {
+      enabled: st.wbWatermarkEnabled !== false,
+      text: String(st.wbWatermarkText == null ? 'Aset RUBELA Indonesia' : st.wbWatermarkText).trim().slice(0, 80),
+      logo: st.wbWatermarkLogo || st.appLogo || '',
+      opacity: clamp(Number(st.wbWatermarkOpacity) || 14, 3, 80),
+      style: ['tile', 'center', 'corner'].includes(st.wbWatermarkStyle) ? st.wbWatermarkStyle : 'tile',
+      pageNumbers: st.wbPageNumbers !== false
+    };
+  }
+  function loadImage(src) {
+    return new Promise(resolve => {
+      if (!src) { resolve(null); return; }
+      const img = new Image();
+      img.onload = () => resolve(img.naturalWidth ? img : null);
+      img.onerror = () => resolve(null);
+      img.src = src;
+    });
+  }
+  /** Gambar watermark (logo + teks) di atas kanvas berukuran W×H piksel. */
+  function drawWatermark(c, W, H, wm, logoImg, dark) {
+    if (!wm || !wm.enabled || (!wm.text && !logoImg)) return;
+    const base = Math.min(W, H);
+    const ink = dark ? '#ffffff' : '#0f172a';
+    const alpha = clamp(wm.opacity / 100, 0.03, 0.8);
+    const unit = (logoSize, fontSize) => {
+      // Satu "cap": logo di atas, teks di bawah, berpusat di (0,0)
+      const lw = logoImg ? logoSize * (logoImg.naturalWidth / logoImg.naturalHeight || 1) : 0;
+      const gap = logoImg && wm.text ? fontSize * 0.45 : 0;
+      const total = (logoImg ? logoSize : 0) + gap + (wm.text ? fontSize : 0);
+      let y = -total / 2;
+      if (logoImg) { c.drawImage(logoImg, -lw / 2, y, lw, logoSize); y += logoSize + gap; }
+      if (wm.text) { c.font = `800 ${fontSize}px Inter, "Segoe UI", Arial, sans-serif`; c.textAlign = 'center'; c.textBaseline = 'top'; c.fillText(wm.text, 0, y); }
+    };
+    c.save();
+    c.fillStyle = ink;
+    if (wm.style === 'corner') {
+      c.globalAlpha = clamp(alpha * 3, 0.25, 0.9);
+      const fs = Math.max(12, base * 0.026), ls = fs * 2.2;
+      const pad = base * 0.03;
+      c.translate(W - pad - Math.max(fs * (wm.text.length * 0.32), ls * 1.2), H - pad - (ls + fs) / 2 - fs);
+      unit(ls, fs);
+    } else if (wm.style === 'center') {
+      c.globalAlpha = alpha;
+      c.translate(W / 2, H / 2); c.rotate(-Math.PI / 7);
+      unit(base * 0.3, base * 0.065);
+    } else {
+      c.globalAlpha = alpha;
+      c.translate(W / 2, H / 2); c.rotate(-Math.PI / 7);
+      const fs = Math.max(11, base * 0.034), ls = fs * 2.1;
+      const stepX = Math.max(fs * (wm.text.length * 0.62 + 4), ls * 2.6), stepY = (ls + fs) * 2.4;
+      const R = Math.hypot(W, H);
+      let row = 0;
+      for (let y = -R; y <= R; y += stepY, row++) {
+        for (let x = -R + (row % 2 ? stepX / 2 : 0); x <= R; x += stepX) { c.save(); c.translate(x, y); unit(ls, fs); c.restore(); }
+      }
+    }
+    c.restore();
+  }
+  function drawPageFooter(c, W, H, label, dark) {
+    const fs = Math.max(11, Math.min(W, H) * 0.02);
+    c.save();
+    c.font = `600 ${fs}px Inter, "Segoe UI", Arial, sans-serif`;
+    c.textAlign = 'center'; c.textBaseline = 'bottom';
+    c.fillStyle = dark ? 'rgba(255,255,255,.75)' : 'rgba(15,23,42,.6)';
+    c.fillText(label, W / 2, H - fs * 0.8);
+    c.restore();
+  }
+  /** Pratinjau watermark di halaman Pengaturan. */
+  async function previewWatermark(canvas, override) {
+    if (!canvas) return;
+    const wm = Object.assign(wmSettings(), override || {});
+    const c = canvas.getContext('2d');
+    const W = canvas.width, H = canvas.height;
+    c.clearRect(0, 0, W, H);
+    c.fillStyle = '#ffffff'; c.fillRect(0, 0, W, H);
+    c.strokeStyle = 'rgba(15,23,42,.08)';
+    for (let x = 0; x < W; x += 24) { c.beginPath(); c.moveTo(x, 0); c.lineTo(x, H); c.stroke(); }
+    for (let y = 0; y < H; y += 24) { c.beginPath(); c.moveTo(0, y); c.lineTo(W, y); c.stroke(); }
+    c.fillStyle = '#1d4ed8'; c.font = '700 22px Inter, Arial, sans-serif'; c.fillText('y = 2x + 3', 30, 60);
+    c.strokeStyle = '#dc2626'; c.lineWidth = 3; c.beginPath(); c.moveTo(30, H - 50); c.quadraticCurveTo(W / 2, 40, W - 40, H - 70); c.stroke();
+    const logo = await loadImage(wm.logo);
+    drawWatermark(c, W, H, wm, logo, false);
+    if (wm.pageNumbers) drawPageFooter(c, W, H, 'Halaman 1 / 2', false);
+  }
+
   function migrate(record) {
     const board = Object.assign({ w: 1920, h: 1080, bg: '#ffffff', template: 'plain', updatedAt: 0 }, record.board || {});
     const objects = (record.strokes || []).map(o => {
@@ -122,6 +213,13 @@
 
     let record = DB.getWhiteboard(course.id) || { courseId: course.id, strokes: [], revision: 0, updatedAt: 0 };
     let { board, objects } = migrate(record);
+    /* Halaman: halaman aktif = objects/board di atas (disinkronkan seperti biasa);
+     * halaman lain disimpan sebagai cuplikan di pageData. */
+    let pages = Array.isArray(record.pages) && record.pages.length ? clone(record.pages) : [{ id: 'pg_1', name: 'Halaman 1' }];
+    let pageData = clone(record.pageData || {});
+    let activePage = pages.some(pg => pg.id === record.activePage) ? record.activePage : pages[0].id;
+    let pagesUpdatedAt = Number(record.pagesUpdatedAt) || 0;
+    let pagesDirty = false;     // true bila daftar halaman berubah dari perangkat lain
     let clearEpoch = Number(record.clearEpoch) || 0;
     let deletedIds = new Set(record.deletedIds || []);
     let pendingRemote = null;
@@ -178,6 +276,7 @@
             <button type="button" class="wb-ibtn" id="wbMin" title="Minimalkan" aria-label="Minimalkan whiteboard">▁</button>
           </div>
         </div>
+        <div class="wb-pages" id="wbPages" role="toolbar" aria-label="Halaman whiteboard"></div>
         <div class="wb-body">
           <div class="wb-stage" id="wbStage">
             <canvas id="wbCanvas" tabindex="0" aria-label="Whiteboard ${UI.esc(DB.courseTitle(course))}"></canvas>
@@ -695,6 +794,13 @@
       if (!remote || remote.courseId !== course.id || remote.origin === origin) return;
       clearEpoch = Math.max(clearEpoch, Number(remote.clearEpoch) || 0);
       (remote.deletedIds || []).forEach(id => deletedIds.add(id));
+      if ((Number(remote.pagesUpdatedAt) || 0) > pagesUpdatedAt && Array.isArray(remote.pages) && remote.pages.length) {
+        pages = clone(remote.pages);
+        pageData = clone(remote.pageData || {});
+        activePage = pages.some(pg => pg.id === remote.activePage) ? remote.activePage : pages[0].id;
+        pagesUpdatedAt = Number(remote.pagesUpdatedAt) || 0;
+        pagesDirty = true;
+      }
       const incoming = migrate({ strokes: remote.strokes || [], board: remote.board || board });
       if (remote.board && (Number(remote.board.updatedAt) || 0) > (Number(board.updatedAt) || 0)) {
         board = Object.assign({}, board, remote.board);
@@ -717,6 +823,7 @@
     function snapshotState() {
       return {
         strokes: clone(objects), board: clone(board), schemaVersion: 2,
+        pages: clone(pages), pageData: clone(pageData), activePage, pagesUpdatedAt,
         // Tombstone dipangkas agar data tidak tumbuh tanpa batas.
         deletedIds: Array.from(deletedIds).slice(-3000), clearEpoch, revision: record.revision || 0
       };
@@ -778,6 +885,7 @@
       }
       reconcile(remote);
       scheduleDraw(); updateButtons(); setStatus('Tersinkron sekarang', 'is-saved');
+      if (pagesDirty) { pagesDirty = false; paintPages(); }
     }
 
     function onStorage(e) {
@@ -787,7 +895,7 @@
     }
 
     function drainPending() {
-      if (pendingRemote) { const q = pendingRemote; pendingRemote = null; reconcile(q); }
+      if (pendingRemote) { const q = pendingRemote; pendingRemote = null; reconcile(q); if (pagesDirty) { pagesDirty = false; paintPages(); } }
     }
 
     function updateButtons() {
@@ -1106,11 +1214,17 @@
             `<button type="button" class="wb-dot ${board.bg === b.key ? 'is-on' : ''}" style="background:${b.key}" data-wb-bg="${b.key}" title="${b.label}" aria-label="Latar ${b.label}"></button>`).join('')}</div></div>` : ''}
           <label class="wb-check"><input type="checkbox" id="wbGuides" ${st.guides ? 'checked' : ''} /> Tampilkan garis bantu (tengah & margin)</label>`;
       } else if (k === 'export') {
+        const wm = wmSettings();
+        const pi = pages.findIndex(pg => pg.id === activePage);
         sheet.innerHTML = sheetHead('Ekspor') + `
-          <p class="muted small">Ekspor seluruh papan (${board.w} × ${board.h}) beserta latar dan template.</p>
+          <p class="muted small">Ekspor papan beserta latar dan template. ${pages.length > 1 ? `Whiteboard ini punya <strong>${pages.length} halaman</strong>.` : ''}</p>
+          ${pages.length > 1 ? `<div class="wb-row"><span>Halaman</span><div class="wb-seg">
+            <button type="button" class="is-on" data-wb-scope="all">Semua (${pages.length})</button>
+            <button type="button" data-wb-scope="current">Halaman ini (${pi + 1})</button></div></div>` : ''}
           <div class="wb-inline"><button type="button" class="btn btn-sm btn-primary" id="wbPng">🖼️ Unduh PNG</button>
           <button type="button" class="btn btn-sm btn-secondary" id="wbPdf">📄 Simpan PDF</button></div>
-          <p class="muted small">PDF dibuat lewat dialog cetak browser: pilih "Simpan sebagai PDF".</p>`;
+          <p class="muted small">${wm.enabled ? `🔏 Watermark "${UI.esc(wm.text || 'logo')}" ${wm.logo ? '+ logo ' : ''}otomatis ditambahkan` : 'Watermark sedang dimatikan admin'}${wm.pageNumbers ? ' • nomor halaman dicetak di bawah' : ''}. Diatur admin di Pengaturan.</p>
+          <p class="muted small">PDF dibuat lewat dialog cetak browser: pilih "Simpan sebagai PDF". PNG banyak halaman diunduh satu per satu.</p>`;
       } else if (k === 'saves') {
         const boards = DB.getWhiteboardSaves(course.id, 'board');
         const versions = DB.getWhiteboardSaves(course.id, 'version');
@@ -1201,8 +1315,12 @@
       on('[data-wb-bg]', 'click', (e) => setBoard({ bg: e.currentTarget.dataset.wbBg }));
       if (q('#wbGuides')) q('#wbGuides').addEventListener('change', (e) => { st.guides = e.target.checked; persist(); scheduleDraw(); });
       // ekspor
-      if (q('#wbPng')) q('#wbPng').addEventListener('click', exportPng);
-      if (q('#wbPdf')) q('#wbPdf').addEventListener('click', exportPdf);
+      on('[data-wb-scope]', 'click', (e) => {
+        sheet.querySelectorAll('[data-wb-scope]').forEach(b => b.classList.toggle('is-on', b === e.currentTarget));
+      });
+      const scope = () => { const b = sheet.querySelector('[data-wb-scope].is-on'); return b ? b.dataset.wbScope : 'all'; };
+      if (q('#wbPng')) q('#wbPng').addEventListener('click', () => exportPng(scope()));
+      if (q('#wbPdf')) q('#wbPdf').addEventListener('click', () => exportPdf(scope()));
       // simpan & riwayat
       if (q('#wbSaveForm')) q('#wbSaveForm').addEventListener('submit', (e) => {
         e.preventDefault();
@@ -1243,7 +1361,112 @@
       });
     }
 
+    /* ============================ halaman ============================ */
+    const pagesBar = container.querySelector('#wbPages');
+    function pageIndex() { return Math.max(0, pages.findIndex(pg => pg.id === activePage)); }
+    function paintPages() {
+      const i = pageIndex();
+      pagesBar.innerHTML = `
+        <span class="wb-pages-label">📄 Halaman</span>
+        <div class="wb-pages-list">${pages.map((pg, k) => `<button type="button" class="wb-page ${pg.id === activePage ? 'is-on' : ''}"
+            data-wb-page="${UI.esc(pg.id)}" ${editable ? '' : 'disabled'} title="${UI.esc(pg.name || 'Halaman ' + (k + 1))}"
+            aria-pressed="${pg.id === activePage}">${k + 1}</button>`).join('')}</div>
+        <span class="wb-page-name">${UI.esc(pages[i].name || 'Halaman ' + (i + 1))} <span class="muted small">(${i + 1}/${pages.length})</span></span>
+        ${editable ? `<div class="wb-pages-act">
+          <button type="button" class="btn btn-sm btn-secondary" id="wbPgPrev" ${i ? '' : 'disabled'} aria-label="Halaman sebelumnya">‹</button>
+          <button type="button" class="btn btn-sm btn-secondary" id="wbPgNext" ${i < pages.length - 1 ? '' : 'disabled'} aria-label="Halaman berikutnya">›</button>
+          <button type="button" class="btn btn-sm btn-primary" id="wbPgAdd">＋ Halaman baru</button>
+          <button type="button" class="btn btn-sm btn-ghost" id="wbPgRename" title="Ganti nama halaman">✏️</button>
+          <button type="button" class="btn btn-sm btn-ghost" id="wbPgLeft" ${i ? '' : 'disabled'} title="Pindahkan ke kiri">⇤</button>
+          <button type="button" class="btn btn-sm btn-ghost" id="wbPgRight" ${i < pages.length - 1 ? '' : 'disabled'} title="Pindahkan ke kanan">⇥</button>
+          <button type="button" class="btn btn-sm btn-ghost" id="wbPgDel" ${pages.length > 1 ? '' : 'disabled'} title="Hapus halaman ini">🗑️</button>
+        </div>` : '<span class="muted small">mengikuti halaman yang dibuka tutor</span>'}`;
+      if (!editable) return;
+      pagesBar.querySelectorAll('[data-wb-page]').forEach(b => b.addEventListener('click', () => switchPage(b.dataset.wbPage)));
+      const q = (id) => pagesBar.querySelector(id);
+      q('#wbPgPrev').addEventListener('click', () => { const k = pageIndex(); if (k > 0) switchPage(pages[k - 1].id); });
+      q('#wbPgNext').addEventListener('click', () => { const k = pageIndex(); if (k < pages.length - 1) switchPage(pages[k + 1].id); });
+      q('#wbPgAdd').addEventListener('click', addPage);
+      q('#wbPgRename').addEventListener('click', renamePage);
+      q('#wbPgLeft').addEventListener('click', () => movePage(-1));
+      q('#wbPgRight').addEventListener('click', () => movePage(1));
+      q('#wbPgDel').addEventListener('click', deletePage);
+    }
+    function pagesChanged() { pagesUpdatedAt = Date.now(); dirty = true; flush(); paintPages(); if (sheetKind === 'export') paintSheet(); }
+    function switchPage(id, opts) {
+      if (!guard() || id === activePage || !pages.some(pg => pg.id === id)) return;
+      if (textEditor) commitText();
+      pageData[activePage] = { objects: clone(objects), board: clone(board) };
+      const target = pageData[id] || { objects: [], board: { w: board.w, h: board.h, bg: board.bg, template: board.template } };
+      delete pageData[id];
+      activePage = id;
+      doClear();
+      addObjs((target.objects || []).map(freshCopy));
+      board = Object.assign({}, board, target.board || {}, { updatedAt: Date.now() });
+      // Riwayat undo milik halaman sebelumnya tidak berlaku di halaman ini.
+      undoStack.length = 0; redoStack.length = 0;
+      inkDirty = true; editsSinceVersion++;
+      pagesChanged(); fit(); updateButtons(); scheduleDraw();
+      if (!(opts && opts.quiet)) flashHint((pages.find(pg => pg.id === id) || {}).name || 'Halaman');
+    }
+    function addPage() {
+      if (!guard()) return;
+      if (pages.length >= MAX_PAGES) { UI.toast(`Maksimal ${MAX_PAGES} halaman per whiteboard.`, 'info'); return; }
+      try {
+        if (JSON.stringify(snapshotState()).length > 3000000) { UI.toast('Whiteboard sudah sangat besar. Hapus gambar besar atau simpan halaman lama sebelum menambah halaman.', 'error'); return; }
+      } catch (e) { /* lanjut */ }
+      const id = 'pg_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 5);
+      const used = new Set(pages.map(pg => pg.name));
+      let n = pages.length + 1;
+      while (used.has('Halaman ' + n)) n++;
+      pages.splice(pageIndex() + 1, 0, { id, name: 'Halaman ' + n });
+      pageData[id] = { objects: [], board: { w: board.w, h: board.h, bg: board.bg, template: board.template } };
+      switchPage(id, { quiet: true });
+      UI.toast(`Halaman ${pageIndex() + 1} dibuat.`);
+    }
+    function renamePage() {
+      if (!guard()) return;
+      const pg = pages[pageIndex()];
+      const name = global.prompt('Nama halaman:', pg.name || '');
+      if (name == null) return;
+      pg.name = String(name).trim().slice(0, 60) || ('Halaman ' + (pageIndex() + 1));
+      pagesChanged();
+    }
+    function movePage(dir) {
+      if (!guard()) return;
+      const i = pageIndex(), j = i + dir;
+      if (j < 0 || j >= pages.length) return;
+      [pages[i], pages[j]] = [pages[j], pages[i]];
+      pagesChanged();
+    }
+    function deletePage() {
+      if (!guard() || pages.length < 2) return;
+      const i = pageIndex();
+      const pg = pages[i];
+      if (!UI.confirmDialog(`Hapus "${pg.name || 'Halaman ' + (i + 1)}" beserta isinya? Tindakan ini tidak dapat dibatalkan.`)) return;
+      const next = pages[i + 1] || pages[i - 1];
+      switchPage(next.id, { quiet: true });
+      pages = pages.filter(x => x.id !== pg.id);
+      delete pageData[pg.id];
+      pagesChanged();
+      UI.toast('Halaman dihapus.');
+    }
+    paintPages();
+
     /* ============================ ekspor ============================ */
+    /** Render satu halaman ke kanvas (objek & papan halaman tersebut). */
+    function renderPageCanvas(objs, brd, footer, wm, logo) {
+      const savedBoard = board, savedObjects = objects;
+      board = brd; objects = objs;
+      try {
+        const out = renderFull();
+        const oc = out.getContext('2d');
+        const dark = brd.bg === '#1e293b';
+        drawWatermark(oc, out.width, out.height, wm, logo, dark);
+        if (footer) drawPageFooter(oc, out.width, out.height, footer, dark);
+        return out;
+      } finally { board = savedBoard; objects = savedObjects; }
+    }
     function renderFull() {
       const k = Math.min(2, 8192 / Math.max(board.w, board.h));
       const out = document.createElement('canvas');
@@ -1262,32 +1485,77 @@
       Object.assign(view, saved); dpr = savedDpr; st.guides = guides;
       return out;
     }
+    /** Semua halaman (urut) sebagai {objects, board, name}. */
+    function pageList(scope) {
+      const all = pages.map(pg => pg.id === activePage
+        ? { id: pg.id, name: pg.name, objects, board }
+        : { id: pg.id, name: pg.name, objects: ((pageData[pg.id] || {}).objects) || [], board: Object.assign({}, board, ((pageData[pg.id] || {}).board) || {}) });
+      return scope === 'current' ? all.filter(x => x.id === activePage) : all;
+    }
+    /** Pastikan semua gambar halaman sudah termuat sebelum dirender. */
+    async function preloadImages(list) {
+      const srcs = new Set();
+      list.forEach(pg => (pg.objects || []).forEach(ob => { if (ob && ob.kind === 'image' && ob.src) srcs.add(ob.src); }));
+      await Promise.all([...srcs].map(src => new Promise(res => {
+        const img = imageFor(src);
+        if (img.complete) { res(); return; }
+        img.addEventListener('load', res, { once: true });
+        img.addEventListener('error', res, { once: true });
+        setTimeout(res, 4000);
+      })));
+    }
+    async function renderPages(scope) {
+      const list = pageList(scope);
+      const wm = wmSettings();
+      const [logo] = await Promise.all([wm.enabled ? loadImage(wm.logo) : Promise.resolve(null), preloadImages(list)]);
+      const total = pages.length;
+      return list.map(pg => {
+        const no = pages.findIndex(x => x.id === pg.id) + 1;
+        const footer = wm.pageNumbers ? `Halaman ${no} / ${total}${pg.name && pg.name !== 'Halaman ' + no ? ' — ' + pg.name : ''}` : '';
+        return { no, name: pg.name, landscape: pg.board.w >= pg.board.h, canvas: renderPageCanvas(pg.objects, pg.board, footer, wm, logo) };
+      });
+    }
     function fileBase() {
       return ('whiteboard-' + DB.courseTitle(course) + '-' + UI.todayYMD()).replace(/[^\w\-]+/g, '_').slice(0, 80);
     }
-    function exportPng() {
+    async function exportPng(scope) {
       try {
-        const url = renderFull().toDataURL('image/png');
-        const a = document.createElement('a');
-        a.href = url; a.download = fileBase() + '.png';
-        document.body.appendChild(a); a.click(); a.remove();
-        UI.toast('PNG diunduh.');
+        const out = await renderPages(scope);
+        const many = out.length > 1;
+        out.forEach((pg, i) => setTimeout(() => {
+          const a = document.createElement('a');
+          a.href = pg.canvas.toDataURL('image/png');
+          a.download = fileBase() + (many || pages.length > 1 ? `-hal-${String(pg.no).padStart(2, '0')}` : '') + '.png';
+          document.body.appendChild(a); a.click(); a.remove();
+        }, i * 450));
+        UI.toast(many ? `${out.length} halaman diunduh sebagai PNG.` : 'PNG diunduh.');
       } catch (e) { UI.toast('Gagal mengekspor PNG: ' + e.message, 'error'); }
     }
-    function exportPdf() {
-      let url;
-      try { url = renderFull().toDataURL('image/png'); } catch (e) { UI.toast('Gagal menyiapkan PDF.', 'error'); return; }
+    async function exportPdf(scope) {
+      // Jendela dibuka lebih dulu (masih dalam gestur klik) agar tidak diblokir browser.
       const win = global.open('', '_blank');
       if (!win) { UI.toast('Popup diblokir browser. Izinkan popup untuk menyimpan PDF.', 'error'); return; }
-      const landscape = board.w >= board.h;
+      win.document.write('<!doctype html><title>Menyiapkan PDF…</title><p style="font-family:sans-serif">Menyiapkan halaman…</p>');
+      let out;
+      try { out = await renderPages(scope); } catch (e) { win.close(); UI.toast('Gagal menyiapkan PDF.', 'error'); return; }
+      const imgs = out.map(pg => `<div class="pg ${pg.landscape ? 'land' : 'port'}"><img src="${pg.canvas.toDataURL('image/png')}" alt="Halaman ${pg.no}" /></div>`).join('');
+      win.document.open();
       win.document.write(`<!doctype html><html><head><title>${UI.esc(fileBase())}</title>
-        <style>@page{size:A4 ${landscape ? 'landscape' : 'portrait'};margin:10mm}html,body{margin:0;height:100%}
-        body{display:flex;align-items:center;justify-content:center}img{max-width:100%;max-height:100%;object-fit:contain}</style>
-        </head><body><img src="${url}" alt="Whiteboard" /></body></html>`);
+        <style>@page land{size:A4 landscape;margin:10mm}@page port{size:A4 portrait;margin:10mm}
+        html,body{margin:0}.pg{display:flex;align-items:center;justify-content:center;height:calc(100vh - 2px);page-break-after:always;break-after:page}
+        .pg:last-child{page-break-after:auto;break-after:auto}.pg.land{page:land}.pg.port{page:port}
+        img{max-width:100%;max-height:100%;object-fit:contain}
+        @media screen{.pg{height:auto;margin:12px auto;max-width:900px;border:1px solid #e2e8f0}}</style>
+        </head><body>${imgs}</body></html>`);
       win.document.close();
-      const img = win.document.querySelector('img');
+      const list = [...win.document.images];
+      let left = list.length;
       const go = () => { win.focus(); win.print(); };
-      if (img.complete) setTimeout(go, 150); else img.onload = () => setTimeout(go, 150);
+      if (!left) { setTimeout(go, 150); return; }
+      list.forEach(img => {
+        const done = () => { if (--left === 0) setTimeout(go, 200); };
+        if (img.complete) done(); else { img.onload = done; img.onerror = done; }
+      });
     }
 
     /* ============================ toolbar ============================ */
@@ -1482,5 +1750,5 @@
     if (active && active.destroy) active.destroy();
   }
 
-  global.Whiteboard = { mount, destroy };
+  global.Whiteboard = { mount, destroy, previewWatermark, drawWatermark };
 })(window);

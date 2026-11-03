@@ -14,7 +14,8 @@ const ADMIN_ONLY = new Set(['lms_payments', 'lms_expenses', 'lms_salaries', 'lms
 const STAFF_ONLY = new Set(['lms_courses', 'lms_materials', 'lms_modules', 'lms_recordings', 'lms_assignments', 'lms_questions',
   'lms_cbts', 'lms_attendance', 'lms_class_plans', 'lms_whiteboards', 'lms_whiteboard_boards', 'lms_events', 'lms_announcements']);
 const GURU_SETTINGS = new Set(['geminiApiKey', 'geminiModel', 'aiEnabled']);
-const USER_PROTECTED = ['id', 'role', 'username', 'status', 'childIds', 'salaryRate', 'createdAt'];
+// batchId menentukan konten yang dirilis untuk mentee — hanya admin yang boleh mengubahnya.
+const USER_PROTECTED = ['id', 'role', 'username', 'status', 'childIds', 'salaryRate', 'createdAt', 'batchId'];
 
 function makeCtx(user, extra) {
   return Object.assign({

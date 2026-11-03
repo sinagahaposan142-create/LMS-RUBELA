@@ -26,6 +26,7 @@
     if (section === 'admin-bank-soal') return CbtAdmin.renderBankHome(container, user);
     if (section === 'jadwal-kelas') return renderJadwalKelas(container, user);
     if (section === 'batch') return renderBatch(container);
+    if (section === 'pusat-konten') return ContentCenter.render(container, user);
     if (section === 'alumni') return renderAlumni(container);
     if (section === 'attendance') return renderAttendance(container, user);
     if (section === 'rekap') return renderRekap(container, user);
@@ -266,6 +267,7 @@
       onPaint: (box) => {
         box.querySelectorAll('[data-edit]').forEach(b => b.addEventListener('click', () => openUserForm(role, b.dataset.edit)));
         box.querySelectorAll('[data-del]').forEach(b => b.addEventListener('click', () => {
+          if (role === 'guru') { openDeleteTutorDialog(b.dataset.del, () => renderUsers(container, role)); return; }
           if (!UI.confirmDialog('Hapus pengguna ini? Data terkait akan ikut terhapus.')) return;
           DB.deleteUser(b.dataset.del);
           UI.toast('Pengguna dihapus.');
@@ -1067,6 +1069,17 @@
           sessions: Number(fd.get('sessions') || 16)
         }
       };
+      const sc = payload.schedule;
+      if (sc.time && sc.endTime && DB.timeToMinutes(sc.endTime) <= DB.timeToMinutes(sc.time)) {
+        UI.toast('Jam selesai jadwal rutin harus setelah jam mulai.', 'error'); return;
+      }
+      // Peringatan dini: jadwal rutin bertabrakan dengan kelas lain di kelas utama / tutor yang sama.
+      const routineClash = payload.active ? DB.courseScheduleConflicts(payload, editing ? editing.id : null) : [];
+      if (routineClash.length && !UI.confirmDialog('Jadwal rutin ini bertabrakan dengan:\n' + routineClash.slice(0, 8).map(x =>
+        `• ${DB.courseTitle(x.course)} (${x.days.join(', ')} ${DB.courseScheduleLabel(x.course).split(' • ').pop()})` +
+        (x.mainClasses.length ? ` — kelas utama ${x.mainClasses.join(', ')}` : '') +
+        (x.tutors.length ? ` — tutor ${x.tutors.map(id => (DB.getUser(id) || {}).name).filter(Boolean).join(', ')}` : '')).join('\n') +
+        '\n\nIsi otomatis War Jadwal akan melewati tanggal yang bentrok. Tetap simpan jadwal rutin ini?')) return;
 
       if (editing) {
         DB.updateCourse(editing.id, payload);
@@ -1079,6 +1092,38 @@
       }
       UI.modal.close();
       renderCourses(container);
+    });
+  }
+
+  /**
+   * Hapus tutor tanpa kehilangan konten: semua materi, modul, rekaman, tugas,
+   * ujian, dan soal buatannya dialihkan ke tutor pengganti atau Admin.
+   * Kelasnya tidak ikut terhapus; sesi mendatang pindah ke tutor pengganti.
+   */
+  function openDeleteTutorDialog(id, onDone) {
+    const t = DB.getUser(id);
+    if (!t) return;
+    const sum = DB.ownedContentSummary(id);
+    const heirs = DB.ownerCandidates().filter(x => x.id !== id);
+    const line = (n, label) => n ? `<li><strong>${n}</strong> ${label}</li>` : '';
+    UI.modal.open(`Hapus Tutor — ${t.name}`, `<form id="delTutorForm" class="form">
+      <div class="alert alert-warning small">Akun <strong>${UI.esc(t.name)}</strong> akan dihapus. Konten buatannya <strong>tidak ikut terhapus</strong> — tetap tersedia untuk angkatan berikutnya dengan pembuat baru di bawah.</div>
+      ${sum.total || sum.courses || sum.futurePlans ? `<ul class="small">${line(sum.materials, 'materi')}${line(sum.modules, 'modul')}${line(sum.recordings, 'rekaman')}${line(sum.assignments, 'tugas')}${line(sum.cbts, 'ujian/CBT')}${line(sum.questions, 'soal bank')}${line(sum.courses, 'kelas yang diajar')}${line(sum.futurePlans, 'sesi jadwal mendatang')}</ul>` : '<p class="muted small">Tutor ini belum memiliki konten atau kelas.</p>'}
+      <div class="form-group"><label for="delHeir">Pembuat baru untuk seluruh kontennya</label>
+        <select id="delHeir" name="heir">${heirs.map(h => `<option value="${UI.esc(h.id)}">${UI.esc(h.name)}${h.id === DB.ADMIN_OWNER ? ' (manajemen)' : ''}</option>`).join('')}</select>
+        <div class="muted small">Bila memilih tutor, tutor tersebut juga menggantikan posisinya di kelas & jadwal mendatang. Bila memilih Admin, kelas tetap ada tanpa tutor sampai admin menambahkan tutor baru.</div></div>
+      <label class="check-row"><input type="checkbox" id="delConfirm" /> Saya mengerti akun ini tidak dapat dipulihkan.</label>
+      <div class="flex-gap" style="justify-content:flex-end;"><button type="button" class="btn btn-secondary" id="delCancel">Batal</button>
+        <button type="submit" class="btn btn-danger">Hapus & Alihkan Konten</button></div></form>`);
+    document.getElementById('delCancel').addEventListener('click', () => UI.modal.close());
+    document.getElementById('delTutorForm').addEventListener('submit', (e) => {
+      e.preventDefault();
+      if (!document.getElementById('delConfirm').checked) { UI.toast('Centang konfirmasi terlebih dahulu.', 'error'); return; }
+      const heir = document.getElementById('delHeir').value || DB.ADMIN_OWNER;
+      DB.deleteUser(id, { reassignTo: heir });
+      UI.modal.close();
+      UI.toast(`Tutor dihapus. ${sum.total} konten dialihkan ke ${DB.contentOwnerName({ createdBy: heir })}.`);
+      if (typeof onDone === 'function') onDone();
     });
   }
 
@@ -1279,7 +1324,7 @@
         </div>
         ${batches.length === 0 ? emptyState('Belum ada tahun akademik. Buat yang pertama!') : `
         <div class="table-wrap"><table class="table">
-          <thead><tr><th>Nama Batch</th><th>Mulai</th><th>Berakhir</th><th>Siswa</th><th>Status</th><th>Aksi</th></tr></thead>
+          <thead><tr><th>Nama Batch</th><th>Mulai</th><th>Berakhir</th><th>Siswa</th><th>Konten angkatan lama</th><th>Status</th><th>Aksi</th></tr></thead>
           <tbody>
             ${batches.map(b => {
               const isExpired = b.endDate && b.endDate < today;
@@ -1292,9 +1337,13 @@
                 <td>${UI.fmtYMD(b.startDate)}</td>
                 <td>${UI.fmtYMD(b.endDate)}</td>
                 <td>${students.length}</td>
+                <td>${DB.isStagedBatch(b)
+                  ? `<span class="badge badge-warning">🚀 Rilis bertahap</span><div class="muted small">arsip: dibuat sebelum ${UI.fmtYMD(b.archiveBefore || b.startDate)}</div>`
+                  : '<span class="badge badge-gray">Semua terlihat</span>'}</td>
                 <td><span class="badge ${statusBadge}">${statusLabel}</span></td>
                 <td class="actions">
                   <button class="btn btn-sm btn-secondary" data-edit-batch="${b.id}">Edit</button>
+                  ${DB.isStagedBatch(b) && !isExpired ? `<button class="btn btn-sm btn-primary" data-release-batch="${b.id}">🚀 Kelola Rilis</button>` : ''}
                   ${isExpired ? `<button class="btn btn-sm btn-warning" data-graduate="${b.id}">Lulus → Alumni</button>` : ''}
                   <button class="btn btn-sm btn-danger" data-del-batch="${b.id}">Hapus</button>
                 </td>
@@ -1331,6 +1380,10 @@
       UI.toast('Batch dihapus.');
       renderBatch(container);
     }));
+    container.querySelectorAll('[data-release-batch]').forEach(b => b.addEventListener('click', () => {
+      if (global.ContentCenter) ContentCenter.preset({ batchId: b.dataset.releaseBatch, status: 'archive' });
+      Dashboard.navigate('pusat-konten');
+    }));
     container.querySelectorAll('[data-graduate]').forEach(b => b.addEventListener('click', () => {
       const batchId = b.dataset.graduate;
       const batch = DB.getBatch(batchId);
@@ -1362,6 +1415,18 @@
         </div>
         <div class="form-group"><label>Deskripsi (opsional)</label>
           <textarea name="description" rows="2">${UI.esc(editing?.description || '')}</textarea></div>
+        <fieldset class="batch-release">
+          <legend>📦 Konten dari angkatan sebelumnya</legend>
+          <label class="sec-opt"><input type="radio" name="releaseMode" value="staged" ${!editing || editing.releaseMode === 'staged' ? 'checked' : ''} />
+            <div><div class="so-nm">🚀 Rilis bertahap (disarankan untuk angkatan baru)</div>
+            <div class="so-ds">Materi, modul, rekaman, tugas, dan ujian lama <strong>disembunyikan</strong> dari mentee angkatan ini. Admin/tutor merilisnya satu per satu atau beberapa sekaligus, langsung atau terjadwal, lewat menu Pusat Konten.</div></div></label>
+          <label class="sec-opt"><input type="radio" name="releaseMode" value="all" ${editing && editing.releaseMode !== 'staged' ? 'checked' : ''} />
+            <div><div class="so-nm">👀 Tampilkan semua konten</div>
+            <div class="so-ds">Mentee angkatan ini langsung melihat seluruh konten yang ada di kelasnya (perilaku lama).</div></div></label>
+          <div class="form-group"><label for="bArchive">Konten dianggap arsip bila dibuat sebelum</label>
+            <input id="bArchive" name="archiveBefore" type="date" value="${UI.esc(editing?.archiveBefore || editing?.startDate || UI.todayYMD())}" />
+            <div class="muted small">Bawaan sama dengan tanggal mulai. Konten yang dibuat setelah tanggal ini langsung terlihat oleh angkatan ini.</div></div>
+        </fieldset>
         <div class="flex-gap" style="justify-content:flex-end;">
           <button type="button" class="btn btn-secondary" id="cancelBtn">Batal</button>
           <button type="submit" class="btn btn-primary">Simpan</button>
@@ -1369,6 +1434,11 @@
       </form>`;
     UI.modal.open(editing ? 'Edit Batch' : 'Tambah Tahun Akademik', body);
     document.getElementById('cancelBtn').addEventListener('click', () => UI.modal.close());
+    const startEl = document.querySelector('#batchForm [name="startDate"]');
+    const archEl = document.getElementById('bArchive');
+    let archTouched = !!(editing && editing.archiveBefore && editing.archiveBefore !== editing.startDate);
+    archEl.addEventListener('input', () => { archTouched = true; });
+    startEl.addEventListener('change', () => { if (!archTouched) archEl.value = startEl.value; });
     document.getElementById('batchForm').addEventListener('submit', (e) => {
       e.preventDefault();
       const fd = new FormData(e.target);
@@ -1376,8 +1446,11 @@
         name: fd.get('name').trim(),
         startDate: fd.get('startDate'),
         endDate: fd.get('endDate'),
-        description: fd.get('description').trim()
+        description: fd.get('description').trim(),
+        releaseMode: fd.get('releaseMode') === 'staged' ? 'staged' : 'all',
+        archiveBefore: fd.get('archiveBefore') || fd.get('startDate')
       };
+      if (payload.endDate && payload.endDate < payload.startDate) { UI.toast('Tanggal berakhir harus setelah tanggal mulai.', 'error'); return; }
       if (editing) DB.updateBatch(editing.id, payload);
       else DB.addBatch(payload);
       UI.toast('Batch disimpan.');
@@ -2056,6 +2129,38 @@
 
       ${(() => { const st = DB.getSettings(); return `
       <div class="card">
+        <div class="card-header">${UI.secHead('🖍️', 'Ekspor Whiteboard: Watermark & Halaman', 'otomatis tercetak di setiap PNG/PDF whiteboard semua panel')}</div>
+        <div class="wm-setting">
+          <div class="wm-preview"><canvas id="wmPreview" width="480" height="270" aria-label="Pratinjau watermark"></canvas>
+            <div class="muted small">Pratinjau (ukuran kecil). Tersimpan setelah menekan "Simpan Watermark".</div></div>
+          <form id="wmForm" class="form wm-fields">
+            <label class="check-row"><input type="checkbox" id="wmOn" ${st.wbWatermarkEnabled !== false ? 'checked' : ''} /> Tambahkan watermark saat whiteboard dicetak/diunduh</label>
+            <div class="form-group"><label for="wmText">Teks watermark</label>
+              <input id="wmText" maxlength="80" value="${UI.esc(st.wbWatermarkText == null ? 'Aset RUBELA Indonesia' : st.wbWatermarkText)}" placeholder="Aset RUBELA Indonesia" /></div>
+            <div class="form-group"><label for="wmLogoFile">Logo watermark (PNG transparan disarankan)</label>
+              <div class="flex-gap" style="align-items:center;flex-wrap:wrap;">
+                <span class="wm-logo" id="wmLogoPrev">${st.wbWatermarkLogo ? `<img src="${UI.esc(st.wbWatermarkLogo)}" alt="Logo watermark" />` : (st.appLogo ? '<span class="muted small">memakai logo aplikasi</span>' : '<span class="muted small">belum ada logo</span>')}</span>
+                <input type="file" id="wmLogoFile" accept="image/png,image/webp,image/svg+xml,image/jpeg" />
+                <button type="button" class="btn btn-sm btn-secondary" id="wmLogoRemove" ${st.wbWatermarkLogo ? '' : 'disabled'}>Hapus logo</button>
+              </div>
+              <div class="muted small">Bila kosong, logo di "Identitas & Logo" dipakai. Transparansi PNG dipertahankan.</div></div>
+            <div class="form-row">
+              <div class="form-group"><label for="wmStyle">Tata letak</label>
+                <select id="wmStyle">
+                  <option value="tile" ${st.wbWatermarkStyle !== 'center' && st.wbWatermarkStyle !== 'corner' ? 'selected' : ''}>Berulang miring (paling aman)</option>
+                  <option value="center" ${st.wbWatermarkStyle === 'center' ? 'selected' : ''}>Besar di tengah</option>
+                  <option value="corner" ${st.wbWatermarkStyle === 'corner' ? 'selected' : ''}>Pojok kanan bawah</option>
+                </select></div>
+              <div class="form-group"><label for="wmOpacity">Transparansi <b id="wmOpVal">${Number(st.wbWatermarkOpacity) || 14}%</b></label>
+                <input type="range" id="wmOpacity" min="3" max="60" step="1" value="${Number(st.wbWatermarkOpacity) || 14}" /></div>
+            </div>
+            <label class="check-row"><input type="checkbox" id="wmPages" ${st.wbPageNumbers !== false ? 'checked' : ''} /> Cetak nomor halaman ("Halaman 1 / 3") di bawah setiap halaman</label>
+            <div class="flex-gap" style="justify-content:flex-end;"><button type="submit" class="btn btn-primary btn-sm">Simpan Watermark</button></div>
+          </form>
+        </div>
+      </div>
+
+      <div class="card">
         <div class="card-header">${UI.secHead('📋', 'Kebijakan Kehadiran', 'dipakai di semua panel: admin, tutor, siswa, dan orang tua')}</div>
         <form id="attPolicyForm" class="form">
           <div class="form-row">
@@ -2273,6 +2378,54 @@
       if (global.Branding) Branding.apply();
       renderSettings(container);
     });
+
+    /* ---- Watermark whiteboard ---- */
+    let pendingWmLogo;            // undefined = tidak berubah, '' = hapus
+    const wmVals = () => ({
+      enabled: document.getElementById('wmOn').checked,
+      text: document.getElementById('wmText').value.trim(),
+      style: document.getElementById('wmStyle').value,
+      opacity: Number(document.getElementById('wmOpacity').value) || 14,
+      pageNumbers: document.getElementById('wmPages').checked,
+      logo: pendingWmLogo !== undefined ? (pendingWmLogo || DB.getSettings().appLogo || '') : (DB.getSettings().wbWatermarkLogo || DB.getSettings().appLogo || '')
+    });
+    const wmPaint = () => { if (global.Whiteboard && Whiteboard.previewWatermark) Whiteboard.previewWatermark(document.getElementById('wmPreview'), wmVals()); };
+    ['wmOn', 'wmText', 'wmStyle', 'wmOpacity', 'wmPages'].forEach(id => {
+      const el = document.getElementById(id);
+      el.addEventListener('input', () => { if (id === 'wmOpacity') document.getElementById('wmOpVal').textContent = el.value + '%'; wmPaint(); });
+      el.addEventListener('change', wmPaint);
+    });
+    document.getElementById('wmLogoFile').addEventListener('change', async (e) => {
+      const f = e.target.files[0];
+      if (!f) return;
+      if (!/^image\//.test(f.type)) { UI.toast('Berkas harus berupa gambar.', 'error'); return; }
+      try {
+        pendingWmLogo = /svg/i.test(f.type) ? await Editor.readAsDataUrl(f) : await Editor.compressImage(f, { png: true, maxW: 700, maxBytes: 250 * 1024 });
+        document.getElementById('wmLogoPrev').innerHTML = `<img src="${UI.esc(pendingWmLogo)}" alt="Logo watermark" />`;
+        document.getElementById('wmLogoRemove').disabled = false;
+        wmPaint();
+      } catch (err) { UI.toast(err.message || 'Gagal membaca gambar.', 'error'); }
+    });
+    document.getElementById('wmLogoRemove').addEventListener('click', () => {
+      pendingWmLogo = '';
+      document.getElementById('wmLogoPrev').innerHTML = '<span class="muted small">memakai logo aplikasi</span>';
+      document.getElementById('wmLogoRemove').disabled = true;
+      wmPaint();
+    });
+    document.getElementById('wmForm').addEventListener('submit', (e) => {
+      e.preventDefault();
+      const v = wmVals();
+      if (v.enabled && !v.text && !v.logo) { UI.toast('Isi teks watermark atau unggah logo.', 'error'); return; }
+      DB.setSetting('wbWatermarkEnabled', v.enabled);
+      DB.setSetting('wbWatermarkText', v.text);
+      DB.setSetting('wbWatermarkStyle', v.style);
+      DB.setSetting('wbWatermarkOpacity', Math.max(3, Math.min(60, Math.round(v.opacity))));
+      DB.setSetting('wbPageNumbers', v.pageNumbers);
+      if (pendingWmLogo !== undefined) DB.setSetting('wbWatermarkLogo', pendingWmLogo);
+      pendingWmLogo = undefined;
+      UI.toast('Pengaturan watermark whiteboard disimpan.', 'success');
+    });
+    wmPaint();
 
     /* ---- Integrasi AI (multi-penyedia) ---- */
     const AP = window.AIProviders;

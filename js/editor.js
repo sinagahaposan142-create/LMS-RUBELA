@@ -398,7 +398,14 @@
   /* =====================================================================
    * 4. Utilitas media
    * ===================================================================*/
-  function compressImage(file) {
+  /**
+   * Perkecil gambar sebelum disimpan.
+   * @param {File} file
+   * @param {object} [opts] { png: true } mempertahankan latar transparan (logo/watermark),
+   *                        { maxW, maxBytes } batas ukuran.
+   */
+  function compressImage(file, opts) {
+    const o = opts || {};
     return new Promise((resolve, reject) => {
       const reader = new FileReader();
       reader.onerror = () => reject(new Error('Gagal membaca berkas.'));
@@ -406,7 +413,23 @@
         const img = new Image();
         img.onerror = () => reject(new Error('Berkas bukan gambar yang valid.'));
         img.onload = () => {
-          const scale = Math.min(1, IMG_MAX_W / img.width);
+          if (o.png) {
+            const limit = (o.maxBytes || 300 * 1024) * 1.37;
+            let w = Math.min(img.width, o.maxW || 800);
+            let out = '';
+            for (let k = 0; k < 8; k++) {
+              const h = Math.max(1, Math.round(img.height * (w / img.width)));
+              const cv = document.createElement('canvas');
+              cv.width = Math.max(1, Math.round(w)); cv.height = h;
+              cv.getContext('2d').drawImage(img, 0, 0, cv.width, cv.height);
+              out = cv.toDataURL('image/png');
+              if (out.length <= limit || w <= 120) break;
+              w = Math.round(w * 0.78);
+            }
+            resolve(out);
+            return;
+          }
+          const scale = Math.min(1, (o.maxW || IMG_MAX_W) / img.width);
           const w = Math.round(img.width * scale);
           const h = Math.round(img.height * scale);
           const canvas = document.createElement('canvas');

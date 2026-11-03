@@ -24,7 +24,8 @@
     { key: 'Pilihan Lebih dari Satu', icon: '☑️', desc: 'Beberapa jawaban benar sekaligus.', auto: true },
     { key: 'Benar/Salah', icon: '⚖️', desc: 'Pernyataan tunggal bernilai benar atau salah.', auto: true },
     { key: 'Isian Singkat', icon: '✏️', desc: 'Jawaban singkat berupa kata/angka, dinilai otomatis.', auto: true },
-    { key: 'Majemuk Kompleks', icon: '🧩', desc: 'Beberapa pernyataan, tiap baris benar/salah.', auto: true },
+    { key: 'Benar/Salah Majemuk', icon: '✅', desc: 'Beberapa pernyataan, tiap baris hanya Benar atau Salah.', auto: true },
+    { key: 'Majemuk Kompleks', icon: '🧩', desc: 'Tabel pernyataan dengan kolom jawaban yang bisa diubah (3+ kolom, mis. Benar/Salah/Tidak diketahui).', auto: true },
     { key: 'Menjodohkan', icon: '🔗', desc: 'Pasangkan kolom kiri dengan kolom kanan.', auto: true },
     { key: 'Urutan', icon: '🔢', desc: 'Susun item ke urutan yang benar.', auto: true },
     { key: 'Esai', icon: '📝', desc: 'Jawaban uraian, dinilai manual oleh guru.', auto: false }
@@ -43,6 +44,28 @@
   function esc(s) { return global.UI ? UI.esc(s) : String(s == null ? '' : s); }
 
   const toolbarHtml = (idPrefix, o) => Editor.toolbarHtml(idPrefix, o);
+
+  /* Templat kolom siap pakai untuk Majemuk Kompleks */
+  const COL_PRESETS = [
+    { key: 'bs', label: 'Benar / Salah', cols: ['Benar', 'Salah'] },
+    { key: 'bst', label: 'Benar / Salah / Tidak dapat ditentukan', cols: ['Benar', 'Salah', 'Tidak dapat ditentukan'] },
+    { key: 'fo', label: 'Fakta / Opini', cols: ['Fakta', 'Opini'] },
+    { key: 'yt', label: 'Ya / Tidak / Mungkin', cols: ['Ya', 'Tidak', 'Mungkin'] },
+    { key: 'srt', label: 'Setuju / Ragu-ragu / Tidak setuju', cols: ['Setuju', 'Ragu-ragu', 'Tidak setuju'] },
+    { key: 'abcd', label: 'A / B / C / D', cols: ['A', 'B', 'C', 'D'] }
+  ];
+  /** Kunci kolom sebuah baris saat menyunting (mendukung data lama value:boolean). */
+  function mxKeyOf(st, n) {
+    if (st && st.correct != null && st.correct !== '' && Number.isInteger(Number(st.correct))) {
+      const k = Number(st.correct);
+      return k >= 0 && k < n ? k : null;
+    }
+    if (st && typeof st.value === 'boolean') return st.value ? 0 : 1;
+    return null;
+  }
+  function mxColumnsOf(draft) {
+    return Array.isArray(draft.columns) && draft.columns.length >= 2 ? draft.columns : DB.MATRIX_DEFAULT_COLS.slice();
+  }
   /* =====================================================================
    * Pembangun jawaban per format
    * ===================================================================*/
@@ -88,6 +111,46 @@
     }
 
     if (f === 'Majemuk Kompleks') {
+      const cols = mxColumnsOf(draft);
+      const st = draft.statements && draft.statements.length
+        ? draft.statements : [{ text: '', correct: 0 }, { text: '', correct: 1 }];
+      const keys = st.map(x => mxKeyOf(x, cols.length));
+      return `
+        <div class="form-group">
+          <label>Kolom jawaban <span class="muted small">(2–${DB.MATRIX_MAX_COLS} kolom — ubah nama, tambah, atau hapus)</span></label>
+          <div id="qeColList" class="qe-col-list">
+            ${cols.map((c, ci) => `
+              <div class="qe-col" data-ci="${ci}">
+                <input class="qe-col-name" value="${esc(c)}" maxlength="40" placeholder="Kolom ${ci + 1}" aria-label="Nama kolom ${ci + 1}" />
+                <button type="button" class="btn btn-sm btn-danger" data-del-col="${ci}" title="Hapus kolom" aria-label="Hapus kolom ${ci + 1}">✕</button>
+              </div>`).join('')}
+          </div>
+          <div class="flex-gap mt-1" style="flex-wrap:wrap;">
+            <button type="button" class="btn btn-sm btn-secondary" id="qeAddCol">+ Tambah kolom</button>
+            <select id="qeColPreset" class="input" style="width:auto;min-width:220px;" aria-label="Templat kolom">
+              <option value="">Pakai templat kolom…</option>
+              ${COL_PRESETS.map(p => `<option value="${p.key}">${esc(p.label)}</option>`).join('')}
+            </select>
+          </div>
+        </div>
+        <div class="form-group">
+          <label>Pernyataan &amp; kunci <span class="muted small">(pilih satu kolom yang benar di tiap baris)</span></label>
+          <div class="table-wrap"><table class="table qe-mx-table">
+            <thead><tr><th>Pernyataan</th>${cols.map(c => `<th class="ct">${esc(c || '…')}</th>`).join('')}<th></th></tr></thead>
+            <tbody>
+              ${st.map((x, i) => `
+                <tr class="qe-row mx" data-idx="${i}">
+                  <td><input class="qe-mx-text" value="${esc(x.text)}" placeholder="Pernyataan ${i + 1}" aria-label="Pernyataan ${i + 1}" /></td>
+                  ${cols.map((c, ci) => `<td class="ct"><input type="radio" name="qeMx${i}" value="${ci}" ${keys[i] === ci ? 'checked' : ''} aria-label="Pernyataan ${i + 1}: ${esc(c)}" /></td>`).join('')}
+                  <td class="ct actions"><button type="button" class="btn btn-sm btn-danger" data-del-mx="${i}" title="Hapus pernyataan" aria-label="Hapus pernyataan ${i + 1}">✕<span class="qe-mx-del-lbl"> Hapus</span></button></td>
+                </tr>`).join('')}
+            </tbody></table></div>
+          <button type="button" class="btn btn-sm btn-secondary mt-1" id="qeAddMx">+ Tambah pernyataan</button>
+          <p class="muted small" style="margin:8px 0 0;">Dinilai benar bila seluruh baris dijawab tepat.</p>
+        </div>`;
+    }
+
+    if (f === 'Benar/Salah Majemuk') {
       const st = draft.statements && draft.statements.length
         ? draft.statements : [{ text: '', value: true }, { text: '', value: false }];
       return `
@@ -209,6 +272,7 @@
       answers: [''],
       numeric: false,
       statements: [],
+      columns: [],
       pairs: [],
       orderItems: [],
       keywords: [],
@@ -428,6 +492,55 @@
         box.querySelectorAll('.qe-row.st .qe-radio').forEach(l => l.classList.toggle('on', l.querySelector('input').checked));
         collect(); renderPreview();
       }));
+      // Majemuk kompleks (kolom kustom)
+      box.querySelectorAll('.qe-col-name').forEach((inp, ci) => inp.addEventListener('input', () => {
+        const th = box.querySelectorAll('.qe-mx-table thead th')[ci + 1];
+        if (th) th.textContent = inp.value || '…';
+        collect(); renderPreview();
+      }));
+      const addCol = box.querySelector('#qeAddCol');
+      if (addCol) addCol.addEventListener('click', () => {
+        collect();
+        if (draft.columns.length >= DB.MATRIX_MAX_COLS) { UI.toast(`Maksimal ${DB.MATRIX_MAX_COLS} kolom.`, 'info'); return; }
+        draft.columns.push('');
+        paint();
+      });
+      box.querySelectorAll('[data-del-col]').forEach(b => b.addEventListener('click', () => {
+        collect();
+        if (draft.columns.length <= 2) { UI.toast('Minimal 2 kolom jawaban.', 'info'); return; }
+        const ci = Number(b.dataset.delCol);
+        draft.columns.splice(ci, 1);
+        draft.statements.forEach(x => {
+          if (x.correct === ci) x.correct = null;
+          else if (x.correct != null && x.correct > ci) x.correct--;
+        });
+        paint();
+      }));
+      const preset = box.querySelector('#qeColPreset');
+      if (preset) preset.addEventListener('change', () => {
+        const p = COL_PRESETS.find(x => x.key === preset.value);
+        if (!p) return;
+        collect();
+        draft.columns = p.cols.slice();
+        draft.statements.forEach(x => { if (x.correct != null && x.correct >= draft.columns.length) x.correct = null; });
+        paint();
+      });
+      box.querySelectorAll('.qe-mx-text').forEach(i => i.addEventListener('input', () => { collect(); renderPreview(); }));
+      box.querySelectorAll('.qe-row.mx [type="radio"]').forEach(r => r.addEventListener('change', () => { collect(); renderPreview(); }));
+      const addMx = box.querySelector('#qeAddMx');
+      if (addMx) addMx.addEventListener('click', () => {
+        collect();
+        if (draft.statements.length >= 30) { UI.toast('Maksimal 30 pernyataan.', 'info'); return; }
+        draft.statements.push({ text: '', correct: null });
+        paint();
+      });
+      box.querySelectorAll('[data-del-mx]').forEach(b => b.addEventListener('click', () => {
+        collect();
+        if (draft.statements.length <= 2) { UI.toast('Minimal 2 pernyataan.', 'info'); return; }
+        draft.statements.splice(Number(b.dataset.delMx), 1);
+        paint();
+      }));
+
       const addSt = box.querySelector('#qeAddSt');
       if (addSt) addSt.addEventListener('click', () => {
         collect();
@@ -493,8 +606,14 @@
         if (draft.correctIndex !== 0 && draft.correctIndex !== 1) draft.correctIndex = 0;
       }
       if (f === 'Isian Singkat' && (!draft.answers || !draft.answers.length)) draft.answers = [''];
-      if (f === 'Majemuk Kompleks' && (!draft.statements || draft.statements.length < 2)) {
-        draft.statements = [{ text: '', value: true }, { text: '', value: false }];
+      if (f === 'Benar/Salah Majemuk') {
+        if (!draft.statements || draft.statements.length < 2) draft.statements = [{ text: '', value: true }, { text: '', value: false }];
+        else draft.statements = draft.statements.map(x => ({ text: x.text || '', value: typeof x.value === 'boolean' ? x.value : x.correct === 0 }));
+      }
+      if (f === 'Majemuk Kompleks') {
+        if (!Array.isArray(draft.columns) || draft.columns.length < 2) draft.columns = DB.MATRIX_DEFAULT_COLS.slice();
+        if (!draft.statements || draft.statements.length < 2) draft.statements = [{ text: '', correct: 0 }, { text: '', correct: 1 }];
+        else draft.statements = draft.statements.map(x => ({ text: x.text || '', correct: mxKeyOf(x, draft.columns.length) }));
       }
       if (f === 'Menjodohkan' && (!draft.pairs || draft.pairs.length < 2)) {
         draft.pairs = [{ left: '', right: '' }, { left: '', right: '' }];
@@ -529,6 +648,12 @@
         const n = box.querySelector('#qeNumeric');
         draft.numeric = n ? n.checked : false;
       } else if (f === 'Majemuk Kompleks') {
+        draft.columns = [...box.querySelectorAll('.qe-col-name')].map(i => i.value);
+        draft.statements = [...box.querySelectorAll('.qe-row.mx')].map(row => {
+          const k = row.querySelector(`[name="qeMx${row.dataset.idx}"]:checked`);
+          return { text: row.querySelector('.qe-mx-text').value, correct: k ? Number(k.value) : null };
+        });
+      } else if (f === 'Benar/Salah Majemuk') {
         draft.statements = [...box.querySelectorAll('.qe-row.st')].map((row, i) => ({
           text: row.querySelector('.qe-st-text').value,
           value: (row.querySelector(`[name="qeSt${row.dataset.idx}"]:checked`) || {}).value === '1'
@@ -587,6 +712,15 @@
         </div>`;
       }
       if (f === 'Majemuk Kompleks') {
+        const cols = mxColumnsOf(draft);
+        return `<table class="qe-prev-table"><thead><tr><th>Pernyataan</th>${cols.map(c => `<th class="ct">${esc(c || '…')}</th>`).join('')}</tr></thead><tbody>
+          ${(draft.statements || []).map(x => { const k = mxKeyOf(x, cols.length); return `<tr>
+            <td>${R(x.text) || '<span class="muted">—</span>'}</td>
+            ${cols.map((c, ci) => `<td class="ct">${k === ci ? '<span class="qe-keyflag">✓</span>' : '○'}</td>`).join('')}
+          </tr>`; }).join('')}
+        </tbody></table>`;
+      }
+      if (f === 'Benar/Salah Majemuk') {
         return `<table class="qe-prev-table"><thead><tr><th>Pernyataan</th><th>B</th><th>S</th></tr></thead><tbody>
           ${(draft.statements || []).map(s => `<tr>
             <td>${R(s.text) || '<span class="muted">—</span>'}</td>
@@ -639,8 +773,18 @@
       if (f === 'Isian Singkat') {
         if (!draft.answers.filter(a => a.trim()).length) return 'Isi minimal satu jawaban yang diterima.';
       }
-      if (f === 'Majemuk Kompleks') {
+      if (f === 'Benar/Salah Majemuk') {
         if (draft.statements.filter(s => RichText.plain(s.text)).length < 2) return 'Isi minimal 2 pernyataan.';
+      }
+      if (f === 'Majemuk Kompleks') {
+        const cols = (draft.columns || []).map(c => String(c || '').trim());
+        if (cols.length < 2) return 'Isi minimal 2 kolom jawaban.';
+        if (cols.some(c => !c)) return 'Nama kolom jawaban tidak boleh kosong.';
+        if (new Set(cols.map(c => c.toLowerCase())).size !== cols.length) return 'Nama kolom jawaban tidak boleh sama.';
+        const filled = draft.statements.map((x, i) => ({ x, i })).filter(o => RichText.plain(o.x.text));
+        if (filled.length < 2) return 'Isi minimal 2 pernyataan.';
+        const miss = filled.find(o => !(Number.isInteger(o.x.correct) && o.x.correct >= 0 && o.x.correct < cols.length));
+        if (miss) return `Pilih kolom kunci untuk pernyataan ${miss.i + 1}.`;
       }
       if (f === 'Menjodohkan') {
         const ok = draft.pairs.filter(p => RichText.plain(p.left) && RichText.plain(p.right));
@@ -677,10 +821,18 @@
         payload.numeric = !!draft.numeric;
         payload.options = [];
         payload.correctIndex = null;
-      } else if (f === 'Majemuk Kompleks') {
+      } else if (f === 'Benar/Salah Majemuk') {
         payload.statements = draft.statements
           .filter(s => RichText.plain(s.text))
           .map(s => ({ text: RichText.sanitize(s.text), value: !!s.value }));
+        payload.columns = null;
+        payload.options = [];
+        payload.correctIndex = null;
+      } else if (f === 'Majemuk Kompleks') {
+        payload.columns = draft.columns.map(c => String(c || '').replace(/[<>]/g, '').trim().slice(0, 40));
+        payload.statements = draft.statements
+          .filter(s => RichText.plain(s.text))
+          .map(s => ({ text: RichText.sanitize(s.text), correct: Number(s.correct) }));
         payload.options = [];
         payload.correctIndex = null;
       } else if (f === 'Menjodohkan') {

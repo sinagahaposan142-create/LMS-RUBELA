@@ -225,6 +225,28 @@ Hasil audit lengkap 23 poin permintaan beserta buktinya ada di
   serta kebijakan "siswa baru hanya melihat konten baru" untuk kelas dan course.
 - **Chat** kini selalu menampilkan kotak ketik di semua ukuran layar (satu panel di ponsel/tablet).
 
+### Fitur Ronde 10 — angkatan, transfer, jadwal bentrok, format soal
+- **Rilis bertahap per angkatan**: angkatan baru di *Tahun Akademik* dapat memakai "Rilis bertahap". Konten yang dibuat
+  sebelum tanggal batas (bawaan: tanggal mulai angkatan) menjadi arsip dan tersembunyi bagi mentee angkatan itu sampai
+  admin/tutor merilisnya di **Pusat Konten**: satu atau beberapa sekaligus, langsung atau terjadwal, dan dapat ditarik kembali.
+  Angkatan lama tanpa pengaturan ini tetap melihat semua konten. Riwayat yang sudah dikerjakan mentee tetap terlihat.
+- **Pusat Konten** (admin & tutor): filter jenis/kelas/status/pembuat, pilih massal, rilis, transfer, dan ganti pembuat.
+- **Transfer konten**: salin (ke satu atau beberapa kelas) atau pindahkan materi, modul, rekaman, tugas, dan ujian.
+  Salinan langsung terlihat, pengumpulan/hasil ujian tidak ikut, tenggat/jadwal yang sudah lewat digeser otomatis.
+  Tugas yang sudah dikumpulkan dan ujian yang sudah dikerjakan hanya dapat disalin. Admin juga dapat menyalin ke Course Mandiri.
+- **Pembuat konten**: saat tutor dihapus, admin memilih pembuat baru (Admin Rubela atau tutor lain). Kelas tidak ikut terhapus;
+  tutor pengganti mengambil posisinya di kelas dan sesi mendatang. Konten lama yang pembuatnya sudah terhapus tetap dapat dikelola.
+- **Jadwal bentrok**: sesi pada tanggal sama dengan jam bertabrakan di kelas utama yang sama, kelas subtest yang sama,
+  atau tutor yang sama ditolak (dengan saran jam kosong). Satu kelas boleh punya beberapa sesi per hari.
+  War Jadwal dikelompokkan per kelas utama (baris ringkasan PU/PPU per hari), baris "Jadwal Saya" untuk tutor,
+  panel bentrok, detail per hari, dan isi otomatis yang melewati tanggal bentrok.
+- **Jadwal murid & orang tua**: dua halaman, "Jadwal Kelasku" dan "Kelas Utama Lain" (baca-saja, tanpa tautan kelas).
+- **Whiteboard**: banyak halaman (maks. 30) dan ekspor PNG/PDF semua halaman dengan watermark "Aset RUBELA Indonesia",
+  logo (diunggah di Pengaturan), dan nomor halaman.
+- **Format soal baru** di semua fitur soal (CBT, tugas, Bank Soal + impor/ekspor Excel, kuis Course Mandiri):
+  *Benar/Salah Majemuk* dan *Majemuk Kompleks* dengan 2–8 kolom jawaban yang dapat diubah namanya
+  (mis. Benar / Salah / Tidak dapat ditentukan). Soal Majemuk lama otomatis dibaca sebagai kolom Benar/Salah.
+
 ### Desain v4 — Modern Gen Z EdTech (detail: `docs/DESIGN-SYSTEM.md`)
 - Design system tunggal di `css/design-system.css`: token warna, tipografi (Plus Jakarta Sans), spasi, radius, bayangan, kontrol.
 - Sidebar berkelompok per kategori + mode ringkas, navigasi bawah di ponsel, aksi cepat di Overview tiap peran.
@@ -403,7 +425,8 @@ LMS-RUBELA/
     ├── attendance-insights.js # Ring, grafik, rekap & riwayat persentase kehadiran
     ├── birthday.js      # Banner ulang tahun, Birthday Wall, hadiah, moderasi
     ├── idb.js           # Penyimpanan berkas besar (IndexedDB): audio musik & lampiran terenkripsi
-    ├── visibility.js    # Kontrol Aktifkan / Matikan / Aktifkan ulang konten
+    ├── visibility.js    # Kontrol Aktifkan / Matikan / Aktifkan ulang + rilis angkatan
+    ├── content-center.js # Pusat Konten: rilis bertahap, transfer, ganti pembuat
     ├── streak.js        # Streak API, Kampus Danau, statistik, leaderboard, pengaturan admin
     ├── arena.js         # Arena Belajar: tantangan, mini quiz, latihan, Reading Text, games
     ├── verses.js        # Ayat Harian sesuai agama

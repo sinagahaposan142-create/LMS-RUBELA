@@ -490,10 +490,18 @@
         reason: matched ? 'Cocok setelah normalisasi kapital, spasi, tanda baca, dan diakritik.' : 'Tidak cocok dengan daftar jawaban yang diterima.',
         confidence: matched ? 0.98 : 1 };
     }
-    if (f === 'Majemuk Kompleks') {
+    if (f === 'Benar/Salah Majemuk') {
       const st = q.statements || [];
       if (!st.length || !Array.isArray(ans)) return { auto: true, correct: false };
-      return { auto: true, correct: st.every((s, i) => ans[i] === !!s.value) };
+      const got = DB.qBoolAnswer(q, ans);
+      return { auto: true, correct: st.every((s, i) => got[i] === !!s.value) };
+    }
+    if (f === 'Majemuk Kompleks') {
+      // Kolom jawaban dapat diubah (mis. Benar/Salah/Tidak diketahui); jawaban = indeks kolom.
+      const keys = DB.qMatrixKeys(q);
+      if (!keys.length || !Array.isArray(ans)) return { auto: true, correct: false };
+      const got = DB.qMatrixAnswer(q, ans);
+      return { auto: true, correct: keys.every((k, i) => k != null && got[i] === k) };
     }
     if (f === 'Menjodohkan') {
       const pairs = q.pairs || [];
@@ -513,7 +521,8 @@
     const f = q.questionType || 'Pilihan Ganda';
     if (f === 'Esai' || f === 'Isian Singkat') return !!(ans && String(ans).trim());
     if (f === 'Pilihan Lebih dari Satu') return Array.isArray(ans) && ans.length > 0;
-    if (f === 'Majemuk Kompleks') return Array.isArray(ans) && ans.some(v => v === true || v === false);
+    if (f === 'Benar/Salah Majemuk') return Array.isArray(ans) && DB.qBoolAnswer(q, ans).some(v => v != null);
+    if (f === 'Majemuk Kompleks') return Array.isArray(ans) && DB.qMatrixAnswer(q, ans).some(v => v != null);
     if (f === 'Menjodohkan') return Array.isArray(ans) && ans.some(v => v);
     if (f === 'Urutan') return Array.isArray(ans) && ans.length > 0;
     return ans != null;
@@ -915,7 +924,19 @@
         </div>
         <div class="muted small mt-1">Boleh memilih lebih dari satu jawaban.</div>`;
       } else if (f === 'Majemuk Kompleks') {
-        const vals = Array.isArray(answers[q.id]) ? answers[q.id] : [];
+        const cols = DB.qMatrixColumns(q);
+        const vals = DB.qMatrixAnswer(q, answers[q.id]);
+        body = `<div class="table-wrap"><table class="table ex-cplx ex-matrix">
+          <thead><tr><th>Pernyataan</th>${cols.map(c => `<th class="ct">${UI.esc(c)}</th>`).join('')}</tr></thead>
+          <tbody>
+            ${(q.statements || []).map((s, si) => `
+              <tr>
+                <td class="rt-content">${RichText.render(s.text)}</td>
+                ${cols.map((c, ci) => `<td class="ct"><input type="radio" name="mtx_${i}_${si}" data-mtx="${i}" data-si="${si}" data-col="${ci}" aria-label="${UI.esc(c)}" ${vals[si] === ci ? 'checked' : ''} /></td>`).join('')}
+              </tr>`).join('')}
+          </tbody></table></div>`;
+      } else if (f === 'Benar/Salah Majemuk') {
+        const vals = DB.qBoolAnswer(q, answers[q.id]);
         body = `<div class="table-wrap"><table class="table ex-cplx">
           <thead><tr><th>Pernyataan</th><th>Benar</th><th>Salah</th></tr></thead>
           <tbody>
@@ -1024,7 +1045,17 @@
         save();
       }));
 
-      // Majemuk kompleks
+      // Majemuk kompleks (kolom kustom): simpan indeks kolom
+      content.querySelectorAll('[data-mtx]').forEach(r => r.addEventListener('change', () => {
+        const qi = Number(r.dataset.mtx);
+        const si = Number(r.dataset.si);
+        const qid = questions[qi].id;
+        const arr = Array.isArray(answers[qid]) ? DB.qMatrixAnswer(questions[qi], answers[qid]) : [];
+        arr[si] = Number(r.dataset.col);
+        answers[qid] = arr;
+        save();
+      }));
+      // Benar/Salah majemuk
       content.querySelectorAll('[data-cplx]').forEach(r => r.addEventListener('change', () => {
         const qi = Number(r.dataset.cplx);
         const si = Number(r.dataset.si);
@@ -1261,7 +1292,19 @@
         }).join('')}
       </div>`;
     } else if (f === 'Majemuk Kompleks') {
-      const vals = Array.isArray(ans) ? ans : [];
+      const cols = DB.qMatrixColumns(q);
+      const keys = DB.qMatrixKeys(q);
+      const vals = DB.qMatrixAnswer(q, ans);
+      body = `<div class="table-wrap"><table class="table">
+        <thead><tr><th>Pernyataan</th><th>Jawaban Anda</th><th>Kunci</th></tr></thead>
+        <tbody>${(q.statements || []).map((s, si) => `
+          <tr>
+            <td class="rt-content">${RichText.render(s.text)}</td>
+            <td>${vals[si] == null ? '<span class="muted">—</span>' : `${UI.esc(cols[vals[si]])} ${vals[si] === keys[si] ? '✓' : '✗'}`}</td>
+            <td><strong>${keys[si] == null ? '—' : UI.esc(cols[keys[si]])}</strong></td>
+          </tr>`).join('')}</tbody></table></div>`;
+    } else if (f === 'Benar/Salah Majemuk') {
+      const vals = DB.qBoolAnswer(q, ans);
       body = `<div class="table-wrap"><table class="table">
         <thead><tr><th>Pernyataan</th><th>Jawaban Anda</th><th>Kunci</th></tr></thead>
         <tbody>${(q.statements || []).map((s, si) => `

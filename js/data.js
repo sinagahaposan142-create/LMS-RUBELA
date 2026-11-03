@@ -85,7 +85,90 @@
     { code: 'PM',    name: 'Penalaran Matematika',                          short: 'Pen. Matematika', group: 'Penalaran', icon: '📐', defaultMinutes: 42 }
   ];
   const SUBTEST_NAMES = SUBTESTS.map(s => s.name);
-  const QUESTION_TYPES = ['Pilihan Ganda', 'Pilihan Lebih dari Satu', 'Esai', 'Benar/Salah', 'Majemuk Kompleks'];
+  /* Seluruh format soal (urutan sama dengan js/qeditor.js FORMATS).
+   * - "Benar/Salah Majemuk": beberapa pernyataan, tiap baris hanya Benar/Salah
+   *   (statements[{text, value:boolean}], jawaban Array<Boolean>).
+   * - "Majemuk Kompleks": tabel pernyataan dengan kolom jawaban yang dapat
+   *   diubah (columns[label], statements[{text, correct:indeksKolom}], jawaban
+   *   Array<Number>). Soal lama tanpa columns dianggap kolom Benar/Salah. */
+  const QUESTION_TYPES = ['Pilihan Ganda', 'Pilihan Lebih dari Satu', 'Benar/Salah', 'Isian Singkat',
+    'Benar/Salah Majemuk', 'Majemuk Kompleks', 'Menjodohkan', 'Urutan', 'Esai'];
+  const MATRIX_DEFAULT_COLS = ['Benar', 'Salah'];
+  const MATRIX_MAX_COLS = 8;
+  const plainLabel = (v) => String(v == null ? '' : v).replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
+  /** Label kolom jawaban soal Majemuk Kompleks (minimal 2; bawaan Benar/Salah). */
+  function qMatrixColumns(q) {
+    const cols = Array.isArray(q && q.columns) ? q.columns.map(plainLabel).filter(Boolean).slice(0, MATRIX_MAX_COLS) : [];
+    return cols.length >= 2 ? cols : MATRIX_DEFAULT_COLS.slice();
+  }
+  /** Kunci per pernyataan sebagai indeks kolom (soal lama: true → Benar=0, false → Salah=1). */
+  function qMatrixKeys(q) {
+    const n = qMatrixColumns(q).length;
+    return ((q && q.statements) || []).map(st => {
+      if (st && st.correct != null && st.correct !== '' && Number.isInteger(Number(st.correct))) {
+        const k = Number(st.correct);
+        return k >= 0 && k < n ? k : null;
+      }
+      if (st && typeof st.value === 'boolean') return st.value ? 0 : 1;
+      return null;
+    });
+  }
+  /** Jawaban mentee → indeks kolom per pernyataan (jawaban lama boolean ikut dikonversi). */
+  function qMatrixAnswer(q, ans) {
+    if (!Array.isArray(ans)) return [];
+    const n = qMatrixColumns(q).length;
+    return ((q && q.statements) || []).map((_, i) => {
+      const v = ans[i];
+      if (v === true) return 0;
+      if (v === false) return 1;
+      if (v == null || v === '') return null;
+      const k = Number(v);
+      return Number.isInteger(k) && k >= 0 && k < n ? k : null;
+    });
+  }
+  /** Jawaban Benar/Salah Majemuk → Array<Boolean|null>. */
+  function qBoolAnswer(q, ans) {
+    if (!Array.isArray(ans)) return [];
+    return ((q && q.statements) || []).map((_, i) => {
+      const v = ans[i];
+      if (v === true || v === 'true' || v === 1 || v === '1') return true;
+      if (v === false || v === 'false' || v === 0 || v === '0') return false;
+      return null;
+    });
+  }
+  /** Teks jawaban mentee yang mudah dibaca (untuk tabel penilaian tutor). */
+  function qAnswerText(q, ans) {
+    const f = (q && q.questionType) || 'Pilihan Ganda';
+    const L = (i) => String.fromCharCode(65 + Number(i));
+    if (ans == null || ans === '' || (Array.isArray(ans) && !ans.length)) return '';
+    if (f === 'Majemuk Kompleks') {
+      const cols = qMatrixColumns(q);
+      return qMatrixAnswer(q, ans).map((k, i) => `${i + 1}: ${k == null ? '—' : cols[k]}`).join('; ');
+    }
+    if (f === 'Benar/Salah Majemuk') return qBoolAnswer(q, ans).map((v, i) => `${i + 1}: ${v == null ? '—' : (v ? 'Benar' : 'Salah')}`).join('; ');
+    if (f === 'Pilihan Lebih dari Satu') return (Array.isArray(ans) ? ans : []).map(L).join(', ');
+    if (f === 'Pilihan Ganda' || f === 'Benar/Salah') {
+      const k = Number(ans);
+      if (!Number.isInteger(k)) return String(ans);
+      return f === 'Benar/Salah' && !((q.options || []).length) ? (k === 0 ? 'Benar' : 'Salah') : L(k);
+    }
+    if (Array.isArray(ans)) return ans.map(x => plainLabel(x)).join(', ');
+    return plainLabel(ans);
+  }
+  /** Teks kunci jawaban ringkas (bank soal, daftar kuis). */
+  function qKeyText(q) {
+    const f = (q && q.questionType) || 'Pilihan Ganda';
+    const L = (i) => String.fromCharCode(65 + Number(i));
+    if (f === 'Majemuk Kompleks') { const cols = qMatrixColumns(q); return qMatrixKeys(q).map(k => (k == null ? '—' : cols[k])).join('; '); }
+    if (f === 'Benar/Salah Majemuk') return ((q.statements || [])).map(s => (s && s.value ? 'Benar' : 'Salah')).join('; ');
+    if (f === 'Esai') return (q.keywords || []).join(', ') || '(manual)';
+    if (f === 'Isian Singkat') return (q.answers || []).join(', ');
+    if (f === 'Benar/Salah') return Number(q.correctIndex) === 0 ? 'Benar' : 'Salah';
+    if (f === 'Pilihan Lebih dari Satu') return (q.correctIndices || []).map(L).join(', ');
+    if (f === 'Menjodohkan') return (q.pairs || []).map(p => `${plainLabel(p.left)} → ${plainLabel(p.right)}`).join('; ');
+    if (f === 'Urutan') return (q.orderItems || []).map(plainLabel).join(' → ');
+    return q.correctIndex != null && Number.isInteger(Number(q.correctIndex)) ? L(q.correctIndex) : '-';
+  }
   const DIFFICULTIES = ['mudah', 'sedang', 'sulit'];
   /** Penanda "berlaku untuk semua kelas" pada targetClasses sebuah CBT. */
   const ALL_CLASSES = '__ALL__';
@@ -183,6 +266,8 @@
   const SCHEMA_KEY = 'lms_schema_version';
   const SCHEMA_VERSION = 3;
 
+  /** Pemilik konten "Admin" (dipakai saat tutor pembuat dihapus / dipilih admin). */
+  const ADMIN_OWNER = '__admin__';
   /** Jenis konten kelas yang punya pencatatan pembuat. */
   const CONTENT_KINDS = {
     material:   { label: 'Materi',   icon: '📄' },
@@ -1081,8 +1166,7 @@
    * Course Mandiri — helper kuis, kunci urutan, durasi & keaktifan peserta
    * ===================================================================*/
   /** Jenis soal kuis course = jenis soal CBT (js/qeditor.js FORMATS). */
-  const HUB_QTYPES = ['Pilihan Ganda', 'Pilihan Lebih dari Satu', 'Benar/Salah', 'Isian Singkat',
-    'Majemuk Kompleks', 'Menjodohkan', 'Urutan', 'Esai'];
+  const HUB_QTYPES = QUESTION_TYPES.slice();
   const HUB_DEFAULT_MIN_SEC = 40;          // waktu minimal bawaan sebelum "Tandai selesai"
   const HUB_DEFAULT_INACTIVE_DAYS = 7;     // keluarkan peserta bila tidak aktif selama ini
   const HUB_TOUCH_MS = 10 * 60000;         // jeda minimum pencatatan "terakhir aktif"
@@ -1114,8 +1198,14 @@
       if (Number(q.correctIndex) !== 0 && Number(q.correctIndex) !== 1) return 'kunci Benar/Salah';
     } else if (t === 'Isian Singkat') {
       if (!(q.answers || []).some(a => String(a == null ? '' : a).trim())) return 'minimal satu jawaban yang diterima';
+    } else if (t === 'Benar/Salah Majemuk') {
+      const st = (q.statements || []).filter(x => x && hubFilled(x.text));
+      if (st.length < 2) return 'minimal 2 pernyataan';
+      if (st.some(x => typeof x.value !== 'boolean')) return 'kunci Benar/Salah tiap pernyataan';
     } else if (t === 'Majemuk Kompleks') {
       if ((q.statements || []).filter(x => x && hubFilled(x.text)).length < 2) return 'minimal 2 pernyataan';
+      if (Array.isArray(q.columns) && q.columns.map(plainLabel).filter(Boolean).length < 2) return 'minimal 2 kolom jawaban';
+      if (qMatrixKeys(q).some(k => k == null)) return 'kunci kolom tiap pernyataan';
     } else if (t === 'Menjodohkan') {
       if ((q.pairs || []).filter(x => x && hubFilled(x.left) && hubFilled(x.right)).length < 2) return 'minimal 2 pasangan lengkap';
     } else if (t === 'Urutan') {
@@ -1135,7 +1225,8 @@
       return Array.isArray(a) ? [...new Set(a.map(Number).filter(n => Number.isInteger(n) && n >= 0))].sort((x, y) => x - y).slice(0, 20) : [];
     }
     if (t === 'Isian Singkat' || t === 'Esai') return clip(a);
-    if (t === 'Majemuk Kompleks') return Array.isArray(a) ? (q.statements || []).map((_, i) => (a[i] === true ? true : a[i] === false ? false : null)) : [];
+    if (t === 'Benar/Salah Majemuk') return qBoolAnswer(q, a);
+    if (t === 'Majemuk Kompleks') return qMatrixAnswer(q, a);
     if (t === 'Menjodohkan') return Array.isArray(a) ? (q.pairs || []).map((_, i) => clip(a[i], 2000)) : [];
     if (t === 'Urutan') return Array.isArray(a) ? a.slice(0, 60).map(v => clip(v, 2000)) : [];
     return null;
@@ -1145,7 +1236,8 @@
     if (t === 'Pilihan Ganda' || t === 'Benar/Salah') return a != null;
     if (t === 'Pilihan Lebih dari Satu') return Array.isArray(a) && a.length > 0;
     if (t === 'Isian Singkat' || t === 'Esai') return String(a || '').trim().length > 0;
-    if (t === 'Majemuk Kompleks') return Array.isArray(a) && a.length > 0 && a.every(v => v === true || v === false);
+    if (t === 'Benar/Salah Majemuk') return Array.isArray(a) && a.length > 0 && a.every(v => v === true || v === false);
+    if (t === 'Majemuk Kompleks') return Array.isArray(a) && a.length > 0 && a.every(v => Number.isInteger(v) && v >= 0);
     if (t === 'Menjodohkan') return Array.isArray(a) && a.length > 0 && a.every(v => String(v).length > 0);
     if (t === 'Urutan') return Array.isArray(a) && a.length === (q.orderItems || []).length;
     return false;
@@ -1179,19 +1271,30 @@
     save('lms_hub_progress', list);
   }
 
+  let batchMemo = { sid: null, at: 0, batch: null };
+
   const DB = {
     KEYS, uid, periodKey,
 
     /* ===== Konstanta bersama ===== */
     SUBTESTS, SUBTEST_NAMES, QUESTION_TYPES, DIFFICULTIES, ALL_CLASSES,
+    MATRIX_DEFAULT_COLS, MATRIX_MAX_COLS,
+    qMatrixColumns, qMatrixKeys, qMatrixAnswer, qBoolAnswer, qAnswerText, qKeyText,
     subtestByName, subtestOrder, DAY_NAMES, PLAN_STATUS, ymdOf,
-    PAYMENT_KINDS, FINE_REASONS, CONTENT_KINDS,
+    PAYMENT_KINDS, FINE_REASONS, CONTENT_KINDS, ADMIN_OWNER,
 
     /* ===== Pengaturan aplikasi ===== */
     getSettings: () => Object.assign({
       loginQuizEnabled: true, loginQuizRoles: ['siswa'], loginQuizAttempts: 3,
       motivationEnabled: true, planFillLead: PLAN_FILL_LEAD, planConfirmLead: PLAN_CONFIRM_LEAD,
       appName: 'LMS Rubela', appTagline: 'Learning Management System', appLogo: '',
+      /* ===== Ekspor whiteboard: watermark & nomor halaman ===== */
+      wbWatermarkEnabled: true,
+      wbWatermarkText: 'Aset RUBELA Indonesia',
+      wbWatermarkLogo: '',            // kosong = memakai logo aplikasi
+      wbWatermarkOpacity: 14,         // persen
+      wbWatermarkStyle: 'tile',       // tile (berulang miring) | center | corner
+      wbPageNumbers: true,
       /* ===== Integrasi AI =====
        * Kunci API TIDAK pernah ikut tersimpan di repositori. Admin mengisinya
        * lewat Pengaturan, lalu disimpan pada localStorage browser masing-masing.
@@ -1380,9 +1483,147 @@
       status: 'fixed', confirmedAt: Date.now(), updatedAt: Date.now()
     }),
 
-    /** Rencana kelas pada satu tanggal untuk satu kelas (null bila tak ada). */
-    getPlanForCourseDate: (cid, ymd) =>
-      getAll(KEYS.classPlans).find(p => p.courseId === cid && p.date === ymd) || null,
+    /**
+     * Rencana kelas pada satu tanggal untuk satu kelas (null bila tak ada).
+     * Satu kelas boleh punya lebih dari satu sesi per hari; yang dipilih adalah
+     * sesi aktif (tidak dibatalkan) paling awal, agar presensi & tutor sesi tepat.
+     */
+    getPlanForCourseDate: (cid, ymd) => {
+      const list = DB.getPlansForCourseDate(cid, ymd);
+      return list.find(p => p.status !== 'cancelled') || list[0] || null;
+    },
+    /** Semua sesi satu kelas pada satu tanggal, urut jam mulai. */
+    getPlansForCourseDate: (cid, ymd) => getAll(KEYS.classPlans)
+      .filter(p => p.courseId === cid && p.date === ymd)
+      .sort((a, b) => String(a.time || '').localeCompare(String(b.time || ''))),
+
+    /* ===== Anti-bentrok jadwal =====
+     * Dua sesi BENTROK bila tanggalnya sama, jamnya beririsan, dan:
+     *  - berada di kelas subtest yang sama, atau
+     *  - kelas subtestnya berbagi kelas utama (siswa yang sama harus hadir), atau
+     *  - diajar tutor yang sama.
+     * Sesi yang dibatalkan tidak dihitung. Jam selesai kosong → durasi jadwal
+     * rutin kelas, atau 90 menit. */
+    PLAN_DEFAULT_MINUTES: 90,
+    timeToMinutes: (t) => {
+      const m = /^\s*(\d{1,2})[:.](\d{2})/.exec(String(t || ''));
+      if (!m) return null;
+      const h = Number(m[1]), mi = Number(m[2]);
+      if (h > 23 || mi > 59) return null;
+      return h * 60 + mi;
+    },
+    minutesToTime: (n) => {
+      const v = Math.max(0, Math.min(24 * 60 - 1, Math.round(Number(n) || 0)));
+      return String(Math.floor(v / 60)).padStart(2, '0') + ':' + String(v % 60).padStart(2, '0');
+    },
+    /** Rentang menit sebuah sesi {start, end} atau null bila jam mulai belum diisi. */
+    planWindow: (plan) => {
+      if (!plan) return null;
+      const start = DB.timeToMinutes(plan.time);
+      if (start == null) return null;
+      let end = DB.timeToMinutes(plan.endTime);
+      if (end == null || end <= start) {
+        const c = findById(KEYS.courses, plan.courseId);
+        const sc = (c && c.schedule) || {};
+        const a = DB.timeToMinutes(sc.time), b = DB.timeToMinutes(sc.endTime);
+        const dur = a != null && b != null && b > a ? b - a : DB.PLAN_DEFAULT_MINUTES;
+        end = Math.min(24 * 60, start + dur);
+      }
+      return { start, end };
+    },
+    /** Pesan galat untuk jam yang tidak valid, atau null. */
+    validatePlanTimes: (plan) => {
+      if (!plan || plan.status === 'cancelled') return null;
+      const a = DB.timeToMinutes(plan.time), b = DB.timeToMinutes(plan.endTime);
+      if (a == null) return 'Jam mulai wajib diisi.';
+      if (b == null) return 'Jam selesai wajib diisi.';
+      if (b <= a) return 'Jam selesai harus setelah jam mulai.';
+      return null;
+    },
+    /** Kelas utama yang sama-sama diikuti dua kelas subtest. */
+    sharedMainClasses: (courseA, courseB) => {
+      const a = new Set((courseA && courseA.mainClasses) || []);
+      return ((courseB && courseB.mainClasses) || []).filter(k => a.has(k));
+    },
+    /**
+     * Sesi lain yang bentrok dengan `cand`.
+     * @param {object} cand  { id?, courseId, teacherId, date, time, endTime, status }
+     * @param {object} [opts] { extra: [rencana virtual, mis. hasil isi otomatis], plans: daftar pembanding }
+     * @returns {Array<{plan, course, reasons:string[], mainClasses:string[]}>}
+     */
+    planConflicts: (cand, opts) => {
+      const o = opts || {};
+      if (!cand || cand.status === 'cancelled' || !cand.date) return [];
+      const w = DB.planWindow(cand);
+      if (!w) return [];
+      const cCourse = findById(KEYS.courses, cand.courseId);
+      const pool = (o.plans || getAll(KEYS.classPlans)).concat(o.extra || []);
+      const out = [];
+      pool.forEach(p => {
+        if (!p || p === cand || (cand.id && p.id === cand.id) || p.date !== cand.date || p.status === 'cancelled') return;
+        const pw = DB.planWindow(p);
+        if (!pw || !(w.start < pw.end && pw.start < w.end)) return;
+        const pCourse = findById(KEYS.courses, p.courseId);
+        const reasons = [];
+        const shared = DB.sharedMainClasses(cCourse, pCourse);
+        if (p.courseId === cand.courseId) reasons.push('kelas-sama');
+        else if (shared.length) reasons.push('kelas-utama');
+        if (cand.teacherId && p.teacherId && cand.teacherId === p.teacherId) reasons.push('tutor');
+        if (reasons.length) out.push({ plan: p, course: pCourse, reasons, mainClasses: shared });
+      });
+      return out;
+    },
+    /** Kalimat ringkas untuk satu bentrokan (dipakai form & panel War Jadwal). */
+    describePlanConflict: (c) => {
+      const p = c.plan;
+      const name = c.course ? DB.courseTitle(c.course) : 'kelas lain';
+      const t = DB.getUser(p.teacherId);
+      const why = c.reasons.map(r => r === 'tutor' ? `tutor sama (${t ? t.name : '-'})`
+        : r === 'kelas-utama' ? `kelas utama sama (${c.mainClasses.join(', ')})` : 'kelas yang sama').join(' & ');
+      return `${name} ${p.time || ''}${p.endTime ? '–' + p.endTime : ''} — ${why}`;
+    },
+    /** Semua pasangan sesi yang bentrok dalam rentang tanggal (opsional dibatasi daftar kelas). */
+    planClashesInRange: (fromYmd, toYmd, courseIds) => {
+      const allow = courseIds ? new Set(courseIds) : null;
+      const plans = DB.getClassPlansInRange(fromYmd, toYmd).filter(p => p.status !== 'cancelled');
+      const out = [];
+      const seen = new Set();
+      plans.forEach(p => {
+        DB.planConflicts(p, { plans }).forEach(c => {
+          if (allow && !allow.has(p.courseId) && !allow.has(c.plan.courseId)) return;
+          const key = [p.id, c.plan.id].sort().join('|');
+          if (seen.has(key)) return;
+          seen.add(key);
+          out.push({ a: p, b: c.plan, conflict: c });
+        });
+      });
+      return out.sort((x, y) => (x.a.date + (x.a.time || '')).localeCompare(y.a.date + (y.a.time || '')));
+    },
+    /**
+     * Bentrok jadwal rutin kelas (hari & jam bawaan) terhadap kelas lain yang
+     * berbagi kelas utama atau tutor. Dipakai sebagai peringatan di form kelas.
+     */
+    courseScheduleConflicts: (draft, ignoreId) => {
+      const sc = (draft && draft.schedule) || {};
+      const a = DB.timeToMinutes(sc.time);
+      if (a == null || !(sc.days || []).length) return [];
+      let b = DB.timeToMinutes(sc.endTime);
+      if (b == null || b <= a) b = a + DB.PLAN_DEFAULT_MINUTES;
+      const tutors = new Set(DB.courseTeacherIds(draft));
+      return getAll(KEYS.courses).filter(c => c.id !== ignoreId && c.active !== false).map(c => {
+        const s2 = c.schedule || {};
+        const days = (s2.days || []).filter(d => (sc.days || []).includes(d));
+        const x = DB.timeToMinutes(s2.time);
+        if (!days.length || x == null) return null;
+        let y = DB.timeToMinutes(s2.endTime);
+        if (y == null || y <= x) y = x + DB.PLAN_DEFAULT_MINUTES;
+        if (!(a < y && x < b)) return null;
+        const shared = DB.sharedMainClasses(draft, c);
+        const sameTutor = DB.courseTeacherIds(c).filter(id => tutors.has(id));
+        if (!shared.length && !sameTutor.length) return null;
+        return { course: c, days, mainClasses: shared, tutors: sameTutor };
+      }).filter(Boolean);
+    },
 
     /**
      * Tutor yang bertugas mengajar kelas ini pada tanggal tertentu.
@@ -1463,23 +1704,77 @@
       if (rec && keys.length) DB.logActivity('user.update', `Memperbarui akun "${rec.name}" (${keys.join(', ')})`, id);
       return rec;
     },
-    deleteUser: (id) => {
+    /**
+     * Ringkasan data milik seorang tutor/admin sebelum akunnya dihapus.
+     * @returns {{materials, modules, recordings, assignments, cbts, questions, courses, futurePlans, total}}
+     */
+    ownedContentSummary: (id) => {
+      const by = (key) => getAll(key).filter(x => x.createdBy === id).length;
+      const today = ymdOf(new Date());
+      const out = {
+        materials: by(KEYS.materials), modules: by(KEYS.modules), recordings: by(KEYS.recordings),
+        assignments: by(KEYS.assignments), cbts: by(KEYS.cbts),
+        questions: getAll(KEYS.questions).filter(q => q.authorId === id).length,
+        courses: getAll(KEYS.courses).filter(c => DB.courseTeacherIds(c).includes(id)).length,
+        futurePlans: getAll(KEYS.classPlans).filter(p => p.teacherId === id && p.date >= today).length
+      };
+      out.total = out.materials + out.modules + out.recordings + out.assignments + out.cbts + out.questions;
+      return out;
+    },
+    /**
+     * Hapus akun. Untuk tutor/admin, seluruh konten buatannya TIDAK ikut
+     * terhapus: kepemilikan dialihkan ke `opts.reassignTo` (id tutor baru atau
+     * DB.ADMIN_OWNER, bawaan Admin). Kelas tidak pernah dihapus otomatis —
+     * kelas tanpa tutor tetap ada (dikelola admin) beserta seluruh isinya.
+     */
+    deleteUser: (id, opts) => {
       const victim = findById(KEYS.users, id);
       if (victim) DB.logActivity('user.delete', `Menghapus akun ${victim.role} "${victim.name}"`, id);
       const user = findById(KEYS.users, id);
-      if (user && user.role === 'guru') {
-        // Lepas guru dari kelas; kelas hanya dihapus bila tak ada tutor lain
-        getAll(KEYS.courses).forEach(c => {
-          const ids = DB.courseTeacherIds(c);
-          if (!ids.includes(id)) return;
-          const rest = ids.filter(x => x !== id);
-          if (rest.length === 0) DB.deleteCourse(c.id);
-          else update(KEYS.courses, c.id, { teacherIds: rest, teacherId: rest[0] });
+      if (user && (user.role === 'guru' || user.role === 'admin')) {
+        const target = opts && opts.reassignTo && opts.reassignTo !== id ? opts.reassignTo : ADMIN_OWNER;
+        const heir = target === ADMIN_OWNER ? null : findById(KEYS.users, target);
+        const ownerId = heir && heir.role === 'guru' ? heir.id : ADMIN_OWNER;
+        const now = Date.now();
+        [KEYS.materials, KEYS.modules, KEYS.recordings, KEYS.assignments, KEYS.cbts].forEach(key => {
+          const list = getAll(key);
+          let changed = false;
+          list.forEach(x => {
+            if (x.createdBy === id) { x.createdBy = ownerId; x.ownerChangedAt = now; x.ownerChangedFrom = id; changed = true; }
+          });
+          if (changed) setAll(key, list);
         });
-        setAll(KEYS.classPlans, getAll(KEYS.classPlans).filter(pl => pl.teacherId !== id));
-        setAll(KEYS.salaries, getAll(KEYS.salaries).filter(s => s.teacherId !== id));
-        setAll(KEYS.attendance, getAll(KEYS.attendance).filter(a => a.userId !== id));
-        setAll(KEYS.questions, getAll(KEYS.questions).filter(q => q.authorId !== id));
+        const qs = getAll(KEYS.questions);
+        if (qs.some(q => q.authorId === id)) setAll(KEYS.questions, qs.map(q => q.authorId === id ? Object.assign({}, q, { authorId: ownerId }) : q));
+        if (user.role === 'guru') {
+          // Lepas tutor dari kelas; tutor pengganti (bila dipilih) mengambil posisinya.
+          getAll(KEYS.courses).forEach(c => {
+            const ids = DB.courseTeacherIds(c);
+            if (!ids.includes(id)) return;
+            let next = ids.map(x => (x === id && heir && heir.role === 'guru' ? heir.id : x)).filter(x => x !== id);
+            next = [...new Set(next)];
+            const patch = { teacherIds: next, teacherId: next[0] || null };
+            if (user.name && c.title && c.title.includes(user.name)) {
+              // Ganti hanya nama tutor di judul (format judul buatan admin dipertahankan).
+              const heirIn = heir && heir.role === 'guru' && heir.name && !c.title.includes(heir.name);
+              let t = heirIn ? c.title.split(user.name).join(heir.name) : c.title.split(user.name).join('');
+              if (!heirIn) {
+                t = t.replace(/\s*&\s*&\s*/g, ' & ')
+                  .replace(/([—•,\-–])\s*&\s*/g, '$1 ')
+                  .replace(/\s*&\s*(?=$|\s*[—•,\-–])/g, '')
+                  .replace(/[\s—•,&\-–]+$/, '').replace(/^[\s—•,&\-–]+/, '').replace(/\s{2,}/g, ' ').trim();
+              }
+              patch.title = t;               // kosong → judul otomatis (DB.courseTitle)
+            }
+            update(KEYS.courses, c.id, patch);
+          });
+          // Sesi mendatang pindah ke tutor pengganti; riwayat sesi lampau tetap tersimpan.
+          const today = ymdOf(new Date());
+          setAll(KEYS.classPlans, getAll(KEYS.classPlans).map(pl => (pl.teacherId === id && pl.date >= today)
+            ? Object.assign({}, pl, { teacherId: heir && heir.role === 'guru' ? heir.id : null, updatedAt: now }) : pl));
+          setAll(KEYS.salaries, getAll(KEYS.salaries).filter(s => s.teacherId !== id));
+          setAll(KEYS.attendance, getAll(KEYS.attendance).filter(a => a.userId !== id));
+        }
       }
       if (user && user.role === 'siswa') {
         setAll(KEYS.enrollments, getAll(KEYS.enrollments).filter(e => e.studentId !== id));
@@ -1761,10 +2056,11 @@
     /** Nama tutor penanggung jawab; jatuh ke tutor pertama kelas bila kosong. */
     contentOwnerName: (rec, course) => {
       const id = rec && rec.createdBy;
+      if (id === ADMIN_OWNER) return 'Admin Rubela';
       if (id) {
         const u = findById(KEYS.users, id);
         if (u) return u.name;
-        return 'Tutor tidak ditemukan';
+        return 'Pembuat lama (akun dihapus)';
       }
       if (course) {
         const first = DB.courseTeachers(course)[0];
@@ -1777,7 +2073,7 @@
     contentCreditLabel: (rec, course) => {
       const name = DB.contentOwnerName(rec, course);
       if (!name) return '';
-      if (rec && rec.enteredBy && rec.enteredBy !== rec.createdBy) {
+      if (rec && rec.enteredBy && rec.enteredBy !== rec.createdBy && rec.createdBy !== ADMIN_OWNER) {
         const by = findById(KEYS.users, rec.enteredBy);
         if (by && by.role === 'admin') return name + ' (dicatat admin)';
         if (by) return name + ' (dicatat ' + by.name + ')';
@@ -1796,8 +2092,39 @@
       if (user.role === 'admin') return true;
       if (user.role !== 'guru') return false;
       const owner = rec && rec.createdBy;
-      if (!owner) return course ? DB.courseTeacherIds(course).includes(user.id) : true;
+      if (owner === ADMIN_OWNER) return false;          // konten milik admin hanya diubah admin
+      // Belum tercatat, atau akun pembuatnya sudah dihapus: tutor kelas itu boleh mengelola
+      if (!owner || !findById(KEYS.users, owner)) return course ? DB.courseTeacherIds(course).includes(user.id) : true;
       return owner === user.id;
+    },
+    /** Pembuat tercatat tetapi akunnya sudah tidak ada. */
+    isOrphanContent: (rec) => !!(rec && rec.createdBy && rec.createdBy !== ADMIN_OWNER && !findById(KEYS.users, rec.createdBy)),
+    /** Pilihan pembuat konten: Admin + seluruh tutor aktif. */
+    ownerCandidates: () => [{ id: ADMIN_OWNER, name: 'Admin Rubela', role: 'admin' }].concat(
+      getAll(KEYS.users).filter(u => u.role === 'guru' && (u.status || 'Aktif') !== 'Nonaktif')
+        .sort((a, b) => String(a.name).localeCompare(String(b.name)))),
+    /**
+     * Ganti pembuat (penanggung jawab) beberapa konten sekaligus — khusus admin.
+     * @param {Array<{kind,id}>} items  kind: material|module|recording|assignment|cbt|question
+     * @param {string} ownerId          id tutor atau DB.ADMIN_OWNER
+     */
+    reassignContentOwner: (items, ownerId, actor) => {
+      if (!actor || actor.role !== 'admin') throw new Error('Hanya admin yang dapat mengganti pembuat konten.');
+      const owner = ownerId === ADMIN_OWNER ? null : findById(KEYS.users, ownerId);
+      if (ownerId !== ADMIN_OWNER && (!owner || owner.role !== 'guru')) throw new Error('Pilih Admin atau tutor yang terdaftar.');
+      let n = 0;
+      (items || []).forEach(it => {
+        if (it.kind === 'question') {
+          if (findById(KEYS.questions, it.id)) { update(KEYS.questions, it.id, { authorId: ownerId, updatedAt: Date.now() }); n++; }
+          return;
+        }
+        const key = DB.CONTENT_STORE[it.kind];
+        if (!key || it.kind === 'course' || !findById(key, it.id)) return;
+        update(key, it.id, { createdBy: ownerId, ownerChangedAt: Date.now(), ownerChangedBy: actor.id });
+        n++;
+      });
+      DB.logActivity('content.owner', `Mengganti pembuat ${n} konten menjadi ${owner ? owner.name : 'Admin'}`, ownerId);
+      return n;
     },
 
     /** Stempel pembuat untuk payload baru. */
@@ -1925,9 +2252,11 @@
       if (!student) return [];
       const tried = new Set(getAll(KEYS.cbtAttempts).filter(a => a.studentId === studentId).map(a => a.cbtId));
       // Ujian nonaktif tidak tampil & tidak dapat dikerjakan; hasil yang sudah ada tetap terlihat.
+      const staged = DB.studentStagedBatch(studentId);
       return getAll(KEYS.cbts).filter(c => DB.cbtTargetsStudent(c, student)).filter(c => {
         if (tried.has(c.id)) return true;
         if (c.active === false) return false;
+        if (staged && !DB.contentOpenForBatch(c, staged)) return false;
         const course = c.courseId ? findById(KEYS.courses, c.courseId) : null;
         return !course || !DB.isEnrolled(course.id, studentId) || DB.contentVisibleToStudent(c, course, studentId);
       });
@@ -2201,9 +2530,10 @@
      */
     ATT_STATUSES, ATT_KEYS,
     attStatusMeta: (key) => ATT_STATUSES.find(s => s.key === key) || { key, label: key || '-', short: '?', ic: '•', present: false, excused: false },
+    /** Tanggal dianggap batal bila ada rencana dan SEMUA sesinya hari itu dibatalkan. */
     isCancelledSession: (courseId, ymd) => {
-      const pl = getAll(KEYS.classPlans).find(p => p.courseId === courseId && p.date === ymd);
-      return !!(pl && pl.status === 'cancelled');
+      const list = getAll(KEYS.classPlans).filter(p => p.courseId === courseId && p.date === ymd);
+      return list.length > 0 && list.every(p => p.status === 'cancelled');
     },
     /**
      * Ringkasan kehadiran dari kumpulan record presensi.
@@ -2214,8 +2544,14 @@
       const settings = DB.getSettings();
       const excludeExcused = settings.attendanceExcusedPolicy === 'exclude';
       // Indeks sesi batal dibangun SEKALI, bukan dibaca ulang per record.
-      const cancelledSet = new Set(getAll(KEYS.classPlans)
-        .filter(p => p.status === 'cancelled').map(p => p.courseId + '|' + p.date));
+      // Satu tanggal bisa berisi beberapa sesi: batal hanya bila semua sesinya batal.
+      const activeSet = new Set();
+      const cancelledAll = new Set();
+      getAll(KEYS.classPlans).forEach(p => {
+        const k = p.courseId + '|' + p.date;
+        if (p.status === 'cancelled') cancelledAll.add(k); else activeSet.add(k);
+      });
+      const cancelledSet = new Set([...cancelledAll].filter(k => !activeSet.has(k)));
       const counts = {};
       ATT_KEYS.forEach(k => { counts[k] = 0; });
       let cancelled = 0;
@@ -2365,6 +2701,7 @@
       b.createdAt = Date.now();
       list.push(b);
       localStorage.setItem('lms_batches', JSON.stringify(list));
+      batchMemo = { sid: null, at: 0, batch: null };
       return b;
     },
     updateBatch: (id, patch) => {
@@ -2373,11 +2710,227 @@
       if (idx === -1) return null;
       list[idx] = Object.assign({}, list[idx], patch);
       localStorage.setItem('lms_batches', JSON.stringify(list));
+      batchMemo = { sid: null, at: 0, batch: null };
       return list[idx];
     },
     deleteBatch: (id) => {
       const list = JSON.parse(localStorage.getItem('lms_batches') || '[]').filter(b => b.id !== id);
       localStorage.setItem('lms_batches', JSON.stringify(list));
+      batchMemo = { sid: null, at: 0, batch: null };
+    },
+
+    /* ===== Rilis konten per angkatan =====
+     * Angkatan (batch) dengan releaseMode 'staged': konten yang dibuat SEBELUM
+     * tanggal batas angkatan (archiveBefore, bawaan tanggal mulai) dianggap
+     * arsip angkatan lama dan TIDAK langsung terlihat oleh mentee angkatan ini.
+     * Admin/tutor merilisnya satu per satu atau sekaligus (bisa terjadwal):
+     *   rec.releases[batchId] = { at: waktuBuka, by: userId }
+     * Konten yang dibuat setelah tanggal batas langsung terlihat seperti biasa.
+     * Angkatan lama tanpa releaseMode tidak terpengaruh (semua konten terlihat). */
+    isStagedBatch: (b) => !!(b && b.releaseMode === 'staged'),
+    batchCutoff: (b) => {
+      const ymd = String((b && (b.archiveBefore || b.startDate)) || '');
+      const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(ymd);
+      return m ? new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3])).getTime() : 0;
+    },
+    /** Angkatan yang masih berjalan (belum berakhir), urut terbaru. */
+    activeBatches: () => {
+      const today = ymdOf(new Date());
+      return DB.getBatches().filter(b => !b.endDate || b.endDate >= today)
+        .sort((a, b) => String(b.startDate || '').localeCompare(String(a.startDate || '')));
+    },
+    /** Angkatan bertahap milik seorang mentee (null bila tidak ada). */
+    studentStagedBatch: (studentId) => {
+      const now = Date.now();
+      if (batchMemo.sid === studentId && now - batchMemo.at < 1500) return batchMemo.batch;
+      const st = findById(KEYS.users, studentId);
+      const b = st && st.role === 'siswa' && st.batchId ? DB.getBatch(st.batchId) : null;
+      batchMemo = { sid: studentId, at: now, batch: DB.isStagedBatch(b) ? b : null };
+      return batchMemo.batch;
+    },
+    /**
+     * Status konten bagi sebuah angkatan:
+     *  open      → angkatan tidak bertahap (selalu terlihat)
+     *  new       → dibuat setelah tanggal batas angkatan
+     *  released  → dirilis untuk angkatan ini
+     *  scheduled → dirilis terjadwal, belum waktunya
+     *  archive   → arsip angkatan lama, belum dirilis
+     */
+    contentBatchState: (rec, batch, nowTs) => {
+      if (!rec || !DB.isStagedBatch(batch)) return 'open';
+      const born = Number(rec.createdAt) || Number(rec.recordedAt) || 0;
+      if (born >= DB.batchCutoff(batch)) return 'new';
+      const rel = rec.releases && rec.releases[batch.id];
+      if (rel && Number(rel.at)) return Number(rel.at) <= (nowTs || Date.now()) ? 'released' : 'scheduled';
+      return 'archive';
+    },
+    contentOpenForBatch: (rec, batch) => ['open', 'new', 'released'].includes(DB.contentBatchState(rec, batch)),
+    /** Kelas (subtest) yang tercakup sebuah konten. */
+    contentCourseIds: (kind, rec) => {
+      if (!rec) return [];
+      if (kind === 'cbt') return [...new Set([rec.courseId].concat(rec.courseIds || []).filter(Boolean))];
+      return rec.courseId ? [rec.courseId] : [];
+    },
+    /** Admin, pembuat, atau tutor salah satu kelas konten tersebut boleh merilis. */
+    canReleaseContent: (actor, kind, rec) => {
+      if (!actor || !rec) return false;
+      if (actor.role === 'admin') return true;
+      if (actor.role !== 'guru') return false;
+      if (rec.createdBy === actor.id) return true;
+      return DB.contentCourseIds(kind, rec).some(cid => DB.courseTeacherIds(findById(KEYS.courses, cid)).includes(actor.id));
+    },
+    /**
+     * Rilis konten arsip untuk sebuah angkatan.
+     * @param {Array<{kind,id}>} items
+     * @param {string} batchId
+     * @param {number} [at]  waktu buka (bawaan sekarang); di masa depan = terjadwal
+     */
+    releaseContent: (items, batchId, at, actor) => {
+      const batch = DB.getBatch(batchId);
+      if (!batch) throw new Error('Angkatan tidak ditemukan.');
+      const when = Number(at) > 0 ? Number(at) : Date.now();
+      const now = Date.now();
+      const report = { released: 0, scheduled: 0, skipped: [] };
+      const opened = [];
+      (items || []).forEach(it => {
+        const key = DB.CONTENT_STORE[it.kind];
+        const rec = key && it.kind !== 'course' ? findById(key, it.id) : null;
+        if (!rec) { report.skipped.push({ id: it.id, reason: 'tidak ditemukan' }); return; }
+        if (!DB.canReleaseContent(actor, it.kind, rec)) { report.skipped.push({ id: it.id, title: rec.title, reason: 'bukan kelas Anda' }); return; }
+        const releases = Object.assign({}, rec.releases || {}, { [batchId]: { at: when, by: actor.id, setAt: now } });
+        update(key, it.id, { releases });
+        if (when <= now) { report.released++; opened.push({ kind: it.kind, rec }); } else report.scheduled++;
+      });
+      // Satu notifikasi ringkas per mentee angkatan ini untuk konten yang langsung dibuka.
+      if (opened.length) {
+        const students = getAll(KEYS.users).filter(u => u.role === 'siswa' && u.batchId === batchId && (u.status || 'Aktif') === 'Aktif');
+        const enr = getAll(KEYS.enrollments);
+        students.forEach(stu => {
+          const mine = new Set(enr.filter(e => e.studentId === stu.id).map(e => e.courseId));
+          const got = opened.filter(o => o.rec.active !== false && (o.kind === 'cbt'
+            ? DB.cbtTargetsStudent(o.rec, stu) : DB.contentCourseIds(o.kind, o.rec).some(cid => mine.has(cid))));
+          if (!got.length) return;
+          DB.addNotification({ userId: stu.id, type: 'konten', icon: '🔓', link: 'my-courses',
+            title: got.length === 1 ? `${CONTENT_KINDS[got[0].kind].label} baru dibuka` : `${got.length} konten baru dibuka`,
+            body: got.slice(0, 3).map(o => o.rec.title || CONTENT_KINDS[o.kind].label).join(', ') + (got.length > 3 ? `, dan ${got.length - 3} lainnya` : '') });
+        });
+      }
+      DB.logActivity('content.release', `Merilis ${report.released + report.scheduled} konten untuk angkatan "${batch.name}"`, batchId);
+      return report;
+    },
+    /** Tarik kembali rilis (konten arsip disembunyikan lagi untuk angkatan ini). */
+    unreleaseContent: (items, batchId, actor) => {
+      let n = 0;
+      (items || []).forEach(it => {
+        const key = DB.CONTENT_STORE[it.kind];
+        const rec = key && it.kind !== 'course' ? findById(key, it.id) : null;
+        if (!rec || !rec.releases || !rec.releases[batchId] || !DB.canReleaseContent(actor, it.kind, rec)) return;
+        const releases = Object.assign({}, rec.releases);
+        delete releases[batchId];
+        update(key, it.id, { releases });
+        n++;
+      });
+      DB.logActivity('content.unrelease', `Menarik rilis ${n} konten`, batchId);
+      return n;
+    },
+
+    /* ===== Transfer konten: salin / pindahkan ke kelas lain =====
+     * Salinan mendapat id & tanggal dibuat baru (langsung terlihat oleh kelas
+     * tujuan), pengumpulan/hasil ujian TIDAK ikut tersalin. Memindahkan tugas
+     * yang sudah dikumpulkan atau ujian yang sudah dikerjakan ditolak agar
+     * nilai mentee tidak tercampur — gunakan salin. */
+    transferContent: (o, actor) => {
+      const opt = o || {};
+      if (!actor || (actor.role !== 'admin' && actor.role !== 'guru')) throw new Error('Hanya admin/tutor yang dapat mentransfer konten.');
+      const mode = opt.mode === 'move' ? 'move' : 'copy';
+      const targets = [...new Set(opt.targetCourseIds || [])].map(id => findById(KEYS.courses, id)).filter(Boolean);
+      if (!targets.length) throw new Error('Pilih minimal satu kelas tujuan.');
+      if (mode === 'move' && targets.length !== 1) throw new Error('Memindahkan hanya ke satu kelas tujuan.');
+      if (actor.role === 'guru') {
+        const bad = targets.find(t => !DB.courseTeacherIds(t).includes(actor.id));
+        if (bad) throw new Error(`Anda bukan tutor kelas tujuan "${DB.courseTitle(bad)}".`);
+      }
+      const now = Date.now();
+      const report = { copied: 0, moved: 0, skipped: [], created: [], shifted: 0 };
+      const ownerFor = (rec, target) => {
+        if (actor.role === 'guru') return actor.id;
+        const tutors = DB.courseTeacherIds(target);
+        if (opt.owner && opt.owner !== 'keep' && opt.owner !== 'target') return opt.owner;
+        if (opt.owner === 'target') return tutors[0] || ADMIN_OWNER;
+        const cur = rec.createdBy;
+        if (cur === ADMIN_OWNER) return cur;
+        if (cur && tutors.includes(cur) && findById(KEYS.users, cur)) return cur;
+        return tutors[0] || ADMIN_OWNER;
+      };
+      const notify = new Map();          // courseId → judul konten yang dibuka untuk mentee
+      (opt.items || []).forEach(it => {
+        const key = DB.CONTENT_STORE[it.kind];
+        const rec = key && it.kind !== 'course' ? findById(key, it.id) : null;
+        if (!rec) { report.skipped.push({ title: it.id, reason: 'tidak ditemukan' }); return; }
+        const title = rec.title || CONTENT_KINDS[it.kind].label;
+        const srcCourse = rec.courseId ? findById(KEYS.courses, rec.courseId) : null;
+        const allowed = actor.role === 'admin' || DB.canManageContent(actor, rec, srcCourse) || DB.canReleaseContent(actor, it.kind, rec);
+        if (!allowed) { report.skipped.push({ title, reason: 'Anda tidak berhak mengelola konten ini' }); return; }
+        if (mode === 'move') {
+          const t = targets[0];
+          if (DB.contentCourseIds(it.kind, rec).includes(t.id) && it.kind !== 'cbt') { report.skipped.push({ title, reason: 'sudah berada di kelas tujuan' }); return; }
+          if (it.kind === 'assignment' && getAll(KEYS.submissions).some(x => x.assignmentId === rec.id)) { report.skipped.push({ title, reason: 'sudah ada pengumpulan mentee — gunakan Salin' }); return; }
+          if (it.kind === 'cbt' && getAll(KEYS.cbtAttempts).some(x => x.cbtId === rec.id)) { report.skipped.push({ title, reason: 'sudah dikerjakan mentee — gunakan Salin' }); return; }
+          const patch = { courseId: t.id, createdBy: ownerFor(rec, t), movedFrom: { courseId: rec.courseId || null, at: now, by: actor.id }, updatedAt: now, updatedBy: actor.id };
+          if (it.kind === 'cbt') {
+            const srcIds = DB.contentCourseIds('cbt', rec).filter(id => id !== rec.courseId);
+            patch.courseIds = [...new Set([t.id].concat(srcIds))];
+          }
+          update(key, rec.id, patch);
+          report.moved++;
+          report.created.push({ kind: it.kind, id: rec.id, courseId: t.id });
+          return;
+        }
+        targets.forEach(t => {
+          const copy = JSON.parse(JSON.stringify(rec));
+          ['id', 'releases', 'reactivatedAt', 'activeChangedAt', 'activeChangedBy', 'updatedBy', 'movedFrom', 'ownerChangedAt', 'ownerChangedBy', 'ownerChangedFrom'].forEach(k => delete copy[k]);
+          Object.assign(copy, {
+            courseId: t.id, createdAt: now, updatedAt: now, createdBy: ownerFor(rec, t), enteredBy: actor.id,
+            copiedFrom: { id: rec.id, courseId: rec.courseId || null, at: now, by: actor.id },
+            active: opt.inactive ? false : rec.active !== false
+          });
+          if (it.kind === 'recording' && !copy.recordedAt) copy.recordedAt = now;
+          if (it.kind === 'assignment') {
+            const due = Number(opt.dueAt) || 0;
+            if (due) copy.dueDate = due;
+            else if (!(Number(rec.dueDate) > now)) { copy.dueDate = now + 7 * 86400000; report.shifted++; }
+          }
+          if (it.kind === 'cbt') {
+            copy.courseIds = [t.id];
+            copy.targetClasses = (rec.targetClasses || []).includes(ALL_CLASSES) ? [ALL_CLASSES] : [];
+            const dur = Number(rec.endAt) && Number(rec.startAt) ? Number(rec.endAt) - Number(rec.startAt) : 0;
+            const start = Number(opt.startAt) || 0;
+            if (start) { copy.startAt = start; if (dur > 0) copy.endAt = start + dur; }
+            else if (Number(rec.endAt) && Number(rec.endAt) < now) {
+              const d = new Date(Number(rec.startAt) || now);
+              const next = new Date(); next.setDate(next.getDate() + 1); next.setHours(d.getHours(), d.getMinutes(), 0, 0);
+              copy.startAt = next.getTime(); copy.endAt = next.getTime() + (dur > 0 ? dur : 2 * 3600000);
+              report.shifted++;
+            }
+          }
+          const saved = add(key, copy);
+          report.copied++;
+          report.created.push({ kind: it.kind, id: saved.id, courseId: t.id });
+          if (saved.active !== false && (it.kind === 'assignment' || it.kind === 'cbt' || it.kind === 'material' || it.kind === 'module')) {
+            if (!notify.has(t.id)) notify.set(t.id, []);
+            notify.get(t.id).push(saved.title || CONTENT_KINDS[it.kind].label);
+          }
+        });
+      });
+      notify.forEach((titles, cid) => {
+        const c = findById(KEYS.courses, cid);
+        DB.notifyUsers(getAll(KEYS.enrollments).filter(e => e.courseId === cid).map(e => e.studentId), {
+          type: 'konten', icon: '📥', link: 'my-courses',
+          title: titles.length === 1 ? 'Konten baru di kelasmu' : `${titles.length} konten baru di kelasmu`,
+          body: `${titles.slice(0, 3).join(', ')}${titles.length > 3 ? ', …' : ''} — ${c ? DB.courseTitle(c) : ''}` });
+      });
+      DB.logActivity('content.transfer', `${mode === 'move' ? 'Memindahkan' : 'Menyalin'} ${report.copied + report.moved} konten ke ${targets.map(t => DB.courseTitle(t)).join(', ')}`, targets.map(t => t.id).join(','));
+      return report;
     },
 
     /* ===== Calendar Events ===== */
@@ -2642,6 +3195,9 @@
      */
     contentVisibleToStudent: (rec, course, studentId) => {
       if (!rec || rec.active === false) return false;
+      // Rilis bertahap per angkatan: arsip angkatan lama tersembunyi sampai dirilis.
+      const stagedBatch = studentId ? DB.studentStagedBatch(studentId) : null;
+      if (stagedBatch && !DB.contentOpenForBatch(rec, stagedBatch)) return false;
       if (course) {
         if (course.active === false) return false;
         if (course.newStudentPolicy === 'fromJoin') {

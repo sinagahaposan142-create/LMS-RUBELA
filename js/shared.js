@@ -1319,8 +1319,9 @@
       courses.forEach(c => {
         const key = c.subtest || c.category || 'Lainnya';
         if (!contentBySubtest[key]) contentBySubtest[key] = [];
-        DB.getMaterialsByCourse(c.id).forEach(m => contentBySubtest[key].push({ kind: 'Materi', title: m.title }));
-        DB.getModulesByCourse(c.id).forEach(m => contentBySubtest[key].push({ kind: 'Modul', title: m.title }));
+        // Hanya konten yang memang terlihat siswa (aktif, sudah dirilis untuk angkatannya)
+        DB.studentContent('material', user.id, c.id).forEach(m => contentBySubtest[key].push({ kind: 'Materi', title: m.title }));
+        DB.studentContent('module', user.id, c.id).forEach(m => contentBySubtest[key].push({ kind: 'Modul', title: m.title }));
       });
 
       const priorityOf = (avg) => (avg < 55 ? 'Tinggi' : (avg < 75 ? 'Sedang' : 'Rendah'));

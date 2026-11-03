@@ -24,7 +24,7 @@
     if (section === 'absensi') return renderAbsensiSection(container, user);
     if (section === 'leaderboard') return Shared.renderLeaderboard(container, user);
     if (section === 'ai-tools') return Shared.renderAiTools(container, user);
-    if (section === 'jadwal-siswa') return Jadwal.renderPlanTable(container, user);
+    if (section === 'jadwal-siswa') return Jadwal.renderStudentSchedule(container, user);
     if (section === 'kalender') return Shared.renderCalendar(container, user);
     if (section === 'pengumuman') return Shared.renderAnnouncements(container, user);
     if (section === 'chat') return Shared.renderChat(container, user);
@@ -658,7 +658,8 @@
    * Exam.gradeQuestion agar penilaian otomatis konsisten dengan CBT:
    *   Pilihan Ganda / Benar-Salah -> Number (indeks)
    *   Pilihan Lebih dari Satu     -> Array<Number>
-   *   Majemuk Kompleks            -> Array<Boolean> (indeks = pernyataan)
+   *   Benar/Salah Majemuk         -> Array<Boolean> (indeks = pernyataan)
+   *   Majemuk Kompleks            -> Array<Number>  (indeks kolom per pernyataan)
    *   Menjodohkan                 -> Array<String>  (indeks = pasangan)
    *   Urutan                      -> Array<String>  (teks asli item)
    *   Isian Singkat / Esai        -> String
@@ -688,6 +689,16 @@
                      placeholder="Tulis jawaban singkat" />`;
     }
     if (fmt === 'Majemuk Kompleks') {
+      const cols = DB.qMatrixColumns(q);
+      const cur = DB.qMatrixAnswer(q, val);
+      return `<div class="table-wrap"><table class="table asg-matrix"><thead><tr><th>Pernyataan</th>${cols.map(c => `<th class="ct">${UI.esc(c)}</th>`).join('')}</tr></thead><tbody>
+        ${(q.statements || []).map((st, si) => `<tr>
+            <td class="rt-content">${RichText.render(st.text || '')}</td>
+            ${cols.map((c, ci) => `<td class="ct"><input type="radio" name="mtx_${UI.esc(q.id)}_${si}" data-mtx="${UI.esc(q.id)}" data-si="${si}" value="${ci}" aria-label="${UI.esc(c)}" ${cur[si] === ci ? 'checked' : ''} /></td>`).join('')}
+          </tr>`).join('')}
+      </tbody></table></div>`;
+    }
+    if (fmt === 'Benar/Salah Majemuk') {
       return `<div class="table-wrap"><table class="table"><thead><tr><th>Pernyataan</th><th>Benar</th><th>Salah</th></tr></thead><tbody>
         ${(q.statements || []).map((st, si) => {
           const cur = (Array.isArray(val) && val[si] != null) ? String(val[si]) : '';
@@ -753,6 +764,12 @@
       const qid = r.dataset.cplx;
       if (!Array.isArray(answers[qid])) answers[qid] = [];
       answers[qid][Number(r.dataset.si)] = r.value === 'true';
+    }));
+    // Majemuk Kompleks (kolom kustom): simpan indeks kolom sebagai ANGKA
+    box.querySelectorAll('[data-mtx]').forEach(r => r.addEventListener('change', () => {
+      const qid = r.dataset.mtx;
+      if (!Array.isArray(answers[qid])) answers[qid] = [];
+      answers[qid][Number(r.dataset.si)] = Number(r.value);
     }));
     box.querySelectorAll('[data-match]').forEach(sel => sel.addEventListener('change', () => {
       const qid = sel.dataset.match;

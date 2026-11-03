@@ -17,7 +17,9 @@
  */
 (function (global) {
 
-  const COLS = ['Subtest', 'Format', 'Tingkat', 'Pertanyaan', 'A', 'B', 'C', 'D', 'E', 'Kunci', 'Pembahasan'];
+  /* Kolom F–H dipakai bila soal Majemuk berisi lebih dari 5 pernyataan.
+   * "Kolom" = nama kolom jawaban Majemuk Kompleks, dipisah | (mis. Benar | Salah | Tidak diketahui). */
+  const COLS = ['Subtest', 'Format', 'Tingkat', 'Pertanyaan', 'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'Kolom', 'Kunci', 'Pembahasan'];
   const LETTERS = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H'];
 
   function esc(s) { return UI.esc(s); }
@@ -43,6 +45,8 @@
     const hit = all.find(f => f.toLowerCase() === v);
     if (hit) return hit;
     if (/ganda\s*kompleks|lebih dari satu|multi/.test(v)) return 'Pilihan Lebih dari Satu';
+    if (/(benar.{0,3}salah|b\/s).*(majemuk|ganda|banyak)|majemuk.*(benar|b\/s)/.test(v)) return 'Benar/Salah Majemuk';
+    if (/majemuk|matriks|matrix|tabel/.test(v)) return 'Majemuk Kompleks';
     if (/benar|salah|b\/s/.test(v)) return 'Benar/Salah';
     if (/isian|singkat|short/.test(v)) return 'Isian Singkat';
     if (/esai|essay|uraian/.test(v)) return 'Esai';
@@ -89,6 +93,39 @@
       return { question: base };
     }
 
+    if (format === 'Benar/Salah Majemuk' || format === 'Majemuk Kompleks') {
+      const stmts = LETTERS.map(L => String(row[L] == null ? '' : row[L]).trim()).filter(Boolean);
+      if (stmts.length < 2) return { error: 'Majemuk membutuhkan minimal 2 pernyataan (kolom A, B, …)' };
+      const keys = splitKeys(keyRaw);
+      if (keys.length !== stmts.length) return { error: `Kunci harus berisi ${stmts.length} jawaban (satu per pernyataan), dipisah titik koma` };
+      if (format === 'Benar/Salah Majemuk') {
+        const vals = keys.map(k => /^(b|benar|true|1|ya)$/i.test(k) ? true : (/^(s|salah|false|0|tidak)$/i.test(k) ? false : null));
+        if (vals.some(v => v == null)) return { error: 'Kunci Benar/Salah Majemuk hanya boleh "Benar" atau "Salah", mis. "Benar; Salah; Benar"' };
+        base.statements = stmts.map((t, i) => ({ text: wrapParagraph(t), value: vals[i] }));
+        base.correctIndex = null;
+        return { question: base };
+      }
+      const colRaw = String(row.Kolom == null ? '' : row.Kolom).trim();
+      const cols = colRaw ? colRaw.split(/\s*[|;]\s*/).map(x => x.trim()).filter(Boolean) : DB.MATRIX_DEFAULT_COLS.slice();
+      if (cols.length < 2) return { error: 'Kolom jawaban minimal 2, dipisah tanda | (mis. "Benar | Salah | Tidak diketahui")' };
+      if (cols.length > DB.MATRIX_MAX_COLS) return { error: `Kolom jawaban maksimal ${DB.MATRIX_MAX_COLS}` };
+      if (new Set(cols.map(c => c.toLowerCase())).size !== cols.length) return { error: 'Nama kolom jawaban tidak boleh sama' };
+      const idx = keys.map(k => {
+        const byName = cols.findIndex(c => c.toLowerCase() === k.toLowerCase());
+        if (byName >= 0) return byName;
+        if (/^b$/i.test(k) && cols[0].toLowerCase() === 'benar') return 0;
+        if (/^s$/i.test(k) && cols[1].toLowerCase() === 'salah') return 1;
+        const n = Number(k);
+        return Number.isInteger(n) && n >= 1 && n <= cols.length ? n - 1 : -1;
+      });
+      const bad = idx.findIndex(i => i < 0);
+      if (bad >= 0) return { error: `Kunci pernyataan ${bad + 1} ("${keys[bad]}") tidak cocok dengan nama kolom` };
+      base.columns = cols.map(c => c.replace(/[<>]/g, '').slice(0, 40));
+      base.statements = stmts.map((t, i) => ({ text: wrapParagraph(t), correct: idx[i] }));
+      base.correctIndex = null;
+      return { question: base };
+    }
+
     if (format === 'Benar/Salah') {
       base.options = ['Benar', 'Salah'];
       const k = keyRaw.toLowerCase();
@@ -126,6 +163,13 @@
     return { question: base };
   }
 
+  /** Kunci per pernyataan: "Benar; Salah; Benar" (titik koma/|), atau dipisah koma bila tanpa titik koma. */
+  function splitKeys(raw) {
+    const t = String(raw || '').trim();
+    if (!t) return [];
+    return (/[;|]/.test(t) ? t.split(/\s*[;|]\s*/) : t.split(/\s*,\s*/)).map(x => x.trim()).filter(Boolean);
+  }
+
   /** Teks datar dari Excel dibungkus paragraf agar konsisten dengan editor. */
   function wrapParagraph(t) {
     const s = String(t == null ? '' : t).trim();
@@ -142,10 +186,14 @@
     row.Format = fmt;
     row.Tingkat = q.difficulty || 'sedang';
     row.Pertanyaan = RichText.plain(q.text, 4000);
-    LETTERS.slice(0, 5).forEach((L, i) => {
-      row[L] = (q.options && q.options[i]) ? RichText.plain(q.options[i], 800) : '';
+    const isMx = fmt === 'Majemuk Kompleks' || fmt === 'Benar/Salah Majemuk';
+    const src = isMx ? (q.statements || []).map(x => x && x.text) : (q.options || []);
+    LETTERS.forEach((L, i) => {
+      row[L] = src[i] ? RichText.plain(src[i], 800) : '';
     });
-    if (fmt === 'Esai') row.Kunci = (q.keywords || []).join(', ');
+    row.Kolom = fmt === 'Majemuk Kompleks' ? DB.qMatrixColumns(q).join(' | ') : '';
+    if (isMx) row.Kunci = DB.qKeyText(q);
+    else if (fmt === 'Esai') row.Kunci = (q.keywords || []).join(', ');
     else if (fmt === 'Isian Singkat') row.Kunci = (q.answers || []).join(', ');
     else if (fmt === 'Benar/Salah') row.Kunci = q.correctIndex === 0 ? 'Benar' : 'Salah';
     else if (fmt === 'Pilihan Lebih dari Satu') row.Kunci = (q.correctIndices || []).map(i => LETTERS[i]).join(', ');
@@ -205,6 +253,14 @@
       { Subtest: 'PPU', Format: 'Benar/Salah', Tingkat: 'mudah',
         Pertanyaan: 'Jakarta adalah ibu kota Indonesia.', A: '', B: '', C: '', D: '', E: '',
         Kunci: 'Benar', Pembahasan: '' },
+      { Subtest: 'PPU', Format: 'Benar/Salah Majemuk', Tingkat: 'sedang',
+        Pertanyaan: 'Tentukan benar atau salah setiap pernyataan berikut.', A: 'Air mendidih pada 100 °C di permukaan laut.',
+        B: 'Matahari mengelilingi Bumi.', C: 'Indonesia memiliki lebih dari 17.000 pulau.', D: '', E: '',
+        Kunci: 'Benar; Salah; Benar', Pembahasan: '' },
+      { Subtest: 'PBM', Format: 'Majemuk Kompleks', Tingkat: 'sulit',
+        Pertanyaan: 'Berdasarkan teks, tentukan status setiap pernyataan.', A: 'Penulis setuju dengan kebijakan tersebut.',
+        B: 'Kebijakan berlaku mulai tahun depan.', C: 'Semua siswa menolak kebijakan.', D: '', E: '',
+        Kolom: 'Benar | Salah | Tidak dapat ditentukan', Kunci: 'Benar; Tidak dapat ditentukan; Salah', Pembahasan: '' },
       { Subtest: 'LBIND', Format: 'Esai', Tingkat: 'sulit',
         Pertanyaan: 'Jelaskan ciri kalimat efektif.', A: '', B: '', C: '', D: '', E: '',
         Kunci: 'kesatuan, kehematan, kepaduan', Pembahasan: 'Kata kunci penilaian.' }
@@ -328,6 +384,7 @@
     if (fmt === 'Isian Singkat') return (q.answers || []).join(', ');
     if (fmt === 'Benar/Salah') return q.correctIndex === 0 ? 'Benar' : 'Salah';
     if (fmt === 'Pilihan Lebih dari Satu') return (q.correctIndices || []).map(i => LETTERS[i]).join(', ');
+    if (fmt === 'Majemuk Kompleks' || fmt === 'Benar/Salah Majemuk' || fmt === 'Menjodohkan' || fmt === 'Urutan') return DB.qKeyText(q);
     return LETTERS[q.correctIndex] || '-';
   }
 
@@ -434,6 +491,8 @@
                 <option value="Pilihan Lebih dari Satu">Pilihan Lebih dari Satu</option>
                 <option value="Benar/Salah">Benar/Salah</option>
                 <option value="Isian Singkat">Isian Singkat</option>
+                <option value="Benar/Salah Majemuk">Benar/Salah Majemuk (beberapa pernyataan)</option>
+                <option value="Majemuk Kompleks">Majemuk Kompleks (kolom: Benar / Salah / Tidak dapat ditentukan)</option>
               </select>
             </div>
             <div class="form-group">
@@ -462,7 +521,11 @@
 
             genBtn.disabled = true;
             out.innerHTML = AI.loadingHtml(`AI menyusun ${n} soal…`);
-            const shape = fmt === 'Benar/Salah'
+            const shape = fmt === 'Benar/Salah Majemuk'
+              ? '{"Pertanyaan":"instruksi + konteks","A":"pernyataan 1","B":"pernyataan 2","C":"pernyataan 3","D":"pernyataan 4","Kunci":"Benar; Salah; Benar; Salah","Pembahasan":"..."} (Kunci berisi satu jawaban per pernyataan, dipisah titik koma)'
+              : fmt === 'Majemuk Kompleks'
+              ? '{"Pertanyaan":"instruksi + konteks","Kolom":"Benar | Salah | Tidak dapat ditentukan","A":"pernyataan 1","B":"pernyataan 2","C":"pernyataan 3","Kunci":"Benar; Tidak dapat ditentukan; Salah","Pembahasan":"..."} (Kunci memakai nama kolom, satu per pernyataan, dipisah titik koma)'
+              : fmt === 'Benar/Salah'
               ? '{"Pertanyaan":"...","Kunci":"Benar atau Salah","Pembahasan":"..."}'
               : (fmt === 'Isian Singkat'
                 ? '{"Pertanyaan":"...","Kunci":"jawaban singkat","Pembahasan":"..."}'

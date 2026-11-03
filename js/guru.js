@@ -25,6 +25,7 @@
 
   function render(container, section, user) {
     if (section === 'overview') return renderOverview(container, user);
+    if (section === 'pusat-konten') return ContentCenter.render(container, user);
     if (section === 'courses') {
       if (currentCourseId) return renderCourseDetail(container, user);
       return renderMyCourses(container, user);
@@ -558,9 +559,8 @@
           <td>${UI.esc(q.questionType || '-')}</td>
           <td>${answers[qid] == null || answers[qid] === ''
                 ? '<span class="muted">tidak dijawab</span>'
-                : UI.esc(RichText.plain(String(
-                    Array.isArray(answers[qid]) ? answers[qid].join(', ')
-                    : (typeof answers[qid] === 'object' ? JSON.stringify(answers[qid]) : answers[qid])), 160))}</td>
+                : UI.esc(RichText.plain(typeof answers[qid] === 'object' && !Array.isArray(answers[qid])
+                    ? JSON.stringify(answers[qid]) : DB.qAnswerText(q, answers[qid]), 200))}</td>
           <td>${g.auto ? (g.correct ? '<span class="badge badge-success">Benar</span>' : '<span class="badge badge-danger">Salah</span>')
                        : '<span class="badge badge-warning">Manual</span>'}</td>
         </tr>`;

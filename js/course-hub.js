@@ -21,7 +21,7 @@
     pdf: { ic: '📑', label: 'Dokumen PDF' }, link: { ic: '🔗', label: 'Tautan' }, quiz: { ic: '📝', label: 'Kuis' }
   };
   const QTYPE_IC = { 'Pilihan Ganda': '🔘', 'Pilihan Lebih dari Satu': '☑️', 'Benar/Salah': '⚖️', 'Isian Singkat': '✏️',
-    'Majemuk Kompleks': '🧩', 'Menjodohkan': '🔗', 'Urutan': '🔢', 'Esai': '📝' };
+    'Benar/Salah Majemuk': '✅', 'Majemuk Kompleks': '🧩', 'Menjodohkan': '🔗', 'Urutan': '🔢', 'Esai': '📝' };
   const SEQ_LABEL = { off: 'Bebas', lesson: 'Berurutan per pelajaran', section: 'Berurutan per bab' };
   const MAX_QUIZ_QUESTIONS = 60;
   const nid = (p) => p + '_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
@@ -58,7 +58,8 @@
     }
     if (t === 'Pilihan Lebih dari Satu') return `Kunci: ${(q.correctIndices || []).map(letter).join(', ') || '—'}`;
     if (t === 'Isian Singkat') return `Jawaban diterima: ${(q.answers || []).filter(a => String(a).trim()).map(a => P(a, 30)).join(' / ') || '—'}${q.numeric ? ' (dibandingkan sebagai angka)' : ''}`;
-    if (t === 'Majemuk Kompleks') return `${(q.statements || []).length} pernyataan benar/salah`;
+    if (t === 'Benar/Salah Majemuk') return `${(q.statements || []).length} pernyataan benar/salah`;
+    if (t === 'Majemuk Kompleks') return `${(q.statements || []).length} pernyataan • kolom: ${DB.qMatrixColumns(q).join(' / ')}`;
     if (t === 'Menjodohkan') return `${(q.pairs || []).length} pasangan dijodohkan`;
     if (t === 'Urutan') return `${(q.orderItems || []).length} item untuk diurutkan`;
     return 'Dinilai manual — tidak masuk skor otomatis';
@@ -80,7 +81,11 @@
     if (t === 'Pilihan Ganda' || t === 'Benar/Salah') { const k = Number(q.correctIndex); body = `${letter(k)}. ${R((q.options || [])[k])}`; }
     else if (t === 'Pilihan Lebih dari Satu') body = (q.correctIndices || []).map(i => `${letter(i)}. ${R((q.options || [])[Number(i)])}`).join('<br>');
     else if (t === 'Isian Singkat') body = (q.answers || []).filter(a => String(a).trim()).map(a => esc(a)).join(' / ');
-    else if (t === 'Majemuk Kompleks') body = (q.statements || []).map(s => `${s.value ? '✔ Benar' : '✘ Salah'} — ${R(s.text)}`).join('<br>');
+    else if (t === 'Benar/Salah Majemuk') body = (q.statements || []).map(s => `${s.value ? '✔ Benar' : '✘ Salah'} — ${R(s.text)}`).join('<br>');
+    else if (t === 'Majemuk Kompleks') {
+      const cols = DB.qMatrixColumns(q), keys = DB.qMatrixKeys(q);
+      body = (q.statements || []).map((s, i) => `<strong>${esc(keys[i] == null ? '—' : cols[keys[i]])}</strong> — ${R(s.text)}`).join('<br>');
+    }
     else if (t === 'Menjodohkan') body = (q.pairs || []).map(p => `${R(p.left)} → ${R(p.right)}`).join('<br>');
     else if (t === 'Urutan') body = `<ol>${(q.orderItems || []).map(it => `<li>${R(it)}</li>`).join('')}</ol>`;
     const exp = q.explanation && RichText.plain(q.explanation) ? `<div class="mt-1"><strong>Pembahasan:</strong> <span class="rt-content">${R(q.explanation)}</span></div>` : '';
@@ -658,7 +663,7 @@
     const q = clone(src);
     const out = { id: nid('hq'), sourceId: src.id, questionType: DB.hubQType(src) };
     ['text', 'options', 'correctIndex', 'correctIndices', 'answers', 'numeric', 'numericTolerance', 'shortAnswerPolicy',
-      'statements', 'pairs', 'orderItems', 'keywords', 'explanation', 'subject', 'difficulty'].forEach(k => { if (q[k] !== undefined && q[k] !== null) out[k] = q[k]; });
+      'statements', 'columns', 'pairs', 'orderItems', 'keywords', 'explanation', 'subject', 'difficulty'].forEach(k => { if (q[k] !== undefined && q[k] !== null) out[k] = q[k]; });
     if (out.questionType === 'Benar/Salah' && !(out.options || []).length) out.options = ['Benar', 'Salah'];
     return out;
   }

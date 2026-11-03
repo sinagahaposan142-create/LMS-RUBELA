@@ -51,7 +51,7 @@
     else if (section === 'anak-tugas') renderTugas(body, child);
     else if (section === 'anak-kelas') renderKelas(body, child);
     else if (section === 'anak-perkembangan') renderPerkembangan(body, child);
-    else if (section === 'anak-jadwal') Jadwal.renderPlanTable(body, user, { studentId: child.id, showChildName: true });
+    else if (section === 'anak-jadwal') Jadwal.renderStudentSchedule(body, user, { studentId: child.id, showChildName: true });
     else if (section === 'keuangan') renderKeuangan(body, child);
     else if (section === 'anak-streak') StreakAPI.renderPage(body, child, { readOnly: true, viewer: user });
     else if (section === 'anak-course') CourseHub.renderParent(body, child);

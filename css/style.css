@@ -3253,6 +3253,19 @@ body.exam-blurred #content {
 /* ---- Format soal: majemuk kompleks ---- */
 .ex-cplx td.ct, .ex-cplx th:not(:first-child) { text-align: center; width: 76px; }
 .ex-cplx input[type="radio"] { width: 19px; height: 19px; accent-color: var(--primary); cursor: pointer; }
+/* Majemuk Kompleks dengan kolom kustom (3+ kolom) */
+.ex-matrix th.ct { font-size: 12px; line-height: 1.25; min-width: 64px; width: auto; white-space: normal; }
+.asg-matrix td.ct, .asg-matrix th.ct { text-align: center; min-width: 60px; font-size: 12px; }
+.asg-matrix input[type="radio"] { width: 18px; height: 18px; accent-color: var(--primary); cursor: pointer; }
+/* Editor soal: daftar kolom & tabel pernyataan */
+.qe-col-list { display: flex; flex-wrap: wrap; gap: 8px; }
+.qe-col { display: flex; align-items: center; gap: 4px; padding: 4px; border: 1px solid var(--gray-200); border-radius: 10px; background: var(--surface); }
+.qe-col .qe-col-name { width: 170px; max-width: 46vw; padding: 7px 9px; border: 1px solid var(--gray-300); border-radius: 8px; font-size: 13px; background: var(--surface); color: inherit; }
+.qe-mx-table th, .qe-mx-table td { vertical-align: middle; }
+.qe-mx-table th.ct, .qe-mx-table td.ct { text-align: center; min-width: 58px; font-size: 12px; }
+.qe-mx-table .qe-mx-text { width: 100%; min-width: 180px; padding: 8px 10px; border: 1px solid var(--gray-300); border-radius: 8px; font-size: 13.5px; background: var(--surface); color: inherit; }
+.qe-mx-table input[type="radio"] { width: 18px; height: 18px; accent-color: var(--primary); cursor: pointer; }
+.qe-prev-table th.ct { text-align: center; }
 
 /* ---- Format soal: menjodohkan ---- */
 .ex-match { display: flex; flex-direction: column; gap: 9px; }
@@ -3368,6 +3381,7 @@ body.exam-blurred #content {
 .wj-legend .lg-fixed { background: var(--success); }
 .wj-legend .lg-changed { background: var(--warning); }
 .wj-legend .lg-cancel { background: var(--danger); }
+.wj-legend .lg-clash { background: transparent; border: 2px solid var(--danger); }
 
 .wj-wrap {
   overflow: auto;
@@ -3441,7 +3455,7 @@ body.exam-blurred #content {
 .wj-sheet .wj-cell .wc-time { display: block; font-size: 10px; font-weight: 700; line-height: 1.2; }
 .wj-sheet .wj-cell .wc-topic {
   display: block; font-size: 9px; line-height: 1.2; margin-top: 1px;
-  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 44px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%;
 }
 /* Tutor yang mengajar sesi itu — satu pertemuan hanya satu tutor */
 .wj-sheet .wj-cell .wc-tutor {
@@ -3451,7 +3465,7 @@ body.exam-blurred #content {
   line-height: 1.2;
   margin-top: 1px;
   opacity: 0.85;
-  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 44px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%;
 }
 .wj-sheet .wj-cell .wc-flag { display: block; font-size: 11px; font-weight: 800; }
 
@@ -3461,6 +3475,50 @@ body.exam-blurred #content {
 .wj-sheet .wj-cell.st-fixed { background: var(--success-bg); box-shadow: inset 0 -3px 0 var(--success); color: var(--success); }
 .wj-sheet .wj-cell.st-changed { background: var(--warning-bg); box-shadow: inset 0 -3px 0 var(--warning); color: var(--warning); }
 .wj-sheet .wj-cell.st-cancelled { background: var(--danger-bg); box-shadow: inset 0 -3px 0 var(--danger); color: var(--danger); }
+
+/* ---- Banyak sesi per hari: sel berisi tumpukan "chip" sesi ---- */
+.wj-sheet .wj-day { min-width: 96px; width: 96px; cursor: pointer; }
+.wj-sheet .wj-day:hover { box-shadow: inset 0 -3px 0 var(--primary); }
+.wj-sheet .wj-cell { min-width: 96px; width: 96px; height: auto; min-height: 62px; vertical-align: top; padding: 4px; text-align: left; }
+.wj-sheet .wj-cell.st-draft, .wj-sheet .wj-cell.st-fixed, .wj-sheet .wj-cell.st-changed, .wj-sheet .wj-cell.st-cancelled { background: transparent; box-shadow: none; }
+.wj-sheet .wj-cell .wc-add { display: block; text-align: center; font-size: 14px; line-height: 18px; margin-top: 2px; border-radius: 6px; }
+.wj-sheet .wj-cell .wc-add:hover { background: var(--primary-light); }
+.wj-sheet .wj-cell.is-sched .wc-add, .wj-sheet .wj-cell:not(.has-plan) .wc-add { opacity: .55; }
+.wc-chip {
+  display: block; width: 100%; margin: 0 0 3px; padding: 3px 5px; text-align: left;
+  border: 1px solid var(--gray-300); border-left-width: 4px; border-radius: 6px;
+  background: var(--surface); color: var(--gray-800); font: inherit; font-size: 10.5px; line-height: 1.25; cursor: pointer;
+}
+.wc-chip:hover { box-shadow: 0 0 0 2px var(--primary-light); }
+.wc-chip .wc-sub { display: block; font-weight: 800; font-size: 10px; color: var(--primary-dark); }
+.wc-chip .wc-time { display: block; font-weight: 800; font-size: 11px; }
+.wc-chip .wc-topic, .wc-chip .wc-tutor { display: block; font-size: 9.5px; opacity: .85; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; }
+.wc-chip { position: relative; padding-right: 14px; }
+.wc-chip .wc-flag { position: absolute; top: 2px; right: 4px; font-weight: 800; font-size: 10px; }
+.wc-chip.st-draft { border-left-color: var(--gray-400); background: var(--gray-50); }
+.wc-chip.st-fixed { border-left-color: var(--success); background: var(--success-bg); }
+.wc-chip.st-changed { border-left-color: var(--warning); background: var(--warning-bg); }
+.wc-chip.st-cancelled { border-left-color: var(--danger); background: var(--danger-bg); opacity: .7; text-decoration: line-through; }
+.wc-chip.is-clash { border-color: var(--danger); box-shadow: 0 0 0 1px var(--danger); }
+.wc-chip.is-clash .wc-flag { color: var(--danger); }
+.wj-sheet .wj-cell.has-clash { background: color-mix(in srgb, var(--danger-bg) 55%, transparent); }
+/* Baris gabungan per kelas utama & "Jadwal Saya" */
+.wj-sheet .wj-grouprow .wj-rowhead, .wj-sheet .wj-grouprow .wj-cell { background: var(--surface-alt); border-top: 2px solid var(--gray-300); }
+.wj-sheet .wj-grouprow .wj-cell.has-clash { background: color-mix(in srgb, var(--danger-bg) 70%, var(--surface-alt)); }
+.wj-sheet .wj-ghead .wr-main { font-size: 13px; }
+.wj-sheet .wj-mine .wj-rowhead, .wj-sheet .wj-mine .wj-cell { background: color-mix(in srgb, var(--primary-light) 60%, var(--surface)); }
+.wj-sheet .wj-sum { cursor: zoom-in; }
+.wj-sheet .wr-tag { font-size: 10px; font-weight: 600; color: var(--gray-500); }
+.wj-clash-card { border-color: color-mix(in srgb, var(--danger) 45%, var(--gray-200)); }
+.wj-confirm-row.is-clash { border-left: 4px solid var(--danger); }
+.wj-day-detail .wj-day-group { margin-bottom: 14px; }
+.wj-day-detail h4 { margin: 0 0 6px; }
+.table tr.row-clash td { background: var(--danger-bg); }
+/* Form rencana: hasil cek bentrok */
+.pf-clash { margin: -4px 0 12px; }
+.pf-clash .alert { margin: 0; }
+.pf-ok { color: var(--success); font-weight: 600; }
+.pf-clash-list { margin: 6px 0; padding-left: 18px; }
 
 /* Daftar "perlu validasi" */
 .wj-confirm-list { display: flex; flex-direction: column; gap: 8px; }
@@ -3506,7 +3564,7 @@ body.exam-blurred #content {
   .wj-wrap { max-height: 60dvh; }
   .wj-sheet .wj-corner, .wj-sheet .wj-rowhead { min-width: 150px; width: 150px; }
   .wj-sheet .wj-rowhead .wr-sched { display: none; }
-  .wj-sheet .wj-cell { min-width: 42px; width: 42px; height: 62px; }
+  .wj-sheet .wj-cell, .wj-sheet .wj-day { min-width: 86px; width: 86px; }
   .wj-legend { margin-left: 0; width: 100%; }
   .wj-toolbar .btn { flex: 1 1 auto; justify-content: center; }
   .plan-card { flex-direction: column; gap: 10px; }
@@ -4657,6 +4715,23 @@ body.lq-open { overflow: hidden; }
 .wb-tool.is-on { background: var(--primary-light); border-color: var(--primary); }
 .wb-tool:disabled { opacity: .35; cursor: not-allowed; }
 .wb-sep { width: 1px; height: 24px; background: var(--gray-200); margin: 0 2px; flex: 0 0 1px; }
+/* Pengaturan watermark whiteboard */
+.wm-setting { display: grid; grid-template-columns: minmax(0, 480px) minmax(0, 1fr); gap: 18px; align-items: start; }
+.wm-preview canvas { width: 100%; height: auto; border: 1px solid var(--gray-200); border-radius: 10px; background: #fff; display: block; }
+.wm-logo { display: inline-grid; place-items: center; min-width: 56px; height: 56px; padding: 4px; border: 1px dashed var(--gray-300); border-radius: 10px; background: repeating-conic-gradient(#f1f5f9 0% 25%, #fff 0% 50%) 50%/12px 12px; }
+.wm-logo img { max-height: 48px; max-width: 140px; }
+@media (max-width: 900px) { .wm-setting { grid-template-columns: 1fr; } }
+/* Halaman whiteboard */
+.wb-pages { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; padding: 8px 12px; border: 1px solid var(--gray-200); border-radius: 10px; background: var(--surface-alt); }
+.wb-pages-label { font-size: 12px; font-weight: 700; color: var(--gray-600); }
+.wb-pages-list { display: flex; flex-wrap: wrap; gap: 4px; }
+.wb-page { min-width: 30px; height: 30px; padding: 0 8px; border: 1px solid var(--gray-300); border-radius: 8px; background: var(--surface); color: var(--gray-700); font: inherit; font-size: 12.5px; font-weight: 700; cursor: pointer; }
+.wb-page:hover:not(:disabled) { border-color: var(--primary); }
+.wb-page.is-on { background: var(--primary); border-color: var(--primary); color: #fff; }
+.wb-page:disabled { cursor: default; }
+.wb-page-name { font-size: 12.5px; font-weight: 600; color: var(--gray-800); }
+.wb-pages-act { display: flex; flex-wrap: wrap; gap: 4px; margin-left: auto; }
+.wb-pro.is-min .wb-pages { display: none; }
 .wb-swatch { width: 34px; height: 34px; flex: 0 0 34px; border-radius: 8px; overflow: hidden; border: 1px solid var(--gray-300); cursor: pointer; display: grid; place-items: center; }
 .wb-swatch input { width: 44px; height: 44px; border: none; padding: 0; cursor: pointer; background: none; }
 .wb-sheet { position: absolute; z-index: 4; right: 8px; top: 8px; bottom: 8px; width: min(340px, calc(100% - 16px)); overflow-y: auto;
@@ -5354,3 +5429,58 @@ body.exam-mode .mp { display: none; }
   .lk-svg *, .sk-flame, .tc-capsule, .tc-env-seal, .mp-eq b, .mp-prompt { animation: none !important; }
 }
 body.has-mp .content { padding-bottom: 96px; }
+
+/* ===== Pusat Konten (rilis bertahap, transfer, pembuat) ===== */
+.cc-filters { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 10px 12px; align-items: end; }
+.cc-filters .form-group { margin-bottom: 0; }
+.cc-filters .cc-search { grid-column: span 2; }
+.cc-bulk { position: sticky; top: calc(var(--topbar-h) + 4px); z-index: 5; display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px;
+  margin: 14px 0 10px; padding: 10px 12px; border: 1px solid var(--gray-200); border-radius: 12px; background: var(--surface-alt); box-shadow: 0 4px 14px rgba(15, 23, 42, .05); }
+.cc-bulk .check-row { margin: 0; }
+.cc-count { font-size: 13px; color: var(--gray-600); }
+.cc-count strong { color: var(--primary); font-size: 15px; }
+.cc-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-left: auto; }
+.cc-table td { vertical-align: top; }
+.cc-table td:first-child { width: 34px; }
+.cc-table td:first-child input { width: 17px; height: 17px; accent-color: var(--primary); cursor: pointer; }
+.cc-table tr.is-sel td { background: var(--primary-light); }
+.cc-table td .btn { margin: 4px 4px 0 0; }
+.cc-kind { display: block; font-size: 11px; font-weight: 700; letter-spacing: .02em; color: var(--gray-500); text-transform: uppercase; }
+.cc-title { display: block; font-size: 14px; color: var(--gray-900); word-break: break-word; }
+.cc-pager { display: flex; align-items: center; justify-content: center; gap: 12px; margin-top: 12px; flex-wrap: wrap; }
+.cc-dest { display: block; }
+.cc-targets { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 10px; max-height: 320px; overflow: auto;
+  padding: 4px; border: 1px solid var(--gray-200); border-radius: 10px; background: var(--surface-alt); }
+.cc-tgroup { padding: 8px 10px; border-radius: 8px; background: var(--surface); border: 1px solid var(--gray-200); }
+.cc-tgroup .check-row { margin: 4px 0; font-size: 13px; }
+.cc-tg-name { font-size: 12px; font-weight: 800; color: var(--gray-700); margin-bottom: 4px; }
+.cc-pick-sum { margin: 12px 0; padding-left: 18px; max-height: 140px; overflow: auto; }
+.cc-transfer .sec-opt { margin-bottom: 8px; }
+.batch-release { border: 1px solid var(--gray-200); border-radius: 12px; padding: 10px 14px 4px; margin: 0 0 14px; }
+.batch-release legend { padding: 0 6px; font-size: 13px; font-weight: 700; color: var(--gray-700); }
+.batch-release .sec-opt { margin-bottom: 8px; }
+.rel-badge { white-space: normal; }
+.vis-badge { white-space: nowrap; }
+.wm-fields .form-group { margin-bottom: 12px; }
+@media (max-width: 640px) {
+  .cc-filters { grid-template-columns: 1fr 1fr; }
+  .cc-filters .cc-search { grid-column: 1 / -1; }
+  .cc-bulk { position: static; }
+  .cc-actions { margin-left: 0; width: 100%; }
+  .cc-actions .btn { flex: 1 1 auto; }
+  .cc-targets { grid-template-columns: 1fr; }
+}
+
+/* Kolom Majemuk Kompleks: nama kolom panjang (mis. "Tidak dapat ditentukan") dibungkus per kata, bukan per huruf */
+.qe-prev-table th.ct, .qe-prev-table td.ct, .ex-matrix th.ct, .asg-matrix th.ct, .qe-mx-table th.ct {
+  width: auto; min-width: 72px; max-width: 140px; white-space: normal; word-break: normal; overflow-wrap: normal;
+  hyphens: manual; text-transform: none; letter-spacing: 0; line-height: 1.25; }
+@media (max-width: 640px) {
+  .qe-prev-table th.ct, .qe-prev-table td.ct, .ex-matrix th.ct, .asg-matrix th.ct, .qe-mx-table th.ct { min-width: 58px; font-size: 11px; }
+}
+.qe-mx-del-lbl { display: none; }
+@media (max-width: 760px) {
+  .qe-mx-table.as-cards td.actions { justify-content: flex-end; }
+  .qe-mx-table.as-cards td.actions .btn { width: auto; }
+  .qe-mx-del-lbl { display: inline; }
+}

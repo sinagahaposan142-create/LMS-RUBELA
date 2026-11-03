@@ -39,9 +39,20 @@
     return `<span class="qc-chip d-${UI.esc(key)}">${UI.esc(key.toUpperCase())}</span>`;
   }
 
+  /** Ringkasan bentuk jawaban: "4 opsi", "3 pernyataan • 3 kolom", "jawaban terbuka". */
+  function answerShapeLabel(q) {
+    const f = q.questionType || 'Pilihan Ganda';
+    const n = (q.statements || []).length;
+    if (f === 'Majemuk Kompleks') return `${n} pernyataan • ${DB.qMatrixColumns(q).length} kolom`;
+    if (f === 'Benar/Salah Majemuk') return `${n} pernyataan B/S`;
+    if (f === 'Menjodohkan') return `${(q.pairs || []).length} pasangan`;
+    if (f === 'Urutan') return `${(q.orderItems || []).length} item`;
+    const optCount = (q.options || []).length;
+    return optCount ? optCount + ' opsi' : 'jawaban terbuka';
+  }
+
   function questionCardHtml(q, checked) {
     const st = DB.subtestByName(q.subject);
-    const optCount = (q.options || []).length;
     return `
       <label class="q-card ${checked ? 'is-on' : ''}" data-qid="${q.id}"
              data-hay="${UI.esc((q.text + ' ' + (q.subject || '') + ' ' + (q.questionType || '')).toLowerCase())}">
@@ -51,7 +62,7 @@
           <span class="qc-chip sub">${st ? st.icon : '📘'} ${UI.esc(st ? st.short : (q.subject || 'Umum'))}</span>
           <span class="qc-chip type">${UI.esc(q.questionType || 'Pilihan Ganda')}</span>
           ${difficultyChip(q.difficulty)}
-          <span class="qc-chip opt">${optCount ? optCount + ' opsi' : 'jawaban terbuka'}</span>
+          <span class="qc-chip opt">${UI.esc(answerShapeLabel(q))}</span>
         </div>
       </label>`;
   }
@@ -451,7 +462,9 @@
         <div class="form-group">
           <label for="wzOwner">Tutor Penanggung Jawab</label>
           <select name="wzOwner" id="wzOwner">
-            <option value="">— Tidak dikaitkan ke tutor (dibuat admin) —</option>
+            ${ownerId && ownerId !== DB.ADMIN_OWNER && !DB.getUser(ownerId) ? `<option value="${UI.esc(ownerId)}" selected>Pembuat lama (akun dihapus) — pilih pengganti</option>` : ''}
+            <option value="" ${!ownerId ? 'selected' : ''}>— Tidak dikaitkan (semua tutor kelas dapat mengelola) —</option>
+            <option value="${DB.ADMIN_OWNER}" ${ownerId === DB.ADMIN_OWNER ? 'selected' : ''}>Admin Rubela (hanya admin yang mengubah)</option>
             ${tutors.map(t => `<option value="${UI.esc(t.id)}" ${ownerId === t.id ? 'selected' : ''}>${UI.esc(t.name)}</option>`).join('')}
           </select>
           <div class="muted small">
@@ -838,7 +851,7 @@
                 ? draft.courseIds.map(id => UI.esc(DB.getCourse(id)?.title || '-')).join(', ')
                 : '<span class="muted">Tidak dikaitkan</span>'}</td></tr>
               ${inClass ? `<tr><th>Tutor Penanggung Jawab</th><td>${ownerId
-                ? UI.esc(DB.getUser(ownerId)?.name || '-') +
+                ? UI.esc(DB.contentOwnerName({ createdBy: ownerId }) || '-') +
                   (user.role === 'admin' ? ' <span class="badge badge-gray">diinput admin</span>' : '')
                 : '<span class="muted">Tidak dikaitkan ke tutor</span>'}</td></tr>` : ''}
               <tr><th>Metode</th><td>${draft.subtestMode === 'full' ? 'Gabungan 7 Subtest (Full UTBK)'
@@ -1046,7 +1059,7 @@
       return DataSearch.norm([
         P(q.text), (q.options || []).map(P).join(' '), P(q.explanation || ''),
         (q.answers || []).join(' '), (q.keywords || []).join(' '),
-        (q.statements || []).map(s => P(s.text)).join(' '),
+        (q.statements || []).map(s => P(s.text)).join(' '), (q.columns || []).join(' '),
         (q.pairs || []).map(p => P(p.left) + ' ' + P(p.right)).join(' '),
         (q.orderItems || []).map(P).join(' '),
         q.subject, q.questionType, q.difficulty, q.id,
@@ -1083,7 +1096,7 @@
                   <span class="qc-chip sub">${qs ? qs.icon : '📘'} ${UI.esc(qs ? qs.short : (q.subject || '-'))}</span>
                   <span class="qc-chip type">${UI.esc(q.questionType || 'Pilihan Ganda')}</span>
                   ${difficultyChip(q.difficulty)}
-                  <span class="qc-chip opt">${(q.options || []).length ? (q.options || []).length + ' opsi' : 'jawaban terbuka'}</span>
+                  <span class="qc-chip opt">${UI.esc(answerShapeLabel(q))}</span>
                 </div>
                 <div class="flex-gap mt-2">
                   <button class="btn btn-sm btn-secondary" data-edit-q="${q.id}">Edit</button>
