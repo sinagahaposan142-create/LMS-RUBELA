@@ -38,6 +38,7 @@
     if (section === 'feedback') return Shared.renderFeedback(container, user);
     if (section === 'chat') return Shared.renderChat(container, user);
     if (section === 'online') return Presence.renderPanel(container, user);
+    if (section === 'ai-asisten') return AIChat.renderAssistant(container, user);
     if (section === 'ai-analytics') return Shared.renderAiAnalytics(container, user);
     if (section === 'agent-web') return renderAgentWeb(container, user);
     if (section === 'keuangan') return renderKeuangan(container);
@@ -2205,59 +2206,82 @@
         ${(() => {
           const st = DB.getSettings();
           const AP = window.AIProviders;
-          const chain = AP ? AP.chain(st) : [];
-          const primary = AP ? AP.primaryId(st) : 'gemini';
+          const mode = AP.modeOf(st);
+          const chainAll = AP.chain(st, { all: true });
+          const chain = AP.chain(st, { all: mode === 'ensemble' });
+          const primary = AP.primaryId(st);
           const aiOn = st.aiEnabled !== false && chain.length > 0;
           const agentOn = !!(st.aiEnabled !== false && (st.tinyfishApiKey || '').trim() && (st.tinyfishEndpoint || '').trim());
+          const size = AP.ensembleSize(st);
           const provBox = (id) => {
             const p = AP.PROVIDERS[id];
             const has = !!String(st[p.keySetting] || '').trim();
+            const ok = AP.configured(p, st);
             return `<details class="ai-prov" data-prov="${id}" ${has || id === primary ? 'open' : ''}>
               <summary><strong>${UI.esc(p.label)}</strong>
-                <span class="ai-status ${has ? 'is-on' : 'is-off'}">${has ? '● kunci terisi' : '○ belum diisi'}</span>
+                <span class="ai-status ${ok ? 'is-on' : (has ? 'is-warn' : 'is-off')}">${ok ? '● siap' : (has ? '◐ lengkapi model/Base URL' : '○ belum diisi')}</span>
                 ${id === primary ? '<span class="badge badge-info">utama</span>' : ''}</summary>
-              <div class="muted small">${UI.esc(p.note)}${p.keyUrl ? ` <a href="${UI.esc(p.keyUrl)}" target="_blank" rel="noopener noreferrer">Buat kunci API ↗</a>` : ''}</div>
-              ${p.endpointSetting ? `<div class="form-group"><label for="ai_ep_${id}">Endpoint (https)</label>
-                <input id="ai_ep_${id}" autocomplete="off" spellcheck="false" placeholder="https://…/v1/chat/completions" value="${UI.esc(st[p.endpointSetting] || '')}" /></div>` : ''}
+              <div class="muted small">${UI.esc(p.note)}${p.keyUrl ? ` <a href="${UI.esc(p.keyUrl)}" target="_blank" rel="noopener noreferrer">Buka dasbor ↗</a>` : ''}</div>
+              ${p.endpointSetting ? `<div class="form-group"><label for="ai_ep_${id}">Base URL (https)</label>
+                <input id="ai_ep_${id}" autocomplete="off" spellcheck="false" inputmode="url" placeholder="${UI.esc(p.defaultEndpoint || 'https://…/v1')}" value="${UI.esc(st[p.endpointSetting] || '')}" />
+                <div class="muted small">${p.defaultEndpoint ? `Kosongkan untuk bawaan: <code>${UI.esc(p.defaultEndpoint)}</code>. ` : ''}Isi alamat yang diakhiri <code>/v1</code>; LMS menambahkan <code>/chat/completions</code> otomatis.</div></div>` : ''}
               <div class="form-row">
                 <div class="form-group"><label for="ai_key_${id}">Kunci API ${UI.esc(p.label)}</label>
                   <div class="flex-gap"><input type="password" id="ai_key_${id}" autocomplete="off" spellcheck="false" placeholder="Tempel kunci API di sini" value="${UI.esc(st[p.keySetting] || '')}" style="flex:1;" />
                     <button type="button" class="btn btn-secondary btn-sm" data-ai-show="${id}">Lihat</button></div></div>
                 <div class="form-group"><label for="ai_model_${id}">Model</label>
-                  <input id="ai_model_${id}" autocomplete="off" spellcheck="false" placeholder="${UI.esc(p.defaultModel || 'nama model')}" value="${UI.esc(st[p.modelSetting] || '')}" />
-                  <div class="muted small">${p.defaultModel ? `Kosongkan untuk bawaan: <code>${UI.esc(p.defaultModel)}</code>` : 'Wajib diisi untuk endpoint kustom.'}</div></div>
+                  <div class="flex-gap"><input id="ai_model_${id}" list="ai_models_${id}" autocomplete="off" spellcheck="false" placeholder="${UI.esc(p.defaultModel || 'pilih dari daftar model')}" value="${UI.esc(st[p.modelSetting] || '')}" style="flex:1;" />
+                    <button type="button" class="btn btn-secondary btn-sm" data-ai-models="${id}" title="Ambil daftar model dari penyedia">📋 Ambil daftar model</button></div>
+                  <datalist id="ai_models_${id}"></datalist>
+                  <div class="muted small" id="ai_mhint_${id}">${p.defaultModel ? `Kosongkan untuk bawaan: <code>${UI.esc(p.defaultModel)}</code>` : 'Wajib diisi — klik "Ambil daftar model".'}</div></div>
               </div>
               <div class="flex-gap"><button type="button" class="btn btn-secondary btn-sm" data-ai-test="${id}">Uji koneksi ${UI.esc(p.label)}</button></div>
               <div id="ai_test_${id}" style="margin-top:8px;"></div>
             </details>`;
           };
+          const group = (g) => AP.ORDER.filter(id => AP.PROVIDERS[id].group === g).map(provBox).join('');
           return `
           <div class="flex-gap" style="margin-bottom:10px;flex-wrap:wrap;">
-            <span class="ai-status ${aiOn ? 'is-on' : 'is-off'}">${aiOn ? `● AI aktif — ${UI.esc(chain.map(c => c.label).join(' → '))}` : '○ AI belum aktif'}</span>
+            <span class="ai-status ${aiOn ? 'is-on' : 'is-off'}">${aiOn
+              ? (mode === 'ensemble' && chain.length >= 2
+                ? `● Gabungan ${Math.min(size, chain.length)} AI: ${UI.esc(chain.slice(0, size).map(c => c.label).join(' + '))}`
+                : `● AI aktif — ${UI.esc(chain.map(c => c.label).join(' → '))}`)
+              : '○ AI belum aktif'}</span>
             <span class="ai-status ${agentOn ? 'is-on' : 'is-off'}">${agentOn ? '● Agent API aktif' : '○ Agent API belum aktif'}</span>
           </div>
           <div class="alert alert-warning">
             <strong>Keamanan kunci API.</strong> ${Auth.isServer()
-              ? 'Kunci disimpan di <strong>database server</strong> dan hanya dapat dilihat oleh admin. Seluruh panggilan AI diteruskan oleh server (<code>/api/rubela</code>), sehingga kunci tidak pernah dikirim ke browser siswa, tutor, atau orang tua, dan tidak ikut tersimpan ke dalam kode atau repositori.'
+              ? 'Kunci disimpan di <strong>database server</strong> dan hanya dapat dilihat oleh admin. Seluruh panggilan AI diteruskan oleh server (<code>/api/rubela</code>), sehingga kunci tidak pernah dikirim ke browser tutor, mentee, atau orang tua, dan tidak ikut tersimpan ke dalam kode atau repositori.'
               : 'Mode lokal — kunci yang dimasukkan di sini <strong>hanya</strong> disimpan pada browser ini (localStorage) dan tidak ikut tersimpan ke dalam kode atau repositori.'}
-            Jangan membagikan kunci Anda, dan segera ganti (rotate) kunci di dasbor penyedia bila pernah terkirim ke orang lain.
+            Jangan membagikan kunci di chat/grup, dan segera ganti (rotate) kunci di dasbor penyedia bila pernah terkirim ke orang lain.
           </div>
-          <div class="alert alert-info small">💡 <strong>Rekomendasi gratis:</strong> isi <strong>Groq</strong> (paling cepat, tanpa kartu kredit) sebagai penyedia utama,
-            <strong>Mistral</strong> (kuota token gratis terbesar) dan <strong>OpenRouter</strong> sebagai cadangan. Bila satu penyedia kehabisan kuota,
-            LMS otomatis memakai penyedia berikutnya. Data yang dikirim ke AI (mis. ringkasan nilai mentee) diproses oleh penyedia tersebut.</div>
           <div class="form">
             <div class="form-group">
               <label class="sec-opt ${st.aiEnabled !== false ? 'is-on' : ''}">
                 <input type="checkbox" id="aiEnabled" ${st.aiEnabled !== false ? 'checked' : ''} />
                 <div>
                   <div class="so-nm">🤖 Aktifkan seluruh fitur AI</div>
-                  <div class="so-ds">Bila dimatikan, halaman AI tetap menampilkan analisis dari data asli LMS — hanya ulasan naratif AI yang dinonaktifkan.</div>
+                  <div class="so-ds">Bila dimatikan, halaman AI tetap menampilkan analisis dari data asli LMS — hanya jawaban AI yang dinonaktifkan.</div>
                 </div>
               </label>
             </div>
+
+            <div class="form-group"><label>Cara AI menjawab</label>
+              <label class="sec-opt ${mode === 'single' ? 'is-on' : ''}"><input type="radio" name="aiMode" value="single" ${mode === 'single' ? 'checked' : ''} />
+                <div><div class="so-nm">⚡ Satu AI utama (+ cadangan)</div>
+                  <div class="so-ds">Paling cepat & hemat kuota. Penyedia utama menjawab; bila gagal, penyedia berikutnya dicoba otomatis (bila cadangan aktif).</div></div></label>
+              <label class="sec-opt ${mode === 'ensemble' ? 'is-on' : ''}"><input type="radio" name="aiMode" value="ensemble" ${mode === 'ensemble' ? 'checked' : ''} />
+                <div><div class="so-nm">🧠 Gabungan beberapa AI sekaligus</div>
+                  <div class="so-ds">Beberapa penyedia menjawab bersamaan, lalu penyedia utama memeriksa semua jawaban dan menyusun <strong>satu jawaban terbaik</strong>
+                    (fakta & hitungan dicek ulang). Lebih teliti, tetapi lebih lambat (±20–50 detik) dan memakai kuota beberapa penyedia.
+                    Fitur yang butuh format data (pembuat soal, penilai otomatis) tetap memakai satu AI agar hasilnya valid.</div></div></label>
+            </div>
             <div class="form-row">
-              <div class="form-group"><label for="aiProvider">Penyedia utama</label>
-                <select id="aiProvider">${AP.ORDER.map(id => `<option value="${id}" ${id === primary ? 'selected' : ''}>${UI.esc(AP.PROVIDERS[id].label)}</option>`).join('')}</select></div>
+              <div class="form-group"><label for="aiProvider">Penyedia utama (juga juri mode gabungan)</label>
+                <select id="aiProvider">${AP.ORDER.map(id => `<option value="${id}" ${id === primary ? 'selected' : ''}>${UI.esc(AP.PROVIDERS[id].label)}${AP.configured(AP.PROVIDERS[id], st) ? '' : ' (belum siap)'}</option>`).join('')}</select></div>
+              <div class="form-group"><label for="aiEnsembleSize">Jumlah AI pada mode gabungan</label>
+                <select id="aiEnsembleSize">${[2, 3, 4, 5].map(n => `<option value="${n}" ${n === size ? 'selected' : ''}>${n} AI</option>`).join('')}</select>
+                <div class="muted small">Diambil berurutan: penyedia utama lalu penyedia siap lainnya (urutan daftar di bawah). Siap saat ini: ${chainAll.length}.</div></div>
               <div class="form-group"><label for="aiTimeoutMs">Batas waktu per penyedia (ms)</label>
                 <input id="aiTimeoutMs" type="number" min="5000" max="55000" step="1000" value="${Number(st.aiTimeoutMs) || 30000}" /></div>
             </div>
@@ -2265,12 +2289,27 @@
               <label class="sec-opt ${st.aiFallback !== false ? 'is-on' : ''}">
                 <input type="checkbox" id="aiFallback" ${st.aiFallback !== false ? 'checked' : ''} />
                 <div><div class="so-nm">🔁 Cadangan otomatis</div>
-                  <div class="so-ds">Bila penyedia utama gagal (kuota habis, kunci salah, atau server bermasalah), coba penyedia lain yang kuncinya sudah diisi.</div></div>
+                  <div class="so-ds">Bila penyedia utama gagal (kuota habis, kunci salah, server bermasalah), coba penyedia lain yang sudah siap.</div></div>
               </label>
             </div>
-            ${AP.ORDER.map(provBox).join('')}
+            <div class="form-group">
+              <label class="sec-opt ${st.aiPseudonymize !== false ? 'is-on' : ''}">
+                <input type="checkbox" id="aiPseudonymize" ${st.aiPseudonymize !== false ? 'checked' : ''} />
+                <div><div class="so-nm">🛡️ Samarkan nama mentee untuk Asisten AI</div>
+                  <div class="so-ds">Data mentee yang dibaca Asisten AI dikirim dengan kode (Mentee-01, …), lalu nama asli dikembalikan saat jawaban ditampilkan.
+                    Sangat disarankan, terutama bila memakai gateway pihak ketiga. Email, nomor HP, dan password tidak pernah dikirim.</div></div>
+              </label>
+            </div>
+            <p class="muted small">🕒 Riwayat chat AI tersimpan 7 hari sejak pesan terakhir lalu terhapus otomatis di semua perangkat, dan hanya dapat dibaca oleh pemiliknya.</p>
 
-            <h4 style="margin:6px 0 0;">Agent API (TinyFish)</h4>
+            <h4 style="margin:10px 0 4px;">Penyedia model resmi</h4>
+            ${group('resmi')}
+            <h4 style="margin:14px 0 4px;">Gateway / kompatibel OpenAI</h4>
+            <div class="alert alert-info small">Gateway adalah layanan perantara pihak ketiga. Pertanyaan (dan data yang dibaca AI) melewati server mereka —
+              pastikan Anda mempercayai penyedianya dan biarkan opsi "Samarkan nama mentee" aktif.</div>
+            ${group('gateway')}
+
+            <h4 style="margin:14px 0 0;">Agent API (TinyFish)</h4>
             <p class="muted small" style="margin:0;">
               Dipakai pada menu <strong>Agent Web</strong> untuk mengambil data terstruktur dari sebuah URL
               berdasarkan tujuan yang Anda tulis.
@@ -2438,50 +2477,91 @@
     }));
     document.getElementById('saveAiBtn').addEventListener('click', () => {
       const timeout = Number(document.getElementById('aiTimeoutMs').value);
-      const ep = aiVal('ai_ep_custom');
-      if (ep && !AP.safeEndpoint(ep)) { UI.toast('Endpoint kustom harus https:// dan bukan alamat jaringan lokal.', 'error'); return; }
       for (const id of AP.ORDER) {
         const p = AP.PROVIDERS[id];
+        if (p.endpointSetting) {
+          const ep = aiVal('ai_ep_' + id);
+          if (ep && !AP.safeEndpoint(ep)) { UI.toast(`Base URL ${p.label} harus https:// dan bukan alamat jaringan lokal.`, 'error'); return; }
+        }
         const m = aiVal('ai_model_' + id);
-        if (m && !AP.isValidModel(p, m)) { UI.toast(`Nama model ${p.label} tidak valid.`, 'error'); return; }
+        if (m && !AP.isValidModel(p, m)) { UI.toast(`Nama model ${p.label} tidak valid (tanpa spasi).`, 'error'); return; }
+        if (aiVal('ai_key_' + id) && !m && !p.defaultModel) { UI.toast(`Isi nama model untuk ${p.label} (klik "Ambil daftar model").`, 'error'); return; }
+        if (aiVal('ai_key_' + id) && p.endpointSetting && !aiVal('ai_ep_' + id) && !p.defaultEndpoint) { UI.toast(`Isi Base URL untuk ${p.label}.`, 'error'); return; }
       }
-      if (aiVal('ai_key_custom') && !aiVal('ai_model_custom')) { UI.toast('Isi nama model untuk endpoint kustom.', 'error'); return; }
+      const modeEl = container.querySelector('[name="aiMode"]:checked');
       DB.setSetting('aiEnabled', document.getElementById('aiEnabled').checked);
       DB.setSetting('aiProvider', document.getElementById('aiProvider').value);
+      DB.setSetting('aiMode', modeEl ? modeEl.value : 'single');
+      DB.setSetting('aiEnsembleSize', Number(document.getElementById('aiEnsembleSize').value) || 3);
       DB.setSetting('aiFallback', document.getElementById('aiFallback').checked);
+      DB.setSetting('aiPseudonymize', document.getElementById('aiPseudonymize').checked);
       DB.setSetting('aiTimeoutMs', timeout >= 5000 ? Math.min(55000, timeout) : 30000);
+      const cur = DB.getSettings();
       AP.ORDER.forEach(id => {
         const p = AP.PROVIDERS[id];
-        DB.setSetting(p.keySetting, aiVal('ai_key_' + id));
-        DB.setSetting(p.modelSetting, aiVal('ai_model_' + id));
-        if (p.endpointSetting) DB.setSetting(p.endpointSetting, aiVal('ai_ep_' + id));
+        // Hanya tulis nilai yang berubah agar tidak memicu sinkronisasi/penulisan rahasia yang tidak perlu.
+        const put = (k, v) => { if (String(cur[k] == null ? '' : cur[k]) !== v) DB.setSetting(k, v); };
+        put(p.keySetting, aiVal('ai_key_' + id));
+        put(p.modelSetting, AP.cleanModel(p, aiVal('ai_model_' + id)));
+        if (p.endpointSetting) put(p.endpointSetting, aiVal('ai_ep_' + id));
       });
       DB.setSetting('tinyfishEndpoint', document.getElementById('tinyfishEndpoint').value.trim());
       DB.setSetting('tinyfishApiKey', document.getElementById('tinyfishApiKey').value.trim());
+      const st2 = DB.getSettings();
       const chosen = AP.PROVIDERS[document.getElementById('aiProvider').value];
-      if (chosen && !aiVal('ai_key_' + chosen.id)) UI.toast(`Disimpan. Catatan: kunci ${chosen.label} (penyedia utama) masih kosong — penyedia lain yang berkunci akan dipakai.`, 'info');
+      const ready = AP.chain(st2, { all: true }).length;
+      if (chosen && !AP.configured(chosen, st2)) UI.toast(`Disimpan. Catatan: ${chosen.label} (penyedia utama) belum siap — penyedia lain yang siap akan dipakai.`, 'info');
+      else if (AP.modeOf(st2) === 'ensemble' && ready < 2) UI.toast('Disimpan. Mode gabungan butuh minimal 2 penyedia siap; sementara memakai satu AI.', 'info');
       else UI.toast('Pengaturan integrasi AI disimpan.', 'success');
       renderSettings(container);
     });
+    container.querySelectorAll('[data-ai-models]').forEach(btn => btn.addEventListener('click', async () => {
+      const id = btn.dataset.aiModels;
+      const p = AP.PROVIDERS[id];
+      const hint = document.getElementById('ai_mhint_' + id);
+      const key = aiVal('ai_key_' + id);
+      if (!key) { hint.innerHTML = `<span class="text-danger">Isi kunci API ${UI.esc(p.label)} terlebih dahulu.</span>`; return; }
+      btn.disabled = true;
+      hint.textContent = 'Mengambil daftar model…';
+      try {
+        const models = await AI.listModels(id, key, aiVal('ai_ep_' + id));
+        document.getElementById('ai_models_' + id).innerHTML = models.map(m => `<option value="${UI.esc(m)}"></option>`).join('');
+        hint.innerHTML = models.length
+          ? `${models.length} model ditemukan — klik kolom Model lalu pilih/ketik. Contoh: ${models.slice(0, 4).map(m => `<code>${UI.esc(m)}</code>`).join(', ')}`
+          : 'Penyedia tidak mengembalikan daftar model. Ketik nama model dari dokumentasi penyedia.';
+        const inp = document.getElementById('ai_model_' + id);
+        if (models.length && !inp.value && !p.defaultModel) inp.value = models[0];
+      } catch (e) {
+        hint.innerHTML = `<span class="text-danger">${UI.esc(e.message || 'Gagal mengambil daftar model.')}</span>`;
+      } finally {
+        btn.disabled = false;
+      }
+    }));
+    container.querySelectorAll('[name="aiMode"]').forEach(r => r.addEventListener('change', () => {
+      container.querySelectorAll('[name="aiMode"]').forEach(x => x.closest('.sec-opt').classList.toggle('is-on', x.checked));
+    }));
     container.querySelectorAll('[data-ai-test]').forEach(btn => btn.addEventListener('click', async () => {
       const id = btn.dataset.aiTest;
       const p = AP.PROVIDERS[id];
       const box = document.getElementById('ai_test_' + id);
       const key = aiVal('ai_key_' + id);
       if (!key) { box.innerHTML = `<div class="alert alert-warning">Isi kunci API ${UI.esc(p.label)} terlebih dahulu.</div>`; return; }
-      if (p.endpointSetting && !AP.safeEndpoint(aiVal('ai_ep_' + id))) { box.innerHTML = '<div class="alert alert-warning">Isi endpoint https yang valid terlebih dahulu.</div>'; return; }
+      const ep = p.endpointSetting ? (aiVal('ai_ep_' + id) || p.defaultEndpoint || '') : '';
+      if (p.endpointSetting && !AP.safeEndpoint(ep)) { box.innerHTML = '<div class="alert alert-warning">Isi Base URL https yang valid terlebih dahulu.</div>'; return; }
+      if (!aiVal('ai_model_' + id) && !p.defaultModel) { box.innerHTML = '<div class="alert alert-warning">Isi nama model (klik "Ambil daftar model").</div>'; return; }
       box.innerHTML = AI.loadingHtml(`Menghubungi ${p.label}…`);
       btn.disabled = true;
       try {
         // Kunci yang sedang tampil dipakai langsung, jadi bisa diuji sebelum disimpan.
         const out = await AI.ask('Jawab dengan satu kalimat pendek dalam Bahasa Indonesia: sebutkan dirimu siap membantu LMS Rubela.',
-          { temperature: 0.2, maxTokens: 160, test: { provider: id, key, model: aiVal('ai_model_' + id), endpoint: aiVal('ai_ep_' + id) } });
+          { temperature: 0.2, maxTokens: 400, test: { provider: id, key, model: aiVal('ai_model_' + id), endpoint: ep } });
         const used = AI.lastUsed();
         box.innerHTML = `<div class="alert alert-success"><strong>Koneksi ${UI.esc(p.label)} berhasil.</strong>${used && used.model ? ` <span class="muted small">Model: ${UI.esc(used.model)}</span>` : ''}
-          <div class="ai-answer" style="margin-top:6px;">${AI.renderMarkdown(out)}</div></div>`;
+          <div class="ai-answer" style="margin-top:6px;">${AI.renderMarkdown(out)}</div>
+          <div class="muted small">Klik <strong>Simpan Integrasi</strong> agar kunci ini dipakai.</div></div>`;
       } catch (e) {
         box.innerHTML = AI.errorHtml(e) +
-          '<div class="muted small">Periksa kunci & nama model. Bila pesan menyebut masalah jaringan, pastikan perangkat/server terhubung ke internet.</div>';
+          '<div class="muted small">Periksa kunci, nama model, dan Base URL. Bila pesan menyebut masalah jaringan, pastikan perangkat/server terhubung ke internet.</div>';
       } finally {
         btn.disabled = false;
       }

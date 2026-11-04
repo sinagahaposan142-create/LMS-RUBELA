@@ -13,7 +13,9 @@ const ADMIN_ONLY = new Set(['lms_payments', 'lms_expenses', 'lms_salaries', 'lms
   'lms_class_options', 'lms_batches', 'lms_reading_texts', 'lms_verses', 'lms_hub_courses', 'lms_music_tracks', 'lms_streak_grants']);
 const STAFF_ONLY = new Set(['lms_courses', 'lms_materials', 'lms_modules', 'lms_recordings', 'lms_assignments', 'lms_questions',
   'lms_cbts', 'lms_attendance', 'lms_class_plans', 'lms_whiteboards', 'lms_whiteboard_boards', 'lms_events', 'lms_announcements']);
-const GURU_SETTINGS = new Set(['geminiApiKey', 'geminiModel', 'aiEnabled']);
+// Tutor tidak boleh mengubah pengaturan global di server (termasuk kunci AI):
+// sebelumnya tutor dapat menimpa/mengosongkan kunci & model Gemini milik admin.
+const GURU_SETTINGS = new Set([]);
 // batchId menentukan konten yang dirilis untuk mentee — hanya admin yang boleh mengubahnya.
 const USER_PROTECTED = ['id', 'role', 'username', 'status', 'childIds', 'salaryRate', 'createdAt', 'batchId'];
 
@@ -45,6 +47,8 @@ function present(ctx, k, id, rec) {
       return rec.userId === me ? rec : undefined;
     case 'lms_messages':
       return (rec.senderId === me || rec.receiverId === me) ? rec : undefined;
+    case 'lms_ai_chats':
+      return rec.userId === me ? rec : undefined;      // riwayat chat AI hanya untuk pemiliknya
     case 'lms_users': {
       if (ctx.isAdmin || rec.id === me || rec.salaryRate == null) return rec;
       const out = Object.assign({}, rec);
@@ -149,6 +153,12 @@ function checkWrite(ctx, k, id, before, after) {
     return allow(Object.assign({}, after, {
       actorId: me, actorRole: ctx.role, actorName: ctx.user.name || ctx.user.username || ''
     }));
+  }
+  if (k === 'lms_ai_chats') {
+    // Pemilik saja yang dapat membuat/mengubah; admin hanya boleh menghapus (mis. saat akun dihapus).
+    if (op === 'delete' && ctx.isAdmin) return allow(null);
+    const okOwner = (before == null || before.userId === me) && (after == null || after.userId === me);
+    return okOwner ? allow(after) : deny('Riwayat chat AI milik pengguna lain.');
   }
   if (ctx.isAdmin) return allow(after);
 

@@ -225,6 +225,22 @@ Hasil audit lengkap 23 poin permintaan beserta buktinya ada di
   serta kebijakan "siswa baru hanya melihat konten baru" untuk kelas dan course.
 - **Chat** kini selalu menampilkan kotak ketik di semua ukuran layar (satu panel di ponsel/tablet).
 
+### Fitur Ronde 12 — AI gabungan, Asisten AI, riwayat 7 hari
+- **Perbaikan Gemini**: model Gemini terbaru adalah model "berpikir" yang menghabiskan kuota token sebelum menjawab sehingga jawaban
+  kosong/terpotong. Kini batas berpikir diatur otomatis (`thinkingLevel`/`thinkingBudget`), bagian "pikiran" dibuang, nama model
+  `models/…` diterima, dan pesan galat jelas (kunci salah, model tidak ada, wilayah tidak didukung, API belum aktif, kuota, saldo).
+  Tutor tidak lagi dapat menimpa kunci/model AI milik admin di server. `vercel.json` memberi fungsi server waktu 60 detik.
+- **Penyedia baru**: DeepSeek, Kimi (Moonshot), SiliconFlow, Meta Muse, serta gateway kompatibel OpenAI: FreeAIAPIKey,
+  IteraCompute, Pateway, RadoxAI, Kitsora, dan endpoint kustom. Admin cukup menempel kunci; tombol **Ambil daftar model**
+  menampilkan model yang tersedia untuk kunci tersebut.
+- **Mode jawaban**: *Satu AI utama + cadangan* atau *Gabungan beberapa AI* (2–5 AI menjawab bersamaan, lalu penyedia utama
+  memeriksa dan menyusun satu jawaban terbaik). Fitur berformat data (pembuat soal, penilai otomatis) tetap satu AI.
+- **Asisten AI** (admin & tutor): chat yang membaca data LMS terkini sesuai hak akses (tutor hanya kelasnya), memisahkan
+  "Dari data LMS" dan "Pengetahuan umum", serta menyamarkan nama mentee sebelum dikirim ke penyedia AI.
+- **AI Guru** (mentee) kini memakai data belajar mentee dan riwayatnya tersimpan.
+- **Pembahasan CBT dengan AI**: tombol "Tanya AI tentang soal ini" pada halaman hasil (hanya setelah ujian dikirim).
+- **Riwayat chat** tersinkron antar-perangkat, hanya dapat dibaca pemiliknya, dan terhapus otomatis 7 hari setelah pesan terakhir.
+
 ### Fitur Ronde 10 — angkatan, transfer, jadwal bentrok, format soal
 - **Rilis bertahap per angkatan**: angkatan baru di *Tahun Akademik* dapat memakai "Rilis bertahap". Konten yang dibuat
   sebelum tanggal batas (bawaan: tanggal mulai angkatan) menjadi arsip dan tersembunyi bagi mentee angkatan itu sampai
@@ -427,6 +443,8 @@ LMS-RUBELA/
     ├── idb.js           # Penyimpanan berkas besar (IndexedDB): audio musik & lampiran terenkripsi
     ├── visibility.js    # Kontrol Aktifkan / Matikan / Aktifkan ulang + rilis angkatan
     ├── content-center.js # Pusat Konten: rilis bertahap, transfer, ganti pembuat
+    ├── ai-context.js    # Konteks data LMS untuk AI + penyamaran nama mentee
+    ├── ai-chat.js       # Komponen chat AI (Asisten AI, AI Guru, pembahasan CBT) + riwayat 7 hari
     ├── streak.js        # Streak API, Kampus Danau, statistik, leaderboard, pengaturan admin
     ├── arena.js         # Arena Belajar: tantangan, mini quiz, latihan, Reading Text, games
     ├── verses.js        # Ayat Harian sesuai agama

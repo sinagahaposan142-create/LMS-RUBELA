@@ -59,13 +59,16 @@
     lms_capsule_vaults: { type: RECORDS, idField: 'userId', quiet: true },
     lms_capsules: { type: RECORDS, quiet: true },
     lms_music_tracks: { type: RECORDS },
+    lms_ai_chats: { type: RECORDS, quiet: true },           // riwayat chat AI pribadi (7 hari)
     lms_settings: { type: MAP },
     lms_birthday_notified: { type: MAP, quiet: true },
     lms_class_options: { type: DOC }
   };
 
   /** Pengaturan yang berisi rahasia: tidak pernah dikirim ke non-admin. */
-  const SECRET_SETTINGS = ['geminiApiKey', 'groqApiKey', 'mistralApiKey', 'openrouterApiKey', 'customAiApiKey', 'tinyfishApiKey'];
+  const SECRET_SETTINGS = ['geminiApiKey', 'groqApiKey', 'mistralApiKey', 'openrouterApiKey', 'customAiApiKey', 'tinyfishApiKey',
+    'deepseekApiKey', 'kimiApiKey', 'siliconflowApiKey', 'museApiKey', 'freeaiApiKey', 'iteraApiKey', 'patewayApiKey',
+    'radoxApiKey', 'kitsoraApiKey'];
   /** Nilai pengganti rahasia untuk non-admin (menandakan "sudah diisi di server"). */
   const MASK = '__server__';
 

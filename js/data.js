@@ -55,7 +55,7 @@
     'lms_activity_log', 'lms_birthday_notified', 'lms_whiteboard_boards',
     'lms_learning_log', 'lms_streak_grants', 'lms_reading_texts', 'lms_verses',
     'lms_hub_courses', 'lms_hub_progress', 'lms_capsule_vaults', 'lms_capsules',
-    'lms_music_tracks'
+    'lms_music_tracks', 'lms_ai_chats'
   ];
 
   /* ===== Hari & jadwal ===== */
@@ -295,6 +295,11 @@
     }
   }
   function save(key, value) { localStorage.setItem(key, JSON.stringify(value)); }
+  /* Riwayat chat AI */
+  const AI_CHAT_KEY = 'lms_ai_chats';
+  const AI_CHAT_TTL = 7 * 86400000;      // 7 hari
+  const AI_CHAT_MAX_MSG = 80;
+  const AI_CHAT_MAX_TEXT = 12000;
   function uid(prefix) {
     return prefix + '_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
   }
@@ -1300,7 +1305,7 @@
        * lewat Pengaturan, lalu disimpan pada localStorage browser masing-masing.
        */
       aiEnabled: true,
-      aiProvider: 'gemini',          // penyedia utama: gemini | groq | mistral | openrouter | custom
+      aiProvider: 'gemini',          // penyedia utama (lihat js/ai-providers.js ORDER)
       aiFallback: true,              // coba penyedia lain yang kuncinya terisi bila utama gagal
       geminiApiKey: '',
       geminiModel: 'gemini-flash-latest',
@@ -1313,6 +1318,18 @@
       customAiEndpoint: '',
       customAiApiKey: '',
       customAiModel: '',
+      deepseekApiKey: '', deepseekModel: '',
+      kimiApiKey: '', kimiModel: '',
+      siliconflowApiKey: '', siliconflowModel: '',
+      museApiKey: '', museModel: '',
+      freeaiApiKey: '', freeaiModel: '', freeaiEndpoint: '',
+      iteraApiKey: '', iteraModel: '', iteraEndpoint: '',
+      patewayApiKey: '', patewayModel: '', patewayEndpoint: '',
+      radoxApiKey: '', radoxModel: '', radoxEndpoint: '',
+      kitsoraApiKey: '', kitsoraModel: '', kitsoraEndpoint: '',
+      aiMode: 'single',              // single = penyedia utama + cadangan | ensemble = gabungan beberapa AI
+      aiEnsembleSize: 3,             // jumlah penyedia yang menjawab bersamaan (2–5)
+      aiPseudonymize: true,          // samarkan nama mentee sebelum data dikirim ke penyedia AI
       aiTimeoutMs: 30000,
       tinyfishApiKey: '',
       tinyfishEndpoint: '',
@@ -1796,6 +1813,8 @@
           .filter(u => u.role === 'orangtua' && Array.isArray(u.childIds) && u.childIds.includes(id))
           .forEach(p => update(KEYS.users, p.id, { childIds: p.childIds.filter(c => c !== id) }));
       }
+      // Riwayat chat AI milik akun ini
+      if (load(AI_CHAT_KEY, []).some(t => t && t.userId === id)) save(AI_CHAT_KEY, load(AI_CHAT_KEY, []).filter(t => !t || t.userId !== id));
       // Messages + notifications belonging to the removed account
       setAll(KEYS.notifications, getAll(KEYS.notifications).filter(n => n.userId !== id));
       save('lms_birthday_wishes', DB.getBirthdayWishes().filter(w => w.authorId !== id));
@@ -2931,6 +2950,64 @@
       });
       DB.logActivity('content.transfer', `${mode === 'move' ? 'Memindahkan' : 'Menyalin'} ${report.copied + report.moved} konten ke ${targets.map(t => DB.courseTitle(t)).join(', ')}`, targets.map(t => t.id).join(','));
       return report;
+    },
+
+    /* ===== Riwayat chat AI =====
+     * { id, userId, kind:'tutor'|'assistant'|'cbt', ref, title,
+     *   messages:[{ role:'user'|'model', text, at, via }], createdAt, updatedAt }
+     * Disinkronkan antar-perangkat, hanya dapat dibaca pemiliknya. Setiap pesan
+     * disimpan 7 hari; utas tanpa pesan tersisa ikut terhapus (juga di server). */
+    AI_CHAT_TTL_MS: AI_CHAT_TTL,
+    /** Utas milik pengguna (opsional difilter jenis/ref), terbaru lebih dulu. */
+    getAiChats: (userId, kind, ref) => {
+      DB.pruneAiChats(userId);
+      return load(AI_CHAT_KEY, []).filter(t => t && t.userId === userId && (!kind || t.kind === kind) && (ref == null || t.ref === ref))
+        .sort((a, b) => (Number(b.updatedAt) || 0) - (Number(a.updatedAt) || 0));
+    },
+    getAiChat: (id) => load(AI_CHAT_KEY, []).find(t => t && t.id === id) || null,
+    /** Simpan (buat/perbarui) satu utas; pesan & teks dipangkas agar ringan. */
+    saveAiChat: (thread) => {
+      if (!thread || !thread.userId) return null;
+      const now = Date.now();
+      const msgs = (thread.messages || []).filter(m => m && (m.role === 'user' || m.role === 'model') && m.text)
+        .map(m => ({ role: m.role, text: String(m.text).slice(0, AI_CHAT_MAX_TEXT), at: Number(m.at) || now, via: m.via ? String(m.via).slice(0, 120) : undefined }))
+        .filter(m => now - m.at < AI_CHAT_TTL)
+        .slice(-AI_CHAT_MAX_MSG);
+      const rec = {
+        id: thread.id || uid('aic'), userId: thread.userId, kind: thread.kind || 'assistant',
+        ref: thread.ref == null ? null : String(thread.ref).slice(0, 200),
+        title: String(thread.title || (msgs[0] && msgs[0].text) || 'Percakapan').replace(/\s+/g, ' ').trim().slice(0, 80),
+        messages: msgs, createdAt: Number(thread.createdAt) || now,
+        updatedAt: msgs.length ? Math.max.apply(null, msgs.map(m => m.at)) : now
+      };
+      const list = load(AI_CHAT_KEY, []);
+      const i = list.findIndex(t => t && t.id === rec.id);
+      if (i >= 0) list[i] = rec; else list.push(rec);
+      save(AI_CHAT_KEY, list);
+      return rec;
+    },
+    deleteAiChat: (id, userId) => {
+      const list = load(AI_CHAT_KEY, []);
+      const next = list.filter(t => !(t && t.id === id && (!userId || t.userId === userId)));
+      if (next.length !== list.length) save(AI_CHAT_KEY, next);
+    },
+    /** Hapus pesan > 7 hari; utas kosong ikut terhapus. Hanya utas milik userId. */
+    pruneAiChats: (userId) => {
+      const now = Date.now();
+      const list = load(AI_CHAT_KEY, []);
+      let changed = false;
+      const next = [];
+      list.forEach(t => {
+        if (!t || (userId && t.userId !== userId)) { if (t) next.push(t); return; }
+        const msgs = (t.messages || []).filter(m => m && now - (Number(m.at) || 0) < AI_CHAT_TTL);
+        if (!msgs.length) { changed = true; return; }
+        if (msgs.length !== (t.messages || []).length) {
+          changed = true;
+          next.push(Object.assign({}, t, { messages: msgs, updatedAt: Math.max.apply(null, msgs.map(m => Number(m.at) || 0)) }));
+        } else next.push(t);
+      });
+      if (changed) save(AI_CHAT_KEY, next);
+      return changed;
     },
 
     /* ===== Calendar Events ===== */

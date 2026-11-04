@@ -1251,6 +1251,7 @@
       </div>`;
 
     document.getElementById('resBack').addEventListener('click', () => Dashboard.navigate('cbt'));
+    content.querySelectorAll('[data-ai-explain]').forEach(btn => btn.addEventListener('click', () => openAiExplain(cbt, attempt, btn.dataset.aiExplain, btn.dataset.aiCorrect)));
     if (global.Effects) Effects.enhance(content);
     if (global.Responsive) Responsive.apply(content);
   }
@@ -1348,10 +1349,30 @@
       </div>`;
     }
 
+    // Tanya AI hanya tersedia setelah ujian dikirim (halaman hasil).
+    const aiOk = !!(attempt && attempt.submittedAt && global.AI && AI.ready() && global.AIChat);
     return `<div class="question-card">
       ${head}${body}
       ${q.explanation ? `<div class="alert alert-info mt-2"><strong>Pembahasan:</strong> <span class="rt-content">${RichText.render(q.explanation)}</span></div>` : ''}
+      ${aiOk ? `<div class="ex-ai-row"><button type="button" class="btn btn-secondary btn-sm" data-ai-explain="${UI.esc(q.id)}" data-ai-correct="${g.auto ? (g.correct ? '1' : '0') : ''}">🤖 Tanya AI tentang soal ini</button>
+        <span class="muted small">${q.explanation ? 'Belum paham pembahasannya? AI menjelaskan langkah demi langkah.' : 'Belum ada pembahasan tutor — minta AI menjelaskan.'}</span></div>` : ''}
     </div>`;
+  }
+
+  /** Chat pembahasan satu soal (modal). Riwayat per soal tersimpan 7 hari. */
+  function openAiExplain(cbt, attempt, qid, correct) {
+    const q = DB.getQuestion(qid);
+    const user = global.Dashboard && Dashboard.currentUser;
+    if (!q || !user || !attempt || !attempt.submittedAt) return;
+    UI.modal.open('🤖 Pembahasan dengan AI', '<div id="exAiChat" class="aic-card"></div>', { fullscreenToggle: true, fullKey: 'ex-ai' });
+    AIChat.mount(document.getElementById('exAiChat'), user, {
+      kind: 'cbt', ref: 'cbt:' + attempt.id + ':' + q.id, compact: true,
+      title: 'Pembahasan soal', icon: '🧠', subtitle: cbt.title, temperature: 0.4, maxTokens: 1800,
+      placeholder: 'Tanyakan bagian yang belum kamu pahami…',
+      intro: 'Saya sudah membaca soal, kunci jawaban, jawabanmu, dan pembahasan tutor. Bagian mana yang ingin dijelaskan?',
+      suggestions: ['Jelaskan pembahasan soal ini langkah demi langkah.', 'Kenapa jawabanku salah?', 'Beri satu soal latihan yang mirip.'],
+      context: () => AIContext.forCbtQuestion(user, cbt, q, attempt, correct === '1' ? true : correct === '0' ? false : null)
+    });
   }
 
   global.Exam = { start, showResult, cleanup, gradeQuestion, askConfirm };

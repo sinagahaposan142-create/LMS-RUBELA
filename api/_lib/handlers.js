@@ -469,7 +469,7 @@ async function sync(db, req, body) {
     return { ok: true, reset: true, now, me: publicUser(user), viewSig: viewSig(user), applied, rejected, nudge };
   }
   const pulled = await fetchPull(db, ctx, metaRows, cursor, full, full && cursor === 0 ? verNow : snap);
-  if (Math.random() < 0.02) housekeeping(db, now).catch(() => {});
+  if (Math.random() < 0.02) housekeeping(db, now).then(() => pruneAiChats(db, now)).catch(() => {});
   return {
     ok: true, now, cursor: pulled.cursor, more: pulled.more, snap: full ? (cursor === 0 ? verNow : snap) : 0,
     records: pulled.records, applied, rejected, nudge,
@@ -789,12 +789,15 @@ async function callAiProvider(c, payload, timeoutMs, plain) {
   }
 }
 
+/** Batas ukuran permintaan AI agar satu panggilan tidak menghabiskan kuota/memori. */
+const AI_MAX_PAYLOAD = 400000;
+
 async function aiProxy(db, req, body) {
   const { user } = await requireUser(db, req);
   const now = Date.now();
   const key = 'ai:' + user.id;
   const st = await security.throttleState(db, key, now);
-  if (st.lockedFor > 0) return { ok: true, status: 429, data: { error: { message: 'Batas permintaan AI tercapai.' } } };
+  if (st.lockedFor > 0) return { ok: true, status: 429, data: { error: { message: 'Batas permintaan AI tercapai. Tunggu 2 menit.' } } };
   await security.throttleFail(db, key, { limit: 60, windowMs: 10 * 60000, lockMs: 2 * 60000 }, now);
   const s = await store.readSettings(db, aiProviders.SETTING_KEYS);
   // Uji koneksi (admin saja): satu penyedia tertentu, boleh memakai kunci yang belum disimpan.
@@ -803,31 +806,86 @@ async function aiProxy(db, req, body) {
   if (s.aiEnabled === false && !isTest) return { ok: false, code: 'disabled', error: 'Fitur AI sedang dimatikan oleh admin pada menu Pengaturan.' };
   const payload = body.payload && typeof body.payload === 'object' ? body.payload : null;
   if (!payload || !Array.isArray(payload.contents)) throw bad('Permintaan AI tidak valid.');
+  if (JSON.stringify(payload).length > AI_MAX_PAYLOAD) return { ok: false, code: 'toolarge', error: 'Permintaan AI terlalu panjang. Perpendek pertanyaan atau mulai percakapan baru.' };
+  // Mode gabungan: pengaturan admin; klien boleh menurunkan ke "single" (fitur ringan),
+  // dan admin/tutor boleh meminta "ensemble" bila minimal 2 penyedia siap.
+  let mode = aiProviders.modeOf(s);
+  if (body.mode === 'single') mode = 'single';
+  else if (body.mode === 'ensemble' && (user.role === 'admin' || user.role === 'guru')) mode = 'ensemble';
   const chain = isTest
     ? aiProviders.chain(s, { only: str(body.provider, 30), key: testKey && testKey !== MASK ? testKey : '', model: str(body.model, 120), endpoint: str(body.endpoint, 300) })
-    : aiProviders.chain(s);
+    : aiProviders.chain(s, { all: mode === 'ensemble' });
   if (!chain.length) {
     return { ok: false, code: 'nokey', error: isTest ? 'Kunci API/endpoint penyedia ini belum diisi atau tidak valid.'
       : 'Kunci API AI belum diisi. Admin dapat menambahkannya di Pengaturan → Integrasi AI.' };
   }
   const perCall = Math.min(AI_DEADLINE_MS, Math.max(5000, Number(s.aiTimeoutMs) || 30000));
-  const start = Date.now();
-  const tried = [];
-  let last = null;
-  for (const c of chain) {
-    const left = AI_DEADLINE_MS - (Date.now() - start);
-    if (tried.length && left < 6000) break;          // sisakan waktu agar fungsi server tidak terputus
-    let r = await callAiProvider(c, payload, Math.min(perCall, left), false);
-    if (!r.ok && r.retryPlain) r = await callAiProvider(c, payload, Math.min(perCall, Math.max(4000, AI_DEADLINE_MS - (Date.now() - start))), true);
-    tried.push(c.id);
-    if (r.ok && !aiProviders.shouldFallback(r)) {
-      return { ok: true, status: r.status, data: r.data, provider: c.id, model: c.model, tried };
-    }
-    last = { r, c };
+  const out = await aiProviders.run(chain, payload, {
+    call: callAiProvider, mode: isTest ? 'single' : mode, size: aiProviders.ensembleSize(s),
+    deadlineMs: AI_DEADLINE_MS, perCallMs: perCall
+  });
+  if (Math.random() < 0.15) pruneAiChats(db, Date.now()).catch(() => {});
+  const r = out.r;
+  const meta = { tried: out.tried, ensemble: out.ensemble || null };
+  if (r && r.ok && !aiProviders.shouldFallback(r)) {
+    return Object.assign({ ok: true, status: r.status, data: r.data, provider: out.c.id, model: out.c.model }, meta);
   }
-  const r = last ? last.r : null;
-  if (r && r.code) return { ok: false, code: r.code, error: r.error, provider: last.c.id, tried };
-  return { ok: true, status: r ? r.status : 502, data: r ? r.data : null, provider: last ? last.c.id : '', tried };
+  if (r && r.code) return Object.assign({ ok: false, code: r.code, error: r.error, provider: out.c ? out.c.id : '' }, meta);
+  return Object.assign({ ok: true, status: r ? r.status : 502, data: r ? r.data : null, provider: out.c ? out.c.id : '' }, meta);
+}
+
+/** Daftar model sebuah penyedia (admin saja) — membantu memilih nama model yang benar. */
+async function aiModels(db, req, body) {
+  const { user } = await requireUser(db, req);
+  if (user.role !== 'admin') throw forbidden('Hanya admin yang dapat melihat daftar model.');
+  const id = str(body.provider, 30);
+  if (!aiProviders.PROVIDERS[id]) throw bad('Penyedia tidak dikenal.');
+  const s = await store.readSettings(db, aiProviders.SETTING_KEYS);
+  const testKey = str(body.testKey, 300).trim();
+  const list = aiProviders.chain(s, { only: id, key: testKey && testKey !== MASK ? testKey : '', model: 'x', endpoint: str(body.endpoint, 300) });
+  if (!list.length) return { ok: false, code: 'nokey', error: 'Isi kunci API (dan Base URL untuk gateway) terlebih dahulu.' };
+  const c = list[0];
+  const def = aiProviders.listModelsRequest(c);
+  if (!def.url) return { ok: false, code: 'noendpoint', error: 'Base URL tidak valid.' };
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 15000);
+  try {
+    const res = await fetch(def.url, { method: 'GET', headers: def.headers, signal: ctrl.signal });
+    let data = null;
+    try { data = await res.json(); } catch (e) { data = null; }
+    if (res.status < 200 || res.status >= 300) {
+      const msg = data && data.error ? (data.error.message || String(data.error)) : (data && data.message) || ('HTTP ' + res.status);
+      return { ok: false, code: 'http', status: res.status, error: String(msg).slice(0, 300) };
+    }
+    return { ok: true, models: aiProviders.parseModels(c, data) };
+  } catch (e) {
+    return { ok: false, code: e && e.name === 'AbortError' ? 'timeout' : 'network', error: `Server tidak dapat menghubungi ${c.label}.` };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/* Riwayat chat AI disimpan maksimal 7 hari sejak pesan terakhir. Utas yang
+ * kedaluwarsa dihapus di server (tombstone) agar ikut terhapus di semua
+ * perangkat, termasuk milik pengguna yang tidak membuka LMS lagi. */
+const AI_CHAT_TTL_MS = 7 * 86400000;
+async function pruneAiChats(db, now) {
+  const cutoff = now - AI_CHAT_TTL_MS;
+  const { tx, rows } = await db.begin([
+    "UPDATE meta SET value = value WHERE name = 'ver'",
+    "SELECT CAST(value AS INTEGER) AS v FROM meta WHERE name = 'ver'",
+    { sql: "SELECT id FROM kv WHERE k = 'lms_ai_chats' AND v IS NOT NULL AND COALESCE(CAST(json_extract(v, '$.updatedAt') AS INTEGER), 0) < ? LIMIT 300", args: [cutoff] }
+  ]);
+  const ids = rows[2].map(r => r.id);
+  if (!ids.length) { await tx.rollback(); return 0; }
+  let ver = Number(rows[1][0] && rows[1][0].v) || 0;
+  const stmts = ids.map(id => {
+    ver++;
+    return { sql: "UPDATE kv SET v = NULL, ver = ?, updated_at = ?, updated_by = 'system' WHERE k = 'lms_ai_chats' AND id = ?", args: [ver, now, id] };
+  });
+  stmts.push({ sql: "UPDATE meta SET value = ? WHERE name = 'ver'", args: [String(ver)] });
+  await tx.commit(stmts);
+  return ids.length;
 }
 
 async function agentProxy(db, req, body) {
@@ -857,6 +915,6 @@ async function agentProxy(db, req, body) {
 
 module.exports = {
   HttpError, health, login, quizAnswer, register, logout, verify, sync,
-  blobPut, blobGet, blobDel, aiProxy, agentProxy,
-  _internals: { normalizeChanges, mergeChange, viewSig, publicUser }
+  blobPut, blobGet, blobDel, aiProxy, aiModels, agentProxy,
+  _internals: { normalizeChanges, mergeChange, viewSig, publicUser, pruneAiChats }
 };

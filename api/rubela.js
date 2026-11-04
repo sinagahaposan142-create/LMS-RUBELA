@@ -3,7 +3,7 @@
  * Satu-satunya Vercel Function LMS Rubela: /api/rubela
  *   GET  /api/rubela?action=health          → status server & database
  *   POST /api/rubela {action: ...}          → login, quiz, register, logout,
- *        verify, sync, blob_put, blob_get, blob_del, ai, agent
+ *        verify, sync, blob_put, blob_get, blob_del, ai, ai_models, agent
  * Database: Turso (env TURSO_DATABASE_URL + TURSO_AUTH_TOKEN).
  * ===================================================================*/
 const store = require('./_lib/store');
@@ -12,7 +12,7 @@ const h = require('./_lib/handlers');
 const PUBLIC = { health: h.health };
 const ACTIONS = {
   login: h.login, quiz: h.quizAnswer, register: h.register, logout: h.logout, verify: h.verify,
-  sync: h.sync, blob_put: h.blobPut, blob_get: h.blobGet, blob_del: h.blobDel, ai: h.aiProxy, agent: h.agentProxy
+  sync: h.sync, blob_put: h.blobPut, blob_get: h.blobGet, blob_del: h.blobDel, ai: h.aiProxy, ai_models: h.aiModels, agent: h.agentProxy
 };
 
 async function readBody(req) {

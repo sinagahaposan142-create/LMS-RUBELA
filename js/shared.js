@@ -1226,82 +1226,22 @@
       const box = document.getElementById('aiContent');
       const stats = DB.studentSubtestStats(user.id);
       const weak = stats.filter(s => s.avg != null).slice(0, 3);
-      const courseNames = courses.map(c => DB.courseTitle(c)).join(', ') || 'belum ada kelas';
-
-      box.innerHTML = `
-        <div class="card">
-          <div class="card-header">${UI.secHead('🧠', 'AI Guru — Asisten Belajar', 'Ditenagai ' + UI.esc(AI.providerLabel()))}</div>
-          ${AI.noticeHtml(user)}
-          <div class="chat-messages" id="aiChatBox" style="height:320px;overflow-y:auto;background:var(--gray-50);border-radius:var(--radius-sm);padding:16px;margin-bottom:12px;">
-            <div class="chat-bubble received">
-              <div class="chat-text">Halo ${UI.esc(user.name)}! Saya AI Guru. Tanyakan materi apa saja —
-              konsep, contoh soal, atau strategi UTBK. ${weak.length
-                ? `Dari hasil CBT-mu, subtest yang paling perlu dikuatkan saat ini adalah <strong>${UI.esc(weak[0].short)}</strong> (rata-rata ${weak[0].avg}).`
-                : 'Kerjakan beberapa CBT dulu agar saya bisa memberi saran yang lebih terarah.'}</div>
-            </div>
-          </div>
-          <div class="chat-input-box" style="border:none;padding:0;">
-            <input id="aiGuruInput" placeholder="Ketik pertanyaan..." ${AI.ready() ? '' : 'disabled'} />
-            <button class="btn btn-primary btn-sm" id="aiGuruSend" ${AI.ready() ? '' : 'disabled'}>Tanya</button>
-          </div>
-        </div>`;
-
-      const sys = [
-        'Kamu adalah "AI Guru", tutor UTBK berbahasa Indonesia pada aplikasi LMS Rubela.',
-        'Jawab ringkas, terstruktur, dan mudah dipahami siswa SMA. Gunakan poin-poin bila perlu.',
-        'Jika pertanyaan berupa soal, tuntun langkah penyelesaiannya, jangan hanya memberi jawaban akhir.',
-        'Jangan pernah mengarang data nilai siswa. Jawab hanya sebatas materi pelajaran.',
-        `Konteks siswa: nama ${user.name}; kelas yang diikuti: ${courseNames}.`,
-        weak.length
-          ? `Rata-rata skor per subtest (terlemah lebih dulu): ${weak.map(w => `${w.short} ${w.avg}`).join(', ')}.`
-          : 'Siswa belum punya riwayat skor CBT.',
-        user.targetUniv ? `Target kuliah: ${user.targetUniv}${user.targetMajor ? ' — ' + user.targetMajor : ''}.` : ''
-      ].filter(Boolean).join(' ');
-
-      // Riwayat percakapan supaya AI mengerti konteks lanjutan.
-      const turns = [];
-      let busy = false;
-
-      const send = async () => {
-        const input = document.getElementById('aiGuruInput');
-        const btn = document.getElementById('aiGuruSend');
-        const q = input.value.trim();
-        if (!q || busy) return;
-        if (!AI.ready()) { UI.toast('Fitur AI belum aktif. Hubungi admin.', 'error'); return; }
-
-        const chatBox = document.getElementById('aiChatBox');
-        chatBox.insertAdjacentHTML('beforeend',
-          `<div class="chat-bubble sent"><div class="chat-text">${UI.esc(q)}</div></div>`);
-        input.value = '';
-        chatBox.scrollTop = chatBox.scrollHeight;
-
-        busy = true;
-        input.disabled = true;
-        btn.disabled = true;
-        const holder = document.createElement('div');
-        holder.className = 'chat-bubble received';
-        holder.innerHTML = `<div class="chat-text">${AI.loadingHtml('AI Guru sedang menjawab…')}</div>`;
-        chatBox.appendChild(holder);
-        chatBox.scrollTop = chatBox.scrollHeight;
-
-        turns.push({ role: 'user', text: q });
-        try {
-          const ans = await AI.chat(turns.slice(-10), { system: sys, temperature: 0.6, maxTokens: 1200 });
-          turns.push({ role: 'model', text: ans });
-          holder.innerHTML = `<div class="chat-text ai-answer">${AI.renderMarkdown(ans)}</div>`;
-        } catch (e) {
-          turns.pop();
-          holder.innerHTML = `<div class="chat-text">${AI.errorHtml(e)}</div>`;
-        } finally {
-          busy = false;
-          input.disabled = false;
-          btn.disabled = false;
-          chatBox.scrollTop = chatBox.scrollHeight;
-          input.focus();
-        }
-      };
-      document.getElementById('aiGuruSend').addEventListener('click', send);
-      document.getElementById('aiGuruInput').addEventListener('keydown', (e) => { if (e.key === 'Enter') send(); });
+      box.innerHTML = '<div class="card aic-card" id="aiGuruChat"></div>';
+      // Percakapan tersimpan (7 hari) & tersinkron; konteks siswa dibaca ulang setiap pertanyaan.
+      AIChat.mount(document.getElementById('aiGuruChat'), user, {
+        kind: 'tutor', title: 'AI Guru — Asisten Belajar', icon: '🧠', temperature: 0.6, maxTokens: 1600,
+        placeholder: 'Tanyakan materi, contoh soal, atau strategi UTBK…',
+        intro: `Halo ${UI.esc(String(user.name || '').split(' ')[0])}! Saya AI Guru. Tanyakan materi apa saja —
+          konsep, contoh soal, atau strategi UTBK. ${weak.length
+            ? `Dari hasil CBT-mu, subtest yang paling perlu dikuatkan saat ini adalah <strong>${UI.esc(weak[0].short)}</strong> (rata-rata ${weak[0].avg}).`
+            : 'Kerjakan beberapa CBT dulu agar saya bisa memberi saran yang lebih terarah.'}`,
+        suggestions: [
+          weak.length ? `Jelaskan strategi mengerjakan soal ${weak[0].short} dengan cepat.` : 'Bagaimana cara memulai persiapan UTBK dari nol?',
+          'Buatkan jadwal belajar 7 hari berdasarkan kelemahanku.',
+          'Beri 3 soal latihan Penalaran Umum beserta pembahasannya.'
+        ],
+        context: () => AIContext.forStudent(user)
+      });
     }
 
     /**

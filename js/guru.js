@@ -46,6 +46,7 @@
     if (section === 'feedback') return Shared.renderFeedback(container, user);
     if (section === 'chat') return Shared.renderChat(container, user);
     if (section === 'online') return Presence.renderPanel(container, user);
+    if (section === 'ai-asisten') return AIChat.renderAssistant(container, user);
     if (section === 'ai-analytics') return Shared.renderAiAnalytics(container, user);
     if (section === 'keuangan') return renderHonorSection(container, user);
     if (section === 'profile') return renderProfile(container, user);
@@ -766,7 +767,7 @@
         ${(() => { const st = DB.getSettings(); const AP = window.AIProviders; const cur = AP.primaryId(st); const p = AP.PROVIDERS[cur];
           return `<div class="form">
           <div class="form-group"><label for="guruAiProv">Penyedia AI</label>
-            <select id="guruAiProv">${AP.ORDER.filter(id => id !== 'custom').map(id => `<option value="${id}" ${id === cur ? 'selected' : ''}>${UI.esc(AP.PROVIDERS[id].label)}</option>`).join('')}</select>
+            <select id="guruAiProv">${AP.ORDER.filter(id => !AP.PROVIDERS[id].endpointSetting && AP.PROVIDERS[id].defaultModel).map(id => `<option value="${id}" ${id === cur ? 'selected' : ''}>${UI.esc(AP.PROVIDERS[id].label)}</option>`).join('')}</select>
             <div class="muted small" id="guruAiNote">${UI.esc(p.note)}</div></div>
           <div class="form-group"><label for="guruGeminiKey">Kunci API</label>
             <div class="flex-gap"><input id="guruGeminiKey" type="password" autocomplete="off" value="${UI.esc(st[p.keySetting] || '')}" style="flex:1" />

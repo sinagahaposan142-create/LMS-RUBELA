@@ -1,0 +1,7 @@
+{
+  "functions": {
+    "api/rubela.js": {
+      "maxDuration": 60
+    }
+  }
+}

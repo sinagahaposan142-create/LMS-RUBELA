@@ -4,10 +4,11 @@
  * Dipakai bersama oleh panel admin, tutor, siswa, dan orang tua supaya
  * perilaku AI identik di seluruh aplikasi.
  *
- * Penyedia: Google Gemini, Groq, Mistral AI, OpenRouter, atau endpoint
- * kompatibel OpenAI (lihat js/ai-providers.js). Bila penyedia utama gagal
- * (kuota habis, kunci salah, server/jaringan bermasalah) penyedia lain
- * yang kuncinya terisi dicoba otomatis.
+ * Penyedia: Gemini, Groq, Mistral, OpenRouter, DeepSeek, Kimi, SiliconFlow,
+ * Meta Muse, dan gateway kompatibel OpenAI (lihat js/ai-providers.js).
+ * Mode "single": penyedia utama, lalu cadangan bila gagal.
+ * Mode "ensemble": beberapa AI menjawab bersamaan, lalu satu AI "juri"
+ * memeriksa dan menyusun satu jawaban terbaik.
  *
  * CATATAN KEAMANAN — PENTING
  * Kunci API TIDAK boleh ditulis di dalam kode dan tidak boleh ikut
@@ -34,7 +35,8 @@
   function settings() { return (global.DB && DB.getSettings) ? DB.getSettings() : {}; }
   function cfg() {
     const s = settings();
-    const chain = P() ? P().chain(s) : [];
+    const mode = P() ? P().modeOf(s) : 'single';
+    const chain = P() ? P().chain(s, { all: mode === 'ensemble' }) : [];
     const primary = P() ? P().primaryId(s) : 'gemini';
     return {
       enabled: s.aiEnabled !== false,
@@ -43,6 +45,13 @@
       key: chain.length ? chain[0].key : String(s.geminiApiKey || '').trim(),
       model: chain.length ? chain[0].model : (String(s.geminiModel || DEFAULT_MODEL).trim() || DEFAULT_MODEL),
       fallback: s.aiFallback !== false,
+      mode,
+      ensembleSize: P() ? P().ensembleSize(s) : 3,
+      /** Mode gabungan benar-benar aktif (≥ 2 penyedia siap). */
+      ensembleActive: mode === 'ensemble' && chain.length >= 2,
+      /** Penyedia siap yang bisa ikut mode gabungan (untuk pilihan per-pesan admin/tutor). */
+      ensemblePossible: (P() ? P().chain(s, { all: true }) : []).length >= 2,
+      pseudonymize: s.aiPseudonymize !== false,
       timeout: Number(s.aiTimeoutMs) > 0 ? Number(s.aiTimeoutMs) : DEFAULT_TIMEOUT,
       tfKey: String(s.tinyfishApiKey || '').trim(),
       tfEndpoint: String(s.tinyfishEndpoint || '').trim()
@@ -56,11 +65,22 @@
   function ready() { const c = cfg(); return !!(c.enabled && c.providers.length); }
   /** Apakah Agent API (TinyFish) siap dipakai. */
   function agentReady() { const c = cfg(); return !!(c.enabled && c.tfKey && c.tfEndpoint); }
+  function labelOf(id) { const p = P() && P().PROVIDERS[id]; return p ? p.label : (id || 'AI'); }
   /** Nama penyedia (utama, atau yang terakhir menjawab) untuk label "Ditenagai …". */
   function providerLabel(which) {
-    const id = which === 'last' && lastUsed ? lastUsed.provider : cfg().provider;
-    const p = P() && P().PROVIDERS[id];
-    return p ? p.label : 'AI';
+    if (which === 'last' && lastUsed) return describeUsed(lastUsed);
+    const c = cfg();
+    if (c.ensembleActive) return `Gabungan ${Math.min(c.ensembleSize, c.providers.length)} AI`;
+    return labelOf(c.provider);
+  }
+  /** Keterangan singkat penyedia yang menjawab, mis. "Gabungan: Gemini + Groq (juri Gemini)". */
+  function describeUsed(u) {
+    if (!u) return 'AI';
+    const e = u.ensemble;
+    if (e && e.answered && e.answered.length > 1) {
+      return `Gabungan ${e.answered.length} AI: ${e.answered.map(labelOf).join(' + ')}${e.judge ? ` • disusun ${labelOf(e.judge)}` : ''}`;
+    }
+    return labelOf(u.provider) + (u.model ? ` (${u.model})` : '');
   }
 
   function err(code, message) {
@@ -83,10 +103,37 @@
     } catch (e) {
       const to = e && e.name === 'AbortError';
       return { ok: false, code: to ? 'timeout' : 'network',
-        error: to ? 'Permintaan ke AI melebihi batas waktu. Coba lagi atau perpendek pertanyaan.' : `Tidak dapat menghubungi ${c.label}. Periksa koneksi internet Anda.` };
+        error: to ? 'Permintaan ke AI melebihi batas waktu. Coba lagi atau perpendek pertanyaan.' : `Tidak dapat menghubungi ${c.label}. Periksa koneksi internet (atau penyedia ini memblokir akses langsung dari browser).` };
     } finally {
       if (timer) clearTimeout(timer);
     }
+  }
+
+  /** Terjemahkan status/pesan galat penyedia menjadi pesan yang jelas bagi pengguna. */
+  function httpError(status, data, label, model) {
+    const e = data && data.error ? data.error : {};
+    const msg = e.message || ('HTTP ' + status);
+    const gst = String(e.status || '');
+    if (/api[_ ]?key|API_KEY_INVALID|invalid.*key|incorrect.*key|key.*invalid/i.test(msg) && (status === 400 || status === 401 || status === 403)) {
+      return err('badkey', `Kunci API ${label} tidak valid. Salin ulang kunci (tanpa spasi) di Pengaturan → Integrasi AI.`);
+    }
+    if (status === 404 || /not found|does not exist|unknown model|model.*not.*(exist|support|found)/i.test(msg)) {
+      return err('model', `Model "${model || '?'}" tidak tersedia di ${label}. Gunakan tombol "Ambil daftar model" di Pengaturan → Integrasi AI lalu pilih model yang ada.`);
+    }
+    if (/location is not supported|User location|FAILED_PRECONDITION/i.test(msg + ' ' + gst)) {
+      return err('region', `${label} menolak permintaan dari lokasi server ini (wilayah tidak didukung). Gunakan penyedia lain sebagai utama atau aktifkan cadangan.`);
+    }
+    if (/PERMISSION_DENIED|SERVICE_DISABLED|has not been used|is disabled/i.test(msg + ' ' + gst)) {
+      return err('forbidden', `${label} menolak kunci ini: layanan belum diaktifkan atau kunci dibatasi. Buat kunci baru di dasbor penyedia (untuk Gemini: aistudio.google.com).`);
+    }
+    if (status === 401 || status === 403) return err('forbidden', `Kunci API ${label} ditolak (tidak punya izin). Pastikan kunci masih aktif.`);
+    if (status === 429) return err('quota', `Kuota permintaan ${label} sedang penuh. Tunggu sebentar, atau tambahkan penyedia cadangan di Pengaturan → Integrasi AI.`);
+    if (status === 402 || /insufficient.*(balance|credit|fund)|balance.*insufficient|billing|payment required/i.test(msg)) {
+      return err('billing', `Saldo/kredit ${label} habis atau belum diisi. Isi saldo di dasbor penyedia, atau gunakan penyedia lain.`);
+    }
+    if (status === 413) return err('toolarge', 'Permintaan terlalu panjang untuk batas penyedia AI. Perpendek teks atau mulai percakapan baru.');
+    if (status >= 500) return err('server', `Layanan ${label} sedang bermasalah (server). Coba lagi beberapa saat lagi.`);
+    return err('http', `Permintaan AI ke ${label} gagal: ${msg}`);
   }
 
   /* ---------------------------------------------------------------
@@ -96,6 +143,7 @@
    * Kirim percakapan ke AI.
    * @param {Array} turns  [{ role:'user'|'model', text:'...' }]
    * @param {object} opts  { system, temperature, maxTokens, json,
+   *                         mode:'single'|'ensemble' (opsional),
    *                         test:{ provider, key, model, endpoint } (uji koneksi admin) }
    * @returns {Promise<string>} teks jawaban
    */
@@ -118,6 +166,7 @@
     };
     if (o.system) body.systemInstruction = { parts: [{ text: String(o.system) }] };
     if (o.json) body.generationConfig.responseMimeType = 'application/json';
+    const mode = o.mode === 'single' || o.mode === 'ensemble' ? o.mode : null;
 
     let res;
     let data = null;
@@ -127,72 +176,97 @@
       try { await Sync.flush(); } catch (e) { /* tetap coba */ }
       let out;
       const req = { payload: body };
+      if (mode) req.mode = mode;
       if (test) Object.assign(req, { test: true, provider: test.provider, testKey: test.key || '', model: test.model || '', endpoint: test.endpoint || '' });
       try {
-        // Penyedia cadangan bisa dicoba berurutan di server — beri waktu lebih.
-        out = await Sync.api('ai', req, { timeout: Math.max(c.timeout + 10000, 62000) });
+        // Penyedia cadangan / mode gabungan berjalan di server — beri waktu lebih.
+        out = await Sync.api('ai', req, { timeout: Math.max(c.timeout + 12000, 66000) });
       } catch (e) {
         if (!e.status) throw err('network', 'Tidak dapat menghubungi server. Periksa koneksi internet Anda.');
+        if (e.status === 504) throw err('timeout', 'Server AI melebihi batas waktu. Coba lagi, atau gunakan mode satu AI untuk pertanyaan ini.');
         throw err('server', e.message || 'Server AI sedang bermasalah. Coba lagi.');
       }
       if (!out.ok) throw err(out.code || 'http', out.error || 'Permintaan AI gagal.');
       res = { ok: out.status >= 200 && out.status < 300, status: out.status };
       data = out.data;
-      used = out.provider ? { provider: out.provider, model: out.model || '' } : null;
+      used = out.provider ? { provider: out.provider, model: out.model || '', ensemble: out.ensemble || null } : null;
     } else {
       if (!P()) throw err('config', 'Modul penyedia AI belum termuat. Muat ulang halaman.');
       const s = settings();
-      const chain = test ? P().chain(s, { only: test.provider, key: test.key, model: test.model, endpoint: test.endpoint }) : P().chain(s);
-      if (!chain.length) throw err('nokey', 'Kunci API/endpoint penyedia AI belum diisi atau tidak valid.');
-      let last = null;
-      for (const pc of chain) {
-        let r = await callDirect(pc, body, c.timeout, false);
-        if (!r.ok && r.retryPlain) r = await callDirect(pc, body, c.timeout, true);
-        if (r.ok && !P().shouldFallback(r)) { last = { r, pc }; break; }
-        last = { r, pc };
-      }
-      const r = last.r;
+      let m = P().modeOf(s);
+      if (mode === 'single') m = 'single';
+      else if (mode === 'ensemble') m = 'ensemble';
+      const list = test ? P().chain(s, { only: test.provider, key: test.key, model: test.model, endpoint: test.endpoint })
+        : P().chain(s, { all: m === 'ensemble' });
+      if (!list.length) throw err('nokey', 'Kunci API/endpoint penyedia AI belum diisi atau tidak valid.');
+      const out = await P().run(list, body, {
+        call: callDirect, mode: test ? 'single' : m, size: P().ensembleSize(s),
+        deadlineMs: Math.max(60000, c.timeout * 2), perCallMs: c.timeout
+      });
+      const r = out.r;
+      if (!r) throw err('nokey', 'Tidak ada penyedia AI yang dapat dipanggil.');
       if (r.code) throw err(r.code, r.error);
       res = { ok: r.ok, status: r.status };
       data = r.data;
-      used = { provider: last.pc.id, model: last.pc.model };
+      used = { provider: out.c.id, model: out.c.model, ensemble: out.ensemble || null };
     }
     if (used) lastUsed = used;
-    const label = used && P() && P().PROVIDERS[used.provider] ? P().PROVIDERS[used.provider].label : 'AI';
+    const label = used ? labelOf(used.provider) : 'AI';
 
-    if (!res.ok) {
-      const msg = (data && data.error && data.error.message) ? data.error.message : ('HTTP ' + res.status);
-      if (res.status === 400 && /api key|API_KEY/i.test(msg)) {
-        throw err('badkey', `Kunci API ${label} tidak valid. Periksa kembali di Pengaturan → Integrasi AI.`);
-      }
-      if (res.status === 401 || res.status === 403) {
-        throw err('forbidden', `Kunci API ${label} ditolak (tidak punya izin). Pastikan kunci masih aktif.`);
-      }
-      if (res.status === 413) {
-        throw err('toolarge', 'Permintaan terlalu panjang untuk batas penyedia AI gratis. Perpendek teks atau tambahkan penyedia cadangan.');
-      }
-      if (res.status === 429) {
-        throw err('quota', `Kuota permintaan ${label} sedang penuh. Tunggu sebentar, atau tambahkan penyedia cadangan di Pengaturan → Integrasi AI.`);
-      }
-      if (res.status >= 500) {
-        throw err('server', `Layanan ${label} sedang bermasalah (server). Coba lagi beberapa saat lagi.`);
-      }
-      throw err('http', 'Permintaan AI gagal: ' + msg);
-    }
+    if (!res.ok) throw httpError(res.status, data, label, used && used.model);
 
     if (data && data.promptFeedback && data.promptFeedback.blockReason) {
-      throw err('blocked', 'Permintaan ditolak oleh filter keamanan AI (' + data.promptFeedback.blockReason + ').');
+      throw err('blocked', 'Permintaan ditolak oleh filter keamanan AI (' + data.promptFeedback.blockReason + '). Ubah kalimat pertanyaan.');
     }
     const cand = data && data.candidates && data.candidates[0];
     const parts = cand && cand.content && cand.content.parts;
-    const text = (parts || []).map(p => p && p.text ? p.text : '').join('').trim();
+    const text = (parts || []).map(p => p && p.text && !p.thought ? p.text : '').join('').trim();
     if (!text) {
-      if (cand && cand.finishReason === 'MAX_TOKENS') {
-        throw err('truncated', 'Jawaban AI terpotong karena terlalu panjang. Coba pertanyaan yang lebih spesifik.');
+      const fr = cand && cand.finishReason;
+      if (fr === 'MAX_TOKENS') throw err('truncated', 'Jawaban AI terpotong karena batas panjang. Coba pertanyaan yang lebih spesifik.');
+      if (/SAFETY|RECITATION|PROHIBITED|BLOCKLIST|SPII/.test(String(fr || ''))) {
+        throw err('blocked', 'Jawaban ditahan oleh filter keamanan penyedia AI. Ubah kalimat pertanyaan.');
       }
       throw err('empty', 'AI tidak memberikan jawaban. Coba ulangi dengan kalimat berbeda.');
     }
     return text;
+  }
+
+  /**
+   * Daftar model penyedia (admin, Pengaturan). Memakai kunci yang sedang
+   * diketik bila ada, sehingga bisa dicek sebelum disimpan.
+   * @returns {Promise<string[]>}
+   */
+  async function listModels(provider, key, endpoint) {
+    if (!P() || !P().PROVIDERS[provider]) throw err('config', 'Penyedia tidak dikenal.');
+    if (viaServer()) {
+      let out;
+      try { out = await Sync.api('ai_models', { provider, testKey: key || '', endpoint: endpoint || '' }, { timeout: 25000 }); }
+      catch (e) { throw err(e.status ? 'server' : 'network', e.message || 'Tidak dapat menghubungi server.'); }
+      if (!out.ok) {
+        if (out.status) throw httpError(out.status, { error: { message: out.error } }, labelOf(provider), '');
+        throw err(out.code || 'http', out.error || 'Gagal mengambil daftar model.');
+      }
+      return out.models || [];
+    }
+    const list = P().chain(settings(), { only: provider, key, model: 'x', endpoint });
+    if (!list.length) throw err('nokey', 'Isi kunci API (dan Base URL untuk gateway) terlebih dahulu.');
+    const c = list[0];
+    const def = P().listModelsRequest(c);
+    const ctrl = (typeof AbortController !== 'undefined') ? new AbortController() : null;
+    const timer = ctrl ? setTimeout(() => ctrl.abort(), 15000) : null;
+    try {
+      const res = await fetch(def.url, { headers: def.headers, signal: ctrl ? ctrl.signal : undefined });
+      let data = null;
+      try { data = await res.json(); } catch (e) { data = null; }
+      if (!res.ok) throw httpError(res.status, data && data.error ? data : { error: { message: (data && data.message) || ('HTTP ' + res.status) } }, c.label, '');
+      return P().parseModels(c, data);
+    } catch (e) {
+      if (e && e.code) throw e;
+      throw err(e && e.name === 'AbortError' ? 'timeout' : 'network', `Tidak dapat menghubungi ${c.label} dari browser ini.`);
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
   }
 
   /** Pertanyaan tunggal. */
@@ -205,7 +279,7 @@
    * Tetap tahan terhadap jawaban yang dibungkus ```json ... ```.
    */
   async function askJson(prompt, opts) {
-    const raw = await ask(prompt, Object.assign({ json: true, temperature: 0.3 }, opts || {}));
+    const raw = await ask(prompt, Object.assign({ json: true, temperature: 0.3, mode: 'single' }, opts || {}));
     return parseJson(raw);
   }
 
@@ -329,7 +403,7 @@
     const isAdmin = user && user.role === 'admin';
     const why = !c.enabled
       ? 'Fitur AI sedang dimatikan pada menu Pengaturan.'
-      : 'Kunci API AI (Gemini, Groq, Mistral, atau OpenRouter) belum diisi.';
+      : 'Belum ada kunci API AI yang diisi.';
     let how;
     if (isAdmin) how = ' Buka <strong>Pengaturan → Integrasi AI</strong> untuk memilih penyedia dan memasukkan kunci API.';
     else if (user && user.role === 'guru') {
@@ -410,9 +484,9 @@
   }
 
   global.AI = {
-    cfg, ready, agentReady, providerLabel,
+    cfg, ready, agentReady, providerLabel, describeUsed, labelOf,
     lastUsed: () => lastUsed,
-    chat, ask, askJson, parseJson,
+    chat, ask, askJson, parseJson, listModels,
     agentExtract, normalizeRows,
     noticeHtml, loadingHtml, errorHtml, renderMarkdown, toPlain,
     DEFAULT_MODEL
