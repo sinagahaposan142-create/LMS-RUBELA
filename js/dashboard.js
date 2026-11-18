@@ -43,6 +43,7 @@
         { key: 'feedback', label: 'Kritik & Saran', icon: '💬', group: 'Komunikasi' },
         { key: 'keuangan', label: 'Keuangan', icon: '💰', group: 'Operasional' },
         { key: 'musik', label: 'Musik Latar', icon: '🎵', group: 'Operasional' },
+        { key: 'tema-hari-besar', label: 'Tema Hari Besar', icon: '🎉', group: 'Operasional' },
         { key: 'ai-asisten', label: 'Asisten AI', icon: '💬', group: 'Sistem & AI' },
         { key: 'ai-analytics', label: 'AI Analytics', icon: '🤖', group: 'Sistem & AI' },
         { key: 'agent-web', label: 'Agent Web', icon: '🌐', group: 'Sistem & AI' },
@@ -338,6 +339,10 @@
           Terjadi kesalahan saat membuka halaman ini. Silakan coba lagi.</div>
           <p class="muted small">${UI.esc(err.message || String(err))}</p></div>`;
       }
+      // Tema hari besar: kartu ucapan di Overview, partikel hero, akhiri pratinjau admin.
+      if (window.HolidayTheme) {
+        try { HolidayTheme.onNavigate(key, content, user); } catch (e) { console.warn('[LMS] tema hari besar', e); }
+      }
 
       // Motion: replay the staggered entrance and wire up new nodes
       if (window.Effects) {
@@ -389,6 +394,7 @@
       renderBell();
       renderAvatar();
       if (keys.includes('lms_settings') && window.Branding) Branding.apply();
+      if (keys.includes('lms_settings') && window.HolidayTheme) HolidayTheme.refresh();
       if (keys.includes('lms_users')) {
         const fresh = DB.getUser(user.id);
         if (fresh) { document.getElementById('userName').textContent = fresh.name; }

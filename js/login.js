@@ -38,6 +38,8 @@
         document.querySelectorAll('.brand p:not(#sideRole)').forEach(el => { el.textContent = st.appTagline; });
         document.querySelectorAll('[data-app-name]').forEach(el => { el.textContent = st.appName; });
       }
+      // Tema hari besar untuk pengunjung yang belum masuk (database siap → ada h.branding).
+      if (h.branding && window.HolidayTheme) HolidayTheme.applyRemote(h.holiday);
       if (h.reachable && h.configured && h.ok === false) {
         showNote('Server sedang tidak dapat mengakses database. Coba beberapa saat lagi atau hubungi admin.', 'alert-warning');
       }

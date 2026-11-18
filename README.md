@@ -263,6 +263,15 @@ Hasil audit lengkap 23 poin permintaan beserta buktinya ada di
   *Benar/Salah Majemuk* dan *Majemuk Kompleks* dengan 2–8 kolom jawaban yang dapat diubah namanya
   (mis. Benar / Salah / Tidak dapat ditentukan). Soal Majemuk lama otomatis dibaca sebagai kolom Benar/Salah.
 
+### Tema Hari Besar Nasional (detail: `docs/TEMA-HARI-BESAR.md`)
+- Menu admin **Operasional → Tema Hari Besar**: 13 tema yang diaktifkan manual. Tersedia Tahun Baru, Imlek, Nyepi,
+  Idulfitri, Hardiknas, Kenaikan Yesus Kristus, Waisak, Iduladha, Hari Lahir Pancasila, Hari Anak Nasional,
+  17 Agustus, Hari Guru Nasional, dan Natal.
+- Setiap tema punya warna, ilustrasi, untaian, pola, partikel animasi, dan ucapan yang mencerminkan hari besarnya.
+  Teks ucapan menyesuaikan tahun (HUT RI ke-…, tahun Saka, Hijriah, Kongzili, BE).
+- Berlaku untuk semua peran dan perangkat, termasuk halaman masuk. Mendukung mode terang/gelap dan tampil tanpa kedipan.
+  Tersedia pratinjau lokal, ucapan kustom per tema, dan sakelar animasi/ucapan. Animasi mati saat ujian dan bila perangkat meminta "kurangi gerakan".
+
 ### Desain v4 — Modern Gen Z EdTech (detail: `docs/DESIGN-SYSTEM.md`)
 - Design system tunggal di `css/design-system.css`: token warna, tipografi (Plus Jakarta Sans), spasi, radius, bayangan, kontrol.
 - Sidebar berkelompok per kategori + mode ringkas, navigasi bawah di ponsel, aksi cepat di Overview tiap peran.

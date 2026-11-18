@@ -1376,6 +1376,13 @@
       musicAutoplay: true,
       /* ===== Ayat harian ===== */
       verseEnabled: true,
+      /* ===== Tema hari besar nasional (js/holiday-theme.js) =====
+       * Dipilih manual oleh admin; '' = tema bawaan. holidayMessages berisi
+       * ucapan kustom per tema: { natal: { title, text }, ... }. */
+      holidayTheme: '',
+      holidayEffects: true,
+      holidayBanner: true,
+      holidayMessages: {},
       examSecurityDefaults: {
         requireCamera: false, requireMic: false, fullscreen: true,
         blockTabSwitch: true, blockCopy: true, blockScreenshot: true,

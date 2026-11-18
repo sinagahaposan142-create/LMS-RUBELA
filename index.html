@@ -15,12 +15,21 @@
   <link rel="stylesheet" href="css/responsive.css" />
   <link rel="stylesheet" href="css/design-system.css" />
   <link rel="stylesheet" href="css/landing.css" />
-  <!-- Terapkan tema tersimpan sebelum paint pertama agar tidak berkedip -->
+  <link rel="stylesheet" href="css/holiday-themes.css" />
+  <!-- Terapkan tema tersimpan (terang/gelap + tema hari besar) sebelum paint pertama agar tidak berkedip -->
   <script>
     try {
       var _t = localStorage.getItem('lms_theme');
       if (!_t && window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) _t = 'dark';
       document.documentElement.setAttribute('data-theme', _t === 'dark' ? 'dark' : 'light');
+    } catch (e) { /* noop */ }
+    try {
+      var _h = JSON.parse(localStorage.getItem('lms_holiday_cache') || 'null');
+      if (_h && _h.v === 1 && /^[a-z][a-z-]{1,23}$/.test(_h.id) && _h.vars) {
+        var _r = document.documentElement;
+        for (var _k in _h.vars) if (/^--hd-[a-z0-9-]+$/.test(_k)) _r.style.setProperty(_k, String(_h.vars[_k]));
+        _r.setAttribute('data-holiday', _h.id);
+      }
     } catch (e) { /* noop */ }
   </script>
 </head>
@@ -331,6 +340,7 @@
   <script src="js/auth.js"></script>
   <script src="js/effects.js"></script>
   <script src="js/branding.js"></script>
+  <script src="js/holiday-theme.js"></script>
   <script src="js/responsive.js"></script>
   <script src="js/loginquiz.js"></script>
   <script src="js/login.js"></script>

@@ -1,0 +1,425 @@
+/* =========================================================================
+ * css/holiday-themes.css — Tema Hari Besar Nasional (js/holiday-theme.js)
+ * -------------------------------------------------------------------------
+ * Dimuat PALING AKHIR di index.html & dashboard.html. Semua aturan hanya
+ * berlaku saat <html data-holiday="…"> terpasang, sehingga tanpa tema
+ * tampilan bawaan tidak berubah sedikit pun.
+ *
+ * Variabel benih dipasang JS pada <html> (style inline):
+ *   --hd-1/2/3   warna utama/kedua/aksen   --hd-k1  warna utama mode gelap
+ *   --hd-h0/1/2  gradien hero              --hd-c0/c1/c2/--hd-cink  CTA
+ *   --hd-art, --hd-garland, --hd-pattern(-k), --hd-badge  gambar SVG
+ *   --hd-stripe  garis warna topbar/sidebar (opsional)
+ *   --hd-sky0/1, --hd-ksky0/1, --hd-ground0/1, --hd-kground0/1, --hd-orb,
+ *   --hd-korb, --hd-star, --hd-win0/1, --hd-flag  langit kampus halaman masuk
+ * Berkas ini memetakan benih itu ke token design system (terang & gelap).
+ *
+ *  1. Token dashboard     5. Kartu ucapan       9. Halaman admin
+ *  2. Komponen dashboard  6. Halaman masuk      10. Aksesibilitas & cetak
+ *  3. Hero sambutan       7. Pita ucapan
+ *  4. Partikel            8. Langit kampus
+ * ========================================================================= */
+
+/* ============================ 1. TOKEN DASHBOARD ============================ */
+html[data-holiday] {
+  --hd-1t: color-mix(in srgb, var(--hd-1) 9%, #ffffff);
+  --hd-1d: color-mix(in srgb, var(--hd-1) 80%, #000000);
+  --hd-kink: color-mix(in srgb, var(--hd-k1) 34%, #ffffff);
+  --hd-stripe-auto: linear-gradient(90deg, var(--hd-1), var(--hd-2) 55%, var(--hd-3));
+  --hd-hero: linear-gradient(125deg, var(--hd-h0) 0%, var(--hd-h1) 55%, var(--hd-h2) 118%);
+
+  --primary: var(--hd-1);
+  --primary-dark: var(--hd-1d);
+  --primary-light: var(--hd-1t);
+  --accent: var(--hd-2);
+  --brand-500: var(--hd-1);
+  --brand-600: var(--hd-1d);
+  --brand-50: var(--hd-1t);
+  --violet-500: var(--hd-2);
+  --pink-500: var(--hd-3);
+  --brand-grad: linear-gradient(135deg, var(--hd-1) 0%, var(--hd-2) 62%, var(--hd-3) 125%);
+  --brand-grad-soft: linear-gradient(135deg, color-mix(in srgb, var(--hd-1) 11%, transparent), color-mix(in srgb, var(--hd-3) 10%, transparent));
+  --ring: color-mix(in srgb, var(--hd-1) 18%, transparent);
+  --focus-ring: 0 0 0 3px var(--surface), 0 0 0 5px color-mix(in srgb, var(--hd-1) 55%, transparent);
+  --shadow-brand: 0 10px 24px -10px color-mix(in srgb, var(--hd-1) 60%, transparent);
+  --page-bg: color-mix(in srgb, var(--hd-1) 4%, #f6f7fb);
+}
+html[data-theme="dark"][data-holiday] {
+  --hd-1t: color-mix(in srgb, var(--hd-k1) 18%, transparent);
+  --hd-hero: linear-gradient(125deg, color-mix(in srgb, var(--hd-h0) 78%, #05070d) 0%,
+    color-mix(in srgb, var(--hd-h1) 74%, #05070d) 55%, color-mix(in srgb, var(--hd-h2) 70%, #05070d) 118%);
+
+  --primary: var(--hd-k1);
+  --primary-dark: var(--hd-kink);
+  --primary-light: color-mix(in srgb, var(--hd-k1) 22%, #121826);
+  --accent: color-mix(in srgb, var(--hd-2) 55%, #ffffff);
+  --brand-500: var(--hd-k1);
+  --brand-600: var(--hd-kink);
+  --brand-50: var(--hd-1t);
+  --brand-grad: linear-gradient(135deg, var(--hd-k1) 0%, var(--hd-2) 62%, var(--hd-3) 125%);
+  --ring: color-mix(in srgb, var(--hd-k1) 28%, transparent);
+  --focus-ring: 0 0 0 3px var(--surface), 0 0 0 5px color-mix(in srgb, var(--hd-k1) 72%, transparent);
+  --shadow-brand: 0 10px 24px -10px color-mix(in srgb, var(--hd-k1) 65%, transparent);
+  --page-bg: color-mix(in srgb, var(--hd-1) 7%, #0f1420);
+}
+
+/* ========================== 2. KOMPONEN DASHBOARD ========================== */
+html[data-holiday] ::selection { background: color-mix(in srgb, var(--brand-500) 24%, transparent); }
+
+/* Latar halaman: pola motif sangat samar (hanya di celah antar-kartu) */
+html[data-holiday] body.dash-body {
+  background-image: var(--hd-pattern);
+  background-size: 200px 200px;
+  background-attachment: fixed;
+}
+html[data-theme="dark"][data-holiday] body.dash-body { background-image: var(--hd-pattern-k); }
+
+/* Tombol utama: warna tema (menimpa warna indigo yang ditulis langsung) */
+html[data-holiday] .btn-primary { background: var(--brand-500); color: #fff; }
+html[data-holiday] .btn-primary:hover {
+  background: color-mix(in srgb, var(--brand-500) 86%, #000000); color: #fff;
+  box-shadow: 0 12px 26px -10px color-mix(in srgb, var(--brand-500) 70%, transparent);
+}
+html[data-theme="dark"][data-holiday] .btn-outline { color: var(--hd-kink); }
+html[data-holiday] .sec-head .sh-ic { border-color: color-mix(in srgb, var(--brand-500) 16%, transparent); }
+html[data-holiday] .class-chip.is-active { box-shadow: 0 10px 24px color-mix(in srgb, var(--primary) 32%, transparent); }
+html[data-holiday] .btn-secondary .ripple-dot,
+html[data-holiday] .btn .ripple-dot.dark,
+html[data-holiday] .ripple-host .ripple-dot.dark { background: color-mix(in srgb, var(--primary) 28%, transparent); }
+html[data-holiday] .course-banner:not(.v2):not(.v3):not(.v4) { background: linear-gradient(135deg, var(--hd-1), var(--hd-2)); }
+
+/* Navigasi aktif (sidebar, tab, navigasi bawah) */
+html[data-theme="dark"][data-holiday] .side-nav a.active { background: var(--hd-1t); color: var(--hd-kink); }
+html[data-theme="dark"][data-holiday] .tab-btn.active,
+html[data-theme="dark"][data-holiday] .subtab-btn.active { color: var(--hd-kink); }
+html[data-theme="dark"][data-holiday] .bottom-nav button.is-active { color: var(--hd-kink); }
+html[data-theme="dark"][data-holiday] .bottom-nav button.is-active .bn-ic { background: var(--hd-1t); }
+html[data-theme="dark"][data-holiday] .live-chip { background: var(--hd-1t); }
+
+/* Garis warna khas tema di tepi atas sidebar & tepi bawah topbar */
+html[data-holiday] .sidebar {
+  background-image: var(--hd-stripe, var(--hd-stripe-auto));
+  background-repeat: no-repeat;
+  background-size: 100% 4px;
+  background-position: top left;
+}
+html[data-holiday] .topbar {
+  background-image: var(--hd-stripe, var(--hd-stripe-auto));
+  background-repeat: no-repeat;
+  background-size: 100% 3px;
+  background-position: bottom left;
+}
+
+/* Lencana kecil bertema di sudut logo sidebar */
+html[data-holiday] .sidebar .brand-logo { position: relative; overflow: visible; }
+html[data-holiday] .sidebar .brand-logo::after {
+  content: ""; position: absolute; right: -7px; bottom: -7px; width: 22px; height: 22px; border-radius: 50%;
+  background: var(--surface) var(--hd-badge) center / 16px 16px no-repeat;
+  border: 1.5px solid var(--surface); box-shadow: 0 2px 6px rgba(15, 23, 42, .22); pointer-events: none;
+}
+
+/* ============================ 3. HERO SAMBUTAN ============================ */
+html[data-holiday] .welcome-hero:not(.bd-hero):not(.hub-hero) {
+  background: var(--hd-hero);
+  box-shadow: 0 22px 48px -20px color-mix(in srgb, var(--hd-h1) 62%, transparent);
+  padding-top: calc(clamp(20px, 3.2vw, 34px) + 18px);
+}
+/* Untaian (garland) di tepi atas */
+html[data-holiday] .welcome-hero:not(.bd-hero):not(.hub-hero)::before {
+  content: ""; position: absolute; left: 0; right: 0; top: 0; height: 34px; z-index: 1; pointer-events: none;
+  background: var(--hd-garland) 0 0 / auto 34px repeat-x;
+}
+/* Ilustrasi khas hari besar di sisi kanan */
+html[data-holiday] .welcome-hero:not(.bd-hero):not(.hub-hero)::after {
+  content: ""; position: absolute; inset: 0; z-index: 1; pointer-events: none;
+  background: var(--hd-art) right 2.5% bottom 0 / auto 90% no-repeat;
+}
+html[data-holiday] .welcome-hero:not(.bd-hero):not(.hub-hero) .blob.b2 { background: var(--hd-3); }
+html[data-holiday] .welcome-hero:not(.bd-hero):not(.hub-hero) .blob.b3 { background: var(--hd-2); }
+/* Layar sempit: ilustrasi diperkecil & dibuat samar agar teks tetap terbaca */
+@media (max-width: 760px) {
+  html[data-holiday] .welcome-hero:not(.bd-hero):not(.hub-hero)::after { opacity: .26; background-size: auto 74%; background-position: right -12px bottom 0; }
+}
+
+/* =============================== 4. PARTIKEL =============================== */
+.hd-fx { position: absolute; inset: 0; overflow: hidden; pointer-events: none; z-index: 1; contain: layout paint style; --fall: 320px; }
+.hd-p {
+  position: absolute; left: var(--x); top: calc(var(--s) * -1.6);
+  width: var(--s); height: var(--s); margin-left: calc(var(--s) / -2);
+  background: center / contain no-repeat; opacity: 0; will-change: transform, opacity;
+  animation: hdFall var(--d) linear var(--dl) infinite;
+}
+.hd-p.s0 { background-image: var(--hd-s0); }
+.hd-p.s1 { background-image: var(--hd-s1, var(--hd-s0)); }
+.hd-p.s2 { background-image: var(--hd-s2, var(--hd-s0)); }
+.hd-p.s3 { background-image: var(--hd-s3, var(--hd-s0)); }
+.hd-fx--rise .hd-p { top: auto; bottom: calc(var(--s) * -1.6); animation-name: hdRise; }
+.hd-fx--twinkle .hd-p, .hd-fx--burst .hd-p { top: var(--y); margin-top: calc(var(--s) / -2); }
+.hd-fx--twinkle .hd-p { animation-name: hdTwinkle; animation-timing-function: ease-in-out; }
+.hd-fx--burst .hd-p { animation-name: hdBurst; animation-timing-function: ease-out; }
+@keyframes hdFall {
+  0% { opacity: 0; transform: translate3d(0, 0, 0) rotate(0deg); }
+  8% { opacity: var(--o); }
+  88% { opacity: var(--o); }
+  100% { opacity: 0; transform: translate3d(var(--dr), var(--fall), 0) rotate(var(--rot)); }
+}
+@keyframes hdRise {
+  0% { opacity: 0; transform: translate3d(0, 0, 0); }
+  10% { opacity: var(--o); }
+  85% { opacity: var(--o); }
+  100% { opacity: 0; transform: translate3d(var(--dr), calc(var(--fall) * -1), 0); }
+}
+@keyframes hdTwinkle {
+  0%, 100% { opacity: calc(var(--o) * .2); transform: scale(.55); }
+  50% { opacity: var(--o); transform: scale(1); }
+}
+@keyframes hdBurst {
+  0% { opacity: 0; transform: scale(.15); }
+  6% { opacity: 1; }
+  28% { opacity: .95; transform: scale(1); }
+  44% { opacity: 0; transform: scale(1.08); }
+  100% { opacity: 0; transform: scale(1.08); }
+}
+
+/* ============================ 5. KARTU UCAPAN ============================ */
+.hd-greet {
+  position: relative; overflow: hidden; display: flex; align-items: flex-start; gap: 16px;
+  margin: 0 0 var(--sp-4, 16px); padding: 16px 18px; border-radius: var(--r-lg, 18px);
+  border: 1px solid color-mix(in srgb, var(--hd-1, #4f46e5) 22%, var(--border, #e2e8f0));
+  background:
+    var(--hd-pattern, none) 0 0 / 120px 120px,
+    linear-gradient(120deg, color-mix(in srgb, var(--hd-1, #4f46e5) 9%, var(--surface, #fff)), color-mix(in srgb, var(--hd-3, #ec4899) 10%, var(--surface, #fff)));
+  box-shadow: var(--shadow-sm);
+  animation: popIn .45s var(--ease) both;
+}
+html[data-theme="dark"] .hd-greet { background: var(--hd-pattern-k, none) 0 0 / 120px 120px,
+  linear-gradient(120deg, color-mix(in srgb, var(--hd-k1, #6366f1) 16%, var(--surface)), color-mix(in srgb, var(--hd-3, #ec4899) 10%, var(--surface))); }
+.hd-greet-ic {
+  flex: 0 0 64px; width: 64px; height: 64px; border-radius: 18px; display: grid; place-items: center;
+  background: var(--hd-hero, var(--brand-grad)); box-shadow: 0 10px 22px -12px color-mix(in srgb, var(--hd-h1, #4f46e5) 70%, transparent);
+}
+.hd-greet-ic img { display: block; width: 46px; height: 46px; filter: drop-shadow(0 2px 3px rgba(0, 0, 0, .25)); }
+.hd-greet-body { min-width: 0; flex: 1; }
+.hd-greet-eyebrow { font-size: 11px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; color: var(--brand-600); }
+.hd-greet h3 { margin: 3px 0 4px; font-size: var(--fs-lg, 17px); font-weight: 800; letter-spacing: -.02em; color: var(--gray-900); }
+.hd-greet p { margin: 0; font-size: var(--fs-sm, 13px); line-height: 1.55; color: var(--gray-600); }
+.hd-chips { list-style: none; display: flex; flex-wrap: wrap; gap: 6px; margin: 10px 0 0; padding: 0; }
+.hd-chips li {
+  font-size: 11.5px; font-weight: 600; line-height: 1.35; padding: 4px 10px; border-radius: 999px; color: var(--gray-700);
+  background: color-mix(in srgb, var(--hd-1, #4f46e5) 9%, var(--surface)); border: 1px solid color-mix(in srgb, var(--hd-1, #4f46e5) 18%, transparent);
+}
+.hd-greet-actions { display: flex; align-items: center; gap: 4px; margin-left: auto; flex: 0 0 auto; }
+.hd-greet-actions .btn { white-space: nowrap; }
+@media (max-width: 640px) {
+  .hd-greet { flex-wrap: wrap; padding: 14px; gap: 12px; }
+  .hd-greet-ic { flex-basis: 52px; width: 52px; height: 52px; border-radius: 14px; }
+  .hd-greet-ic img { width: 38px; height: 38px; }
+  .hd-greet-body { flex-basis: calc(100% - 64px - 48px); }
+  .hd-greet-actions { position: absolute; top: 8px; right: 8px; }
+  .hd-greet-actions .btn { display: none; }
+}
+
+/* ============================ 6. HALAMAN MASUK ============================ */
+html[data-holiday] body.lp-body {
+  --lp-50: color-mix(in srgb, var(--hd-1) 7%, #ffffff);
+  --lp-100: color-mix(in srgb, var(--hd-1) 13%, #ffffff);
+  --lp-200: color-mix(in srgb, var(--hd-1) 25%, #ffffff);
+  --lp-300: color-mix(in srgb, var(--hd-1) 45%, #ffffff);
+  --lp-400: color-mix(in srgb, var(--hd-1) 72%, #ffffff);
+  --lp-500: var(--hd-1);
+  --lp-600: color-mix(in srgb, var(--hd-1) 86%, #000000);
+  --lp-700: color-mix(in srgb, var(--hd-1) 72%, #000000);
+  --lp-800: color-mix(in srgb, var(--hd-1) 58%, #000000);
+  --lp-900: color-mix(in srgb, var(--hd-1) 45%, #000000);
+  --lp-amber-300: var(--hd-c0, #ffd27a);
+  --lp-amber-400: var(--hd-c1, #fcb940);
+  --lp-amber-500: var(--hd-c2, #f59e0b);
+  --lp-amber-ink: var(--hd-cink, #3f2a06);
+  --lp-hero-0: var(--hd-h0);
+  --lp-hero-1: var(--hd-h1);
+  --lp-hero-2: var(--hd-h2);
+  --lp-page-bg: color-mix(in srgb, var(--hd-1) 4%, #f4f5fb);
+  background-image: var(--hd-pattern);
+  background-size: 200px 200px;
+  background-attachment: fixed;
+}
+html[data-theme="dark"][data-holiday] body.lp-body {
+  --lp-500: var(--hd-k1);
+  --lp-600: color-mix(in srgb, var(--hd-k1) 86%, #000000);
+  --lp-700: color-mix(in srgb, var(--hd-k1) 72%, #000000);
+  --lp-hero-0: color-mix(in srgb, var(--hd-h0) 62%, #070814);
+  --lp-hero-1: color-mix(in srgb, var(--hd-h1) 58%, #070814);
+  --lp-hero-2: color-mix(in srgb, var(--hd-h2) 55%, #070814);
+  --lp-page-bg: color-mix(in srgb, var(--hd-1) 6%, #0d1020);
+  background-image: var(--hd-pattern-k);
+}
+html[data-holiday] body.lp-body .lp-hero { padding-top: calc(clamp(16px, 3vw, 40px) + 22px); }
+/* Panel hero: untaian di tepi atas + gradien tema */
+html[data-holiday] body.lp-body .lp-hero::before {
+  background:
+    var(--hd-garland) 0 0 / auto 32px repeat-x,
+    linear-gradient(135deg, var(--lp-hero-0), var(--lp-hero-1) 55%, var(--lp-hero-2));
+}
+/* Ilustrasi di panel hero. Desktop: diletakkan tepat di kiri kartu login
+ * (offset = selisih padding hero & inset panel + lebar kartu 448px + jarak),
+ * di area kosong di bawah paragraf pembuka, sehingga tidak tertutup kartu. */
+html[data-holiday] body.lp-body .lp-hero::after {
+  content: ""; position: absolute; z-index: -1; pointer-events: none;
+  inset: clamp(8px, 1.6vw, 20px) clamp(8px, 2vw, 24px) 0;
+  border-radius: clamp(20px, 2.4vw, 34px);
+  background: var(--hd-art) right calc(clamp(16px, 4vw, 48px) - clamp(8px, 2vw, 24px) + 460px) bottom 0 / auto 220px no-repeat;
+}
+/* Laptop kecil: kolom lebih sempit, ilustrasi dibuat samar di belakang teks */
+@media (min-width: 921px) and (max-width: 1279px) {
+  html[data-holiday] body.lp-body .lp-hero::after { background-size: auto 200px; opacity: .3; }
+}
+/* Tablet & ponsel (kartu login di bawah teks): kecil & samar di pojok kanan atas */
+@media (max-width: 920px) {
+  html[data-holiday] body.lp-body .lp-hero::after { background-size: auto 150px; background-position: right 8px top 36px; opacity: .3; }
+}
+html[data-holiday] body.lp-body .lp-btn-primary { box-shadow: 0 14px 30px -12px color-mix(in srgb, var(--lp-amber-500) 75%, transparent); }
+html[data-holiday] body.lp-body .lp-btn-primary:hover { box-shadow: 0 18px 38px -12px color-mix(in srgb, var(--lp-amber-500) 85%, transparent); }
+html[data-holiday] body.lp-body .lp-logo .lp-mark,
+html[data-holiday] body.lp-body .lp-authcard .btn-primary { box-shadow: 0 12px 26px -12px color-mix(in srgb, var(--lp-700) 75%, transparent); }
+html[data-holiday] body.lp-body .lp-authcard .btn-primary { background: linear-gradient(135deg, var(--lp-500), var(--lp-700)); }
+html[data-holiday] body.lp-body .lp-authcard .lp-field input:focus { box-shadow: 0 0 0 4px color-mix(in srgb, var(--lp-500) 18%, transparent); }
+html[data-holiday] body.lp-body .lp-feat .ic.c1 { background: linear-gradient(135deg, var(--lp-500), var(--lp-400)); }
+/* Partikel di dalam panel hero: di atas gradien, di belakang teks & kartu login */
+.hd-fx.hd-fx-lp { inset: clamp(8px, 1.6vw, 20px) clamp(8px, 2vw, 24px) 0; border-radius: clamp(20px, 2.4vw, 34px); z-index: -1; }
+
+/* ============================= 7. PITA UCAPAN ============================= */
+.hd-ribbon {
+  position: relative; z-index: 6; display: flex; align-items: center; justify-content: center; gap: 10px;
+  padding: 9px 52px 9px 16px; background: var(--hd-hero); color: #fff; font-size: 13.5px; line-height: 1.4; text-align: left;
+  box-shadow: 0 6px 18px -12px rgba(0, 0, 0, .55);
+}
+.hd-ribbon-ic { flex: 0 0 auto; display: grid; place-items: center; width: 30px; height: 30px; border-radius: 50%; background: rgba(255, 255, 255, .16); }
+.hd-ribbon-ic img { display: block; width: 22px; height: 22px; }
+.hd-ribbon-txt { min-width: 0; }
+.hd-ribbon-txt b { font-weight: 800; }
+.hd-ribbon-sub { opacity: .9; }
+.hd-ribbon .hd-x {
+  position: absolute; right: 10px; top: 50%; transform: translateY(-50%);
+  width: 32px; height: 32px; border-radius: 50%; border: 0; cursor: pointer;
+  background: rgba(255, 255, 255, .16); color: #fff; font-size: 20px; line-height: 1; display: grid; place-items: center;
+}
+.hd-ribbon .hd-x:hover { background: rgba(255, 255, 255, .28); }
+.hd-ribbon .hd-x:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
+@media (max-width: 640px) {
+  .hd-ribbon { justify-content: flex-start; font-size: 13px; padding-left: 12px; }
+  .hd-ribbon-sub { display: none; }
+}
+
+/* ============================= 8. LANGIT KAMPUS ============================= */
+html[data-holiday] body.lp-body {
+  --cs-sky-0: var(--hd-sky0, color-mix(in srgb, var(--hd-1) 18%, #dfe4ff));
+  --cs-sky-1: var(--hd-sky1, #f1f3fb);
+  --cs-haze: var(--lp-page-bg);
+  --cs-far-0: color-mix(in srgb, var(--hd-1) 20%, #c3c9e6);
+  --cs-far-1: color-mix(in srgb, var(--hd-1) 22%, #b3bbe0);
+  --cs-mid-0: color-mix(in srgb, var(--hd-1) 26%, #a3add9);
+  --cs-mid-1: color-mix(in srgb, var(--hd-1) 28%, #919fd2);
+  --cs-ground-0: var(--hd-ground0, #6fae6a);
+  --cs-ground-1: var(--hd-ground1, #4f9a55);
+  --cs-orb: var(--hd-orb, #ffe4a0);
+  --cs-star-op: var(--hd-star, 0);
+  --cs-win-0: var(--hd-win0, #ffe9a8);
+  --cs-win-1: var(--hd-win1, #ffd36e);
+  --cs-flag-r: var(--hd-flag, #e23b4e);
+}
+html[data-theme="dark"][data-holiday] body.lp-body {
+  --cs-sky-0: var(--hd-ksky0, color-mix(in srgb, var(--hd-1) 18%, #0f1430));
+  --cs-sky-1: var(--hd-ksky1, color-mix(in srgb, var(--hd-1) 14%, #1b2142));
+  --cs-haze: var(--lp-page-bg);
+  --cs-far-0: color-mix(in srgb, var(--hd-1) 16%, #141a3a);
+  --cs-far-1: color-mix(in srgb, var(--hd-1) 16%, #1a2046);
+  --cs-mid-0: color-mix(in srgb, var(--hd-1) 18%, #1d2550);
+  --cs-mid-1: color-mix(in srgb, var(--hd-1) 18%, #242d61);
+  --cs-ground-0: var(--hd-kground0, #1f3a2e);
+  --cs-ground-1: var(--hd-kground1, #24493a);
+  --cs-orb: var(--hd-korb, #e9edff);
+  --cs-star-op: 1;
+  --cs-win-0: var(--hd-win0, #fff2bf);
+  --cs-win-1: var(--hd-win1, #ffd874);
+}
+
+/* ============================= 9. HALAMAN ADMIN ============================= */
+.hd-previewbar {
+  position: sticky; top: calc(var(--topbar-h, 64px) + 8px); z-index: 7;
+  display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px;
+  margin: 0 0 16px; padding: 10px 12px 10px 16px; border-radius: var(--r-md, 14px);
+  background: var(--surface); border: 1.5px dashed var(--brand-500); box-shadow: var(--shadow);
+  font-size: var(--fs-sm, 13px); color: var(--gray-700);
+}
+.hd-alert { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px; }
+.hd-note { margin: -4px 2px 16px; }
+.hd-status-row { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+.hd-mini {
+  flex: 0 0 64px; width: 64px; height: 64px; border-radius: 18px; display: grid; place-items: center; overflow: hidden;
+  background: linear-gradient(125deg, var(--pv0, #4f46e5), var(--pv1, #6d28d9) 55%, var(--pv2, #0ea5e9));
+}
+.hd-mini img { width: 40px; height: 40px; display: block; }
+.hd-mini-def { color: #fff; font-size: 26px; font-weight: 900; }
+.hd-status-info { min-width: 0; flex: 1; }
+.hd-status-info strong { font-size: var(--fs-md, 15px); }
+.hd-status-actions { margin-top: 10px; flex-wrap: wrap; }
+.hd-opts { margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--border); }
+.hd-opts .check-row { align-items: flex-start; line-height: 1.45; }
+.hd-opts .check-row input { margin-top: 1px; }
+.hd-opts p { margin: 4px 0 0; }
+
+.hd-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 270px), 1fr)); gap: 16px; }
+.hd-card {
+  display: flex; flex-direction: column; overflow: hidden; border-radius: var(--r-lg, 18px);
+  border: 1px solid var(--border); background: var(--surface); box-shadow: var(--shadow-xs);
+  transition: transform var(--t-fast) ease, box-shadow var(--t-fast) ease, border-color var(--t-fast) ease;
+}
+.hd-card:hover { transform: translateY(-2px); box-shadow: var(--shadow); }
+.hd-card.is-active { border-color: var(--brand-500); box-shadow: 0 0 0 2px color-mix(in srgb, var(--brand-500) 40%, transparent), var(--shadow); }
+.hd-card.is-preview { border-style: dashed; border-color: var(--brand-500); }
+.hd-card-prev {
+  position: relative; height: 128px; overflow: hidden;
+  background: linear-gradient(125deg, var(--pv0), var(--pv1) 55%, var(--pv2) 118%);
+}
+.hd-card-prev::before {
+  content: ""; position: absolute; left: 0; right: 0; top: 0; height: 26px; pointer-events: none;
+  background: var(--pv-garland) 0 0 / auto 26px repeat-x;
+}
+.hd-card-prev::after {
+  content: ""; position: absolute; inset: 0; pointer-events: none;
+  background: var(--pv-art) right 6px bottom 0 / auto 94% no-repeat;
+}
+.hd-card-ic {
+  position: absolute; left: 12px; bottom: 12px; z-index: 1; width: 46px; height: 46px; border-radius: 14px;
+  display: grid; place-items: center; background: rgba(255, 255, 255, .92); box-shadow: 0 6px 16px -8px rgba(0, 0, 0, .45);
+}
+.hd-card-ic img { width: 34px; height: 34px; display: block; }
+.hd-tag {
+  position: absolute; top: 30px; left: 12px; z-index: 1; padding: 3px 10px; border-radius: 999px;
+  font-size: 11px; font-weight: 800; letter-spacing: .02em; background: #fff; color: #15803d; box-shadow: 0 4px 10px -6px rgba(0, 0, 0, .5);
+}
+.hd-tag.is-prev { color: var(--gray-700); }
+.hd-card-body { display: flex; flex-direction: column; gap: 6px; padding: 14px 16px 16px; flex: 1; }
+.hd-card-body h4 { margin: 0; font-size: var(--fs-md, 15px); }
+.hd-card-date { font-size: 12px; font-weight: 600; color: var(--brand-600); }
+html[data-theme="dark"] .hd-card-date { color: var(--primary-dark); }
+.hd-card-body > p { margin: 0; line-height: 1.5; }
+.hd-elems { list-style: none; display: flex; flex-wrap: wrap; gap: 5px; margin: 2px 0 0; padding: 0; }
+.hd-elems li { font-size: 11px; font-weight: 600; padding: 3px 8px; border-radius: 999px; background: var(--gray-100); color: var(--gray-700); }
+.hd-card-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: auto; padding-top: 10px; }
+.hd-dot { display: inline-block; width: 7px; height: 7px; margin-left: 4px; border-radius: 50%; background: var(--brand-500); vertical-align: middle; }
+
+/* ======================== 10. AKSESIBILITAS & CETAK ======================== */
+body.exam-mode .hd-fx { display: none !important; }
+@media (prefers-reduced-motion: reduce) {
+  .hd-fx { display: none !important; }
+  .hd-greet { animation: none; }
+}
+@media (forced-colors: active) {
+  .hd-fx, html[data-holiday] .welcome-hero::before, html[data-holiday] .welcome-hero::after,
+  html[data-holiday] body.lp-body .lp-hero::after { display: none !important; }
+}
+@media print {
+  .hd-fx, .hd-ribbon, .hd-greet-actions, .hd-previewbar { display: none !important; }
+  html[data-holiday] body.dash-body, html[data-holiday] body.lp-body { background-image: none; }
+}

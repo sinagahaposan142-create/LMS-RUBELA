@@ -79,6 +79,15 @@ async function createSession(db, user, req) {
 }
 
 /* ============================ HEALTH ============================ */
+/** Tema hari besar untuk halaman masuk (publik, tanpa data rahasia). Lihat js/holiday-theme.js. */
+function publicHoliday(st) {
+  const id = typeof st.holidayTheme === 'string' && /^[a-z][a-z-]{1,23}$/.test(st.holidayTheme) ? st.holidayTheme : '';
+  const msgs = st.holidayMessages && typeof st.holidayMessages === 'object' && !Array.isArray(st.holidayMessages) ? st.holidayMessages : {};
+  const m = id && msgs[id] && typeof msgs[id] === 'object' ? msgs[id] : {};
+  const text = (v, max) => (typeof v === 'string' ? v.slice(0, max) : '');
+  return { id, effects: st.holidayEffects !== false, banner: st.holidayBanner !== false, title: text(m.title, 80), text: text(m.text, 240) };
+}
+
 async function health(db) {
   const info = store.dbInfo();
   const out = { ok: true, configured: !!db, db: { region: info.region || null }, fnRegion: process.env.VERCEL_REGION || null, time: Date.now(), api: 1 };
@@ -88,8 +97,9 @@ async function health(db) {
   }
   try {
     await store.ensureReady(db);
-    const st = await store.readSettings(db, ['appName', 'appTagline', 'appLogo']);
+    const st = await store.readSettings(db, ['appName', 'appTagline', 'appLogo', 'holidayTheme', 'holidayEffects', 'holidayBanner', 'holidayMessages']);
     out.branding = { appName: st.appName || '', appTagline: st.appTagline || '', appLogo: st.appLogo || '' };
+    out.holiday = publicHoliday(st);
     out.ready = true;
   } catch (e) {
     out.ok = false;

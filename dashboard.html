@@ -10,11 +10,20 @@
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" />
   <link rel="stylesheet" href="css/responsive.css" />
   <link rel="stylesheet" href="css/design-system.css" />
-  <!-- Apply saved theme before first paint to avoid a flash of the wrong mode -->
+  <link rel="stylesheet" href="css/holiday-themes.css" />
+  <!-- Apply saved theme (light/dark + tema hari besar) before first paint to avoid a flash of the wrong look -->
   <script>
     try {
       var _t = localStorage.getItem('lms_theme');
       document.documentElement.setAttribute('data-theme', _t === 'dark' ? 'dark' : 'light');
+    } catch (e) { /* noop */ }
+    try {
+      var _h = JSON.parse(localStorage.getItem('lms_holiday_cache') || 'null');
+      if (_h && _h.v === 1 && /^[a-z][a-z-]{1,23}$/.test(_h.id) && _h.vars) {
+        var _r = document.documentElement;
+        for (var _k in _h.vars) if (/^--hd-[a-z0-9-]+$/.test(_k)) _r.style.setProperty(_k, String(_h.vars[_k]));
+        _r.setAttribute('data-holiday', _h.id);
+      }
     } catch (e) { /* noop */ }
   </script>
   <script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
@@ -87,6 +96,7 @@
   <script src="js/data-search.js"></script>
   <script src="js/effects.js"></script>
   <script src="js/branding.js"></script>
+  <script src="js/holiday-theme.js"></script>
   <script src="js/responsive.js"></script>
   <script src="js/richtext.js"></script>
   <script src="js/ai-providers.js"></script>
