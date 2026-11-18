@@ -32,6 +32,7 @@
     }
     if (section === 'modul') return renderModulSection(container, user);
     if (section === 'streak-siswa') return StreakAPI.renderTutor(container, user);
+    if (section === 'game-admin') return GamesAdmin.render(container, user);
     if (section === 'rekaman') return renderRekamanSection(container, user);
     // Bank soal & CBT memakai workspace khusus bersama (js/cbt.js)
     if (section === 'bank-soal') return CbtAdmin.renderBankHome(container, user);
@@ -1050,34 +1051,47 @@
       return { student, attempt };
     });
     const submitted = rows.filter(r => r.attempt && r.attempt.submittedAt);
-    const scoreOf = r => r.attempt.scoring ? r.attempt.scoring.scaled200_800 : (r.attempt.score || 0);
-    const avg = submitted.length ? Math.round(submitted.reduce((sum, r) => sum + scoreOf(r), 0) / submitted.length) : null;
+    const ptsMode = !!(global.Scoring && Scoring.usesPoints(cbt));
+    const scoreOf = r => (ptsMode && r.attempt.scoring && r.attempt.scoring.points) ? r.attempt.scoring.points.earned
+      : (r.attempt.scoring ? r.attempt.scoring.scaled200_800 : (r.attempt.score || 0));
+    const scored = submitted.filter(r => scoreOf(r) != null);
+    const avgRaw = scored.length ? scored.reduce((sum, r) => sum + scoreOf(r), 0) / scored.length : null;
+    const avg = avgRaw == null ? null : (ptsMode ? Scoring.fmtNum(Math.round(avgRaw * 100) / 100) : Math.round(avgRaw));
+    const hasEssay = ptsMode && DB.cbtSections(cbt).some(sec => sec.questionIds.some(id => ((DB.getQuestion(id) || {}).questionType || '') === 'Esai'));
+    const avgLabel = ptsMode ? '(poin)' : (submitted.some(r => r.attempt.scoring) ? '(200–800)' : '');
 
     const body = `
       <div class="muted small mb-1">${UI.esc(cbt.title)} (${UI.esc(course.title)})</div>
       <div class="stats-grid">
         <div class="stat-card"><div class="label">Peserta</div><div class="value">${enrollments.length}</div></div>
         <div class="stat-card accent-success"><div class="label">Sudah Mengerjakan</div><div class="value">${submitted.length}</div></div>
-        <div class="stat-card accent-primary"><div class="label">Rata-rata ${submitted.some(r => r.attempt.scoring) ? '(200–800)' : ''}</div><div class="value">${avg ?? '-'}</div></div>
+        <div class="stat-card accent-primary"><div class="label">Rata-rata ${avgLabel}</div><div class="value">${avg ?? '-'}</div></div>
       </div>
+      ${ptsMode ? `<div class="alert alert-info small">${UI.esc(Scoring.describe(cbt))}.${hasEssay ? ' Beri poin soal esai lewat tombol ✍️.' : ''}</div>` : ''}
       <div class="table-wrap"><table class="table">
-        <thead><tr><th>Siswa</th><th>Status</th><th>Benar</th><th>Skor</th><th>Dikirim</th></tr></thead>
+        <thead><tr><th>Siswa</th><th>Status</th><th>Benar</th><th>Skor</th><th>Dikirim</th>${hasEssay ? '<th>Esai</th>' : ''}</tr></thead>
         <tbody>
           ${rows.map(r => {
-            if (!r.attempt) return `<tr><td>${UI.esc(r.student?.name || '-')}</td><td><span class="badge badge-gray">Belum</span></td><td>-</td><td>-</td><td>-</td></tr>`;
-            if (!r.attempt.submittedAt) return `<tr><td>${UI.esc(r.student?.name || '-')}</td><td><span class="badge badge-warning">Sedang Mengerjakan</span></td><td>-</td><td>-</td><td>-</td></tr>`;
+            const pad = hasEssay ? '<td>-</td>' : '';
+            if (!r.attempt) return `<tr><td>${UI.esc(r.student?.name || '-')}</td><td><span class="badge badge-gray">Belum</span></td><td>-</td><td>-</td><td>-</td>${pad}</tr>`;
+            if (!r.attempt.submittedAt) return `<tr><td>${UI.esc(r.student?.name || '-')}</td><td><span class="badge badge-warning">Sedang Mengerjakan</span></td><td>-</td><td>-</td><td>-</td>${pad}</tr>`;
+            const pend = r.attempt.scoring && r.attempt.scoring.points ? r.attempt.scoring.points.pending : 0;
             return `<tr>
               <td><strong>${UI.esc(r.student?.name || '-')}</strong></td>
               <td><span class="badge badge-success">Selesai</span></td>
               <td>${r.attempt.correctCount}/${r.attempt.totalCount}</td>
               <td>${r.attempt.scoring ? Scoring.scoreHtml(r.attempt, true) : `<strong>${r.attempt.score}</strong>`}</td>
               <td>${UI.fmtDateTime(r.attempt.submittedAt)}</td>
+              ${hasEssay ? `<td><button type="button" class="btn btn-sm ${pend ? 'btn-primary' : 'btn-secondary'}" data-gessay="${UI.esc(r.attempt.id)}">✍️ ${pend ? `Nilai (${pend})` : 'Ubah'}</button></td>` : ''}
             </tr>`;
           }).join('')}
         </tbody>
       </table></div>
     `;
     UI.modal.open('Hasil Ujian', body);
+    document.querySelectorAll('[data-gessay]').forEach(b => b.addEventListener('click', () => {
+      if (global.CbtAdmin && CbtAdmin.openEssayGrading) CbtAdmin.openEssayGrading(b.dataset.gessay, (global.Dashboard && Dashboard.currentUser) || {}, () => openCbtResults(cbtId));
+    }));
   }
 
   /* ========== ATTENDANCE (within course tab) ==========

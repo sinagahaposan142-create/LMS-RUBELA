@@ -116,7 +116,8 @@
   function countUp(el) {
     if (el.dataset.counted) return;
     const parsed = parseValue(el.textContent);
-    if (!parsed || parsed.value === 0 || Math.abs(parsed.value) > 1e12) {
+    // Angka desimal format Indonesia ("7,5") tidak dianimasikan: pemisah desimal akan hilang.
+    if (!parsed || parsed.value === 0 || Math.abs(parsed.value) > 1e12 || /\d,\d/.test(el.textContent)) {
       el.dataset.counted = '1';
       return;
     }

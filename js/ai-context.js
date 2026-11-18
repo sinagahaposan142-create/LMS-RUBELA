@@ -117,7 +117,7 @@
     if (atts.length) {
       lines.push('CBT terakhir: ' + atts.map(a => {
         const cbt = DB.getCbt(a.cbtId);
-        const sc = a.scoring && a.scoring.scaled200_800 != null ? `${a.scoring.scaled200_800}/800` : `${a.score ?? 0}%`;
+        const sc = global.Scoring && a.scoring ? Scoring.primary(a).text : `${a.score ?? 0}%`;
         return `${clip(cbt ? cbt.title : 'CBT', 50)} = ${sc} (${a.correctCount || 0}/${a.totalCount || 0} benar)`;
       }).join('; '));
     }

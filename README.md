@@ -263,6 +263,16 @@ Hasil audit lengkap 23 poin permintaan beserta buktinya ada di
   *Benar/Salah Majemuk* dan *Majemuk Kompleks* dengan 2–8 kolom jawaban yang dapat diubah namanya
   (mis. Benar / Salah / Tidak dapat ditentukan). Soal Majemuk lama otomatis dibaca sebagai kolom Benar/Salah.
 
+### Poin Manual, Notifikasi Perangkat & Game Battle
+- **Sistem penilaian per ujian** (`docs/PENILAIAN-POIN.md`): IRT UTBK 200–800, **Poin Manual** (poin per soal dari Bank Soal
+  yang dapat diubah per ujian, atau poin per paket dibagi rata, opsional minus untuk jawaban salah), atau Poin + IRT.
+  Esai diberi poin oleh tutor lewat ✍️ Nilai Esai. Kolom `Poin` di impor/ekspor Bank Soal.
+- **Notifikasi perangkat / Web Push** (`docs/NOTIFIKASI-PERANGKAT.md`): setelah satu kali "Aktifkan" + izin peramban,
+  semua notifikasi LMS muncul di HP/laptop walau situs ditutup. Enkripsi RFC 8291 + VAPID tanpa dependensi.
+- **Game Battle** (`docs/GAME-BATTLE.md`): 10 game edukasi dari Bank Soal & Soal Game, main sendiri atau battle 1 lawan 1
+  dengan siswa online (pilih manual, Cari Otomatis oleh bot matchmaking, atau Lawan Bot). Kelola soal game dengan editor
+  soal LMS, salin dari Bank Soal, atau buat dengan AI; tersedia paket 47 soal contoh.
+
 ### Tema Hari Besar Nasional (detail: `docs/TEMA-HARI-BESAR.md`)
 - Menu admin **Operasional → Tema Hari Besar**: 13 tema yang diaktifkan manual. Tersedia Tahun Baru, Imlek, Nyepi,
   Idulfitri, Hardiknas, Kenaikan Yesus Kristus, Waisak, Iduladha, Hari Lahir Pancasila, Hari Anak Nasional,

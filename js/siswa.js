@@ -33,6 +33,7 @@
     if (section === 'profile') return renderProfile(container, user);
     if (section === 'streak') return StreakAPI.renderPage(container, DB.getUser(user.id) || user);
     if (section === 'arena') return Arena.render(container, user);
+    if (section === 'game-battle') return Games.render(container, user);
     if (section === 'course') return CourseHub.render(container, user);
     if (section === 'ayat') return Verses.renderPage(container, user);
     if (section === 'mesin-waktu') return TimeCapsule.renderPage(container, DB.getUser(user.id) || user);
@@ -1079,9 +1080,9 @@
     if (before) { badge = `<span class="badge badge-gray">Belum Dibuka (${UI.fmtDateTime(c.startAt)})</span>`; btn = '<button class="btn btn-sm btn-secondary" disabled>Belum Dibuka</button>'; }
     else if (done) {
       const doneAttempt = global.Scoring ? Scoring.ensureFresh(attempt) : attempt;
-      badge = `<span class="badge badge-success">Skor: ${doneAttempt.scoring
-        ? (doneAttempt.scoring.scaled200_800 != null ? doneAttempt.scoring.scaled200_800 + '/800' : 'menunggu esai')
-        : doneAttempt.score}</span>`;
+      badge = `<span class="badge badge-success">Skor: ${UI.esc(global.Scoring && doneAttempt.scoring
+        ? Scoring.primary(doneAttempt).text
+        : String(doneAttempt.score ?? 0))}</span>`;
       btn = `<button class="btn btn-sm btn-secondary" data-view="${c.id}">Lihat Hasil</button>`;
     }
     else if (attempt && !done) { badge = '<span class="badge badge-warning">Sedang Dikerjakan</span>'; btn = `<button class="btn btn-sm btn-primary" data-start="${c.id}">Lanjutkan</button>`; }

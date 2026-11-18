@@ -5548,3 +5548,53 @@ body.has-mp .content { padding-bottom: 96px; }
   .aic-main { padding: 12px 10px; }
   .aic-send { padding-left: 12px; padding-right: 12px; }
 }
+
+/* =====================================================================
+ * SISTEM PENILAIAN: Poin Manual (js/scoring.js + wizard CBT)
+ * ===================================================================*/
+.wz-pts-opts { margin-top: 16px; padding-top: 14px; border-top: 1px dashed var(--border, var(--gray-200)); }
+.wz-sub-label { display: block; font-size: 13px; font-weight: 700; margin-bottom: 8px; color: var(--gray-700); }
+.wz-pts-total { font-size: 13px; color: var(--gray-600); white-space: nowrap; }
+.wz-pts-total strong { font-size: 18px; color: var(--primary); }
+.wz-pts-bulk { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 0 0 12px; padding: 10px 12px;
+  border-radius: 12px; background: var(--gray-50); border: 1px solid var(--border, var(--gray-200)); }
+.wz-pts-bulk input { width: 96px; min-height: 34px; padding: 4px 10px; border: 1px solid var(--gray-300); border-radius: 8px;
+  background: var(--surface); color: var(--gray-900); }
+.wz-pts-table td { vertical-align: middle; }
+.wz-pts-sec td { background: var(--gray-50); font-size: 13px; }
+.wz-pts-q { max-width: 420px; font-size: 13px; line-height: 1.45; color: var(--gray-700); }
+.wz-pts-in { width: 96px; min-height: 34px; padding: 4px 10px; border: 1px solid var(--gray-300); border-radius: 8px;
+  background: var(--surface); color: var(--gray-900); font-weight: 700; }
+.wz-pts-in:focus, .wz-pts-bulk input:focus { outline: none; border-color: var(--primary); box-shadow: 0 0 0 3px var(--ring); }
+.pts-score strong { color: var(--primary); }
+.ess-item { padding: 14px; margin-bottom: 12px; border: 1px solid var(--border, var(--gray-200)); border-radius: 14px; background: var(--surface); }
+.ess-q { display: flex; gap: 10px; align-items: flex-start; margin-bottom: 8px; }
+.ess-ans { margin: 8px 0; padding: 10px 12px; border-radius: 10px; background: var(--gray-50); white-space: pre-wrap;
+  font-size: 13.5px; line-height: 1.55; color: var(--gray-800); max-height: 260px; overflow: auto; }
+.ess-grade { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.ess-grade label { margin: 0; font-weight: 700; }
+.ess-grade input { width: 110px; }
+
+/* =====================================================================
+ * NOTIFIKASI PERANGKAT (js/push.js)
+ * ===================================================================*/
+.push-prompt {
+  /* Di bawah workspace layar penuh (CBT 120, editor soal 140) agar tidak menutupi tombolnya. */
+  position: fixed; z-index: 110; right: 16px; bottom: calc(16px + var(--bottom-nav-h, 0px) + var(--sa-b, 0px));
+  display: flex; align-items: center; gap: 12px; max-width: min(520px, calc(100vw - 32px));
+  padding: 14px 16px; border-radius: 16px; background: var(--surface); color: var(--gray-800);
+  border: 1px solid var(--border, var(--gray-200)); box-shadow: var(--shadow-lg);
+  animation: popIn .35s var(--ease) both;
+}
+.push-prompt .pp-ic { font-size: 26px; flex: 0 0 auto; }
+body:has(.cbt-workspace) .push-prompt, body:has(.qe-workspace) .push-prompt, body.exam-mode .push-prompt { display: none; }
+.push-prompt .pp-body { display: flex; flex-direction: column; gap: 2px; min-width: 0; font-size: 13px; line-height: 1.45; }
+.push-prompt .pp-body strong { font-size: 14px; color: var(--gray-900); }
+.push-prompt .pp-act { display: flex; flex-direction: column; gap: 6px; flex: 0 0 auto; }
+@media (max-width: 560px) { .push-prompt { left: 10px; right: 10px; max-width: none; flex-wrap: wrap; } .push-prompt .pp-act { flex-direction: row; width: 100%; } }
+.push-status { list-style: none; margin: 0 0 12px; padding: 0; display: grid; gap: 8px; }
+.push-status li { display: flex; gap: 10px; align-items: flex-start; font-size: 13.5px; line-height: 1.5; color: var(--gray-700); }
+.push-actions { flex-wrap: wrap; }
+.push-admin { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--border, var(--gray-200)); }
+.push-roles { display: flex; flex-wrap: wrap; gap: 4px 18px; margin: 6px 0 4px 26px; }
+.push-roles .check-row { margin-bottom: 4px; }

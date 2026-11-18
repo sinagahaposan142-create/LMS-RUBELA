@@ -63,6 +63,7 @@
           <span class="qc-chip type">${UI.esc(q.questionType || 'Pilihan Ganda')}</span>
           ${difficultyChip(q.difficulty)}
           <span class="qc-chip opt">${UI.esc(answerShapeLabel(q))}</span>
+          ${q.points != null && Number(q.points) !== 1 ? `<span class="qc-chip">⭐ ${UI.esc(String(q.points))} poin</span>` : ''}
         </div>
       </label>`;
   }
@@ -226,7 +227,8 @@
               </td>
               <td><span class="badge ${(c.targetClasses || []).includes(DB.ALL_CLASSES) ? 'badge-success' : 'badge-info'}">${UI.esc(DB.cbtTargetLabel(c))}</span></td>
               <td>${c.subtestMode === 'full' ? '<span class="badge badge-warning">7 Subtest</span>'
-                    : (c.subtestMode === 'single' ? '<span class="badge badge-info">1 Subtest</span>' : '<span class="badge badge-gray">Custom</span>')}</td>
+                    : (c.subtestMode === 'single' ? '<span class="badge badge-info">1 Subtest</span>' : '<span class="badge badge-gray">Custom</span>')}
+                  ${global.Scoring ? `<div class="small" style="margin-top:4px;"><span class="badge ${Scoring.modeOf(c) === 'irt' ? 'badge-gray' : 'badge-success'}" title="${UI.esc(Scoring.describe(c))}">${Scoring.modeOf(c) === 'irt' ? '📈' : '⭐'} ${UI.esc(Scoring.MODES[Scoring.modeOf(c)].short)}</span></div>` : ''}</td>
               <td class="muted small">${sections.length} bagian</td>
               <td>${qCount}</td>
               <td class="small">${UI.fmtDateTime(c.startAt)}<div class="muted">s.d. ${UI.fmtDateTime(c.endAt)}</div></td>
@@ -327,7 +329,15 @@
         editing?.security || {}
       ),
       startAt: editing?.startAt || Date.now(),
-      endAt: editing?.endAt || (Date.now() + 7 * 86400000)
+      endAt: editing?.endAt || (Date.now() + 7 * 86400000),
+      // Sistem penilaian: IRT (bawaan), Poin Manual, atau keduanya (js/scoring.js)
+      scoring: {
+        mode: global.Scoring ? Scoring.modeOf(editing) : 'irt',
+        basis: editing?.pointsBasis === 'package' ? 'package' : 'question',
+        packageTotal: Number(editing?.packageTotal) > 0 ? Number(editing.packageTotal) : 100,
+        wrongPoints: Number(editing?.wrongPoints) < 0 ? Number(editing.wrongPoints) : 0,
+        points: Object.assign({}, editing?.points || {})
+      }
     };
     // Muat pilihan soal dari sections yang tersimpan
     if (editing) {
@@ -628,6 +638,9 @@
           </div>
         </div>`;
 
+      panel.insertAdjacentHTML('beforeend', scoringCardHtml());
+      bindScoringCard(panel);
+
       panel.querySelectorAll('[data-mode]').forEach(c => c.addEventListener('click', () => {
         draft.subtestMode = c.dataset.mode;
         paint();
@@ -636,6 +649,89 @@
         draft.selectedSubtest = r.value;
         paint();
       }));
+    }
+
+    /* ---------- Sistem penilaian (bagian langkah 3) ---------- */
+    function scoringCardHtml() {
+      const sc = draft.scoring;
+      const modes = [
+        { key: 'irt', ic: '📈', nm: 'IRT UTBK (200–800)', ds: 'Skor cohort-weighted / Rasch-like seperti UTBK: soal yang jarang dijawab benar berbobot lebih tinggi. Benar 1, salah/kosong 0, tanpa minus.' },
+        { key: 'points', ic: '⭐', nm: 'Poin Manual', ds: 'Anda menentukan sendiri poin setiap soal atau total poin paket. Cocok untuk ulangan, kuis, dan tryout berpoin.' },
+        { key: 'both', ic: '⚖️', nm: 'Poin + IRT', ds: 'Skor utama berupa poin, sekaligus menampilkan skor IRT 200–800 sebagai pembanding.' }
+      ];
+      const pts = sc.mode !== 'irt';
+      return `
+        <div class="card">
+          <div class="card-header">${UI.secHead('🏅', 'Sistem Penilaian', 'Menentukan cara skor peserta dihitung')}</div>
+          <div class="mode-grid">
+            ${modes.map(m => `
+              <div class="mode-card ${sc.mode === m.key ? 'is-on' : ''}" data-scoremode="${m.key}" role="button" tabindex="0" aria-pressed="${sc.mode === m.key}">
+                <span class="mc-ic">${m.ic}</span>
+                <div class="mc-nm">${UI.esc(m.nm)}</div>
+                <div class="mc-ds">${UI.esc(m.ds)}</div>
+              </div>`).join('')}
+          </div>
+          ${pts ? `
+          <div class="wz-pts-opts">
+            <label class="wz-sub-label">Cara menentukan poin</label>
+            <div class="tgt-grid">
+              <label class="tgt-box ${sc.basis === 'question' ? 'is-on' : ''}">
+                <input type="radio" name="ptsBasis" value="question" ${sc.basis === 'question' ? 'checked' : ''} />
+                <div><div class="tgt-name">🎯 Poin per Soal</div>
+                  <div class="tgt-meta">Poin bawaan diambil dari Bank Soal dan dapat diubah satu per satu di langkah "Tinjau & Simpan".</div></div>
+              </label>
+              <label class="tgt-box ${sc.basis === 'package' ? 'is-on' : ''}">
+                <input type="radio" name="ptsBasis" value="package" ${sc.basis === 'package' ? 'checked' : ''} />
+                <div><div class="tgt-name">📦 Poin per Paket</div>
+                  <div class="tgt-meta">Masukkan total poin paket ujian; poin dibagi rata ke setiap soal.</div></div>
+              </label>
+            </div>
+            <div class="form-row" style="margin-top:12px;">
+              ${sc.basis === 'package' ? `<div class="form-group">
+                <label for="wzPkgTotal">Total poin paket</label>
+                <input type="number" id="wzPkgTotal" min="1" max="100000" step="any" value="${sc.packageTotal}" />
+                <div class="muted small">Contoh: 100 (skala nilai rapor) atau 1000.</div>
+              </div>` : ''}
+              <div class="form-group">
+                <label for="wzWrong">Poin jawaban salah</label>
+                <input type="number" id="wzWrong" max="0" min="-1000" step="any" value="${sc.wrongPoints}" />
+                <div class="muted small">0 = tanpa minus (seperti UTBK). Isi negatif, mis. -1, untuk pengurangan per jawaban salah. Jawaban kosong selalu 0.</div>
+              </div>
+            </div>
+            <div class="alert alert-info small" style="margin-bottom:0;">Soal esai mendapat poin dari tutor lewat tombol <strong>✍️ Nilai Esai</strong> pada halaman Hasil ujian.</div>
+          </div>` : ''}
+        </div>`;
+    }
+
+    function bindScoringCard(panel) {
+      const sc = draft.scoring;
+      panel.querySelectorAll('[data-scoremode]').forEach(c => {
+        const pick = () => { sc.mode = c.dataset.scoremode; paint(); };
+        c.addEventListener('click', pick);
+        c.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); pick(); } });
+      });
+      panel.querySelectorAll('[name="ptsBasis"]').forEach(r => r.addEventListener('change', () => { sc.basis = r.value; paint(); }));
+      const tot = panel.querySelector('#wzPkgTotal');
+      if (tot) tot.addEventListener('change', () => {
+        const v = Number(tot.value);
+        sc.packageTotal = Number.isFinite(v) && v > 0 ? Math.min(100000, v) : 100;
+        tot.value = sc.packageTotal;
+      });
+      const wr = panel.querySelector('#wzWrong');
+      if (wr) wr.addEventListener('change', () => {
+        const v = Number(wr.value);
+        sc.wrongPoints = Number.isFinite(v) ? Math.max(-1000, -Math.abs(v)) : 0;
+        wr.value = sc.wrongPoints;
+      });
+    }
+
+    /** Objek CBT sementara dari draft (untuk pratinjau poin). */
+    function draftCbt() {
+      const sc = draft.scoring;
+      return {
+        sections: builtSections(), scoringMode: sc.mode, pointsBasis: sc.basis,
+        packageTotal: sc.packageTotal, wrongPoints: sc.wrongPoints, points: sc.points
+      };
     }
 
     /* ---------- Langkah 4: Pilih soal per subtest ---------- */
@@ -856,6 +952,7 @@
                 : '<span class="muted">Tidak dikaitkan ke tutor</span>'}</td></tr>` : ''}
               <tr><th>Metode</th><td>${draft.subtestMode === 'full' ? 'Gabungan 7 Subtest (Full UTBK)'
                 : (draft.subtestMode === 'single' ? 'Per 1 Subtest — ' + UI.esc(draft.selectedSubtest) : 'Custom')}</td></tr>
+              <tr><th>Sistem Penilaian</th><td id="wzScoreDesc">${global.Scoring ? UI.esc(Scoring.describe(draftCbt())) : 'IRT'}</td></tr>
               <tr><th>Jadwal</th><td>${UI.fmtDateTime(draft.startAt)} &nbsp;s.d.&nbsp; ${UI.fmtDateTime(draft.endAt)}</td></tr>
               <tr><th>Keamanan</th><td>
                 ${[sec.requireCamera ? '📷 Kamera wajib' : '', sec.requireMic ? '🎙️ Mikrofon wajib' : '',
@@ -884,7 +981,118 @@
               </div>`;
             }).join('')}
           </div>`}
+        </div>
+        ${global.Scoring && draft.scoring.mode !== 'irt' && sections.length ? pointsEditorHtml(sections) : ''}`;
+      if (global.Scoring && draft.scoring.mode !== 'irt' && sections.length) bindPointsEditor(panel, sections);
+    }
+
+    /* ---------- Editor poin per soal (langkah 6) ---------- */
+    function pointsEditorHtml(sections) {
+      const sc = draft.scoring;
+      const fmt = Scoring.fmtNum;
+      const maxMap = Scoring.maxPointsMap(draftCbt());
+      const pkg = sc.basis === 'package';
+      return `
+        <div class="card" id="wzPtsCard">
+          <div class="card-header">
+            ${UI.secHead('⭐', pkg ? 'Poin per Soal (paket)' : 'Poin per Soal', pkg
+              ? 'Total poin paket dibagi rata ke semua soal'
+              : 'Berlaku khusus untuk ujian ini — poin di Bank Soal tidak berubah')}
+            <div class="wz-pts-total">Total: <strong id="wzPtsTotal">${fmt(Object.values(maxMap).reduce((n, v) => n + v, 0))}</strong> poin</div>
+          </div>
+          ${pkg ? '' : `<div class="wz-pts-bulk">
+            <label for="wzPtsAll" class="muted small">Samakan semua soal</label>
+            <input type="number" id="wzPtsAll" min="0" max="${Scoring.MAX_POINTS}" step="any" value="1" />
+            <button type="button" class="btn btn-sm btn-secondary" id="wzPtsApply">Terapkan</button>
+            <button type="button" class="btn btn-sm btn-ghost" id="wzPtsReset">↺ Pakai poin Bank Soal</button>
+          </div>`}
+          <div class="table-wrap"><table class="table wz-pts-table">
+            <thead><tr><th>#</th><th>Soal</th><th>Format</th><th>Poin Bank</th><th>Poin di ujian ini</th></tr></thead>
+            <tbody>${sections.map(sec => {
+              const st = DB.subtestByName(sec.subtest);
+              return `<tr class="wz-pts-sec"><td colspan="5">${st ? st.icon : '📘'} <strong>${UI.esc(sec.subtest)}</strong>
+                  <span class="muted small" data-sec-total="${UI.esc(sec.subtest)}"></span></td></tr>` +
+                sec.questionIds.map((qid, i) => {
+                  const q = DB.getQuestion(qid);
+                  if (!q) return '';
+                  const ess = (q.questionType || '') === 'Esai';
+                  return `<tr>
+                    <td>${i + 1}</td>
+                    <td><div class="wz-pts-q">${UI.esc(RichText.plain(q.text, 120))}</div></td>
+                    <td><span class="qc-chip type">${UI.esc(q.questionType || 'Pilihan Ganda')}</span>${ess ? ' <span class="badge badge-warning">dinilai tutor</span>' : ''}</td>
+                    <td class="muted">${fmt(Scoring.defaultPoints(q))}</td>
+                    <td>${pkg ? `<strong>${fmt(maxMap[qid] || 0)}</strong>`
+                      : `<input type="number" class="wz-pts-in" data-pts="${UI.esc(qid)}" data-sub="${UI.esc(sec.subtest)}" min="0" max="${Scoring.MAX_POINTS}" step="any"
+                          value="${maxMap[qid] != null ? maxMap[qid] : 1}" aria-label="Poin soal ${i + 1} ${UI.esc(sec.subtest)}" />`}</td>
+                  </tr>`;
+                }).join('');
+            }).join('')}</tbody>
+          </table></div>
         </div>`;
+    }
+
+    function bindPointsEditor(panel, sections) {
+      const sc = draft.scoring;
+      const refresh = () => {
+        const cbt = draftCbt();
+        const maxMap = Scoring.maxPointsMap(cbt);
+        const total = Object.values(maxMap).reduce((n, v) => n + v, 0);
+        const t = panel.querySelector('#wzPtsTotal');
+        if (t) t.textContent = Scoring.fmtNum(total);
+        sections.forEach(sec => {
+          const el = panel.querySelector(`[data-sec-total="${CSS.escape(sec.subtest)}"]`);
+          if (el) el.textContent = ` • ${Scoring.fmtNum(sec.questionIds.reduce((n, id) => n + (maxMap[id] || 0), 0))} poin`;
+        });
+        const d = panel.querySelector('#wzScoreDesc');
+        if (d) d.textContent = Scoring.describe(cbt);
+      };
+      panel.querySelectorAll('[data-pts]').forEach(inp => inp.addEventListener('input', () => {
+        const v = Number(inp.value);
+        if (inp.value === '' || !Number.isFinite(v) || v < 0) return;
+        sc.points[inp.dataset.pts] = Math.min(Scoring.MAX_POINTS, v);
+        refresh();
+      }));
+      panel.querySelectorAll('[data-pts]').forEach(inp => inp.addEventListener('change', () => {
+        const v = Number(inp.value);
+        if (inp.value === '' || !Number.isFinite(v) || v < 0) {
+          const q = DB.getQuestion(inp.dataset.pts);
+          delete sc.points[inp.dataset.pts];
+          inp.value = Scoring.defaultPoints(q);
+        } else inp.value = Math.min(Scoring.MAX_POINTS, v);
+        refresh();
+      }));
+      const apply = panel.querySelector('#wzPtsApply');
+      if (apply) apply.addEventListener('click', () => {
+        const v = Number(panel.querySelector('#wzPtsAll').value);
+        if (!Number.isFinite(v) || v < 0) { UI.toast('Poin harus angka 0 atau lebih.', 'error'); return; }
+        sections.forEach(sec => sec.questionIds.forEach(id => { sc.points[id] = Math.min(Scoring.MAX_POINTS, v); }));
+        panel.querySelectorAll('[data-pts]').forEach(inp => { inp.value = Math.min(Scoring.MAX_POINTS, v); });
+        refresh();
+        UI.toast('Poin semua soal disamakan.', 'info');
+      });
+      const reset = panel.querySelector('#wzPtsReset');
+      if (reset) reset.addEventListener('click', () => {
+        sections.forEach(sec => sec.questionIds.forEach(id => { delete sc.points[id]; }));
+        panel.querySelectorAll('[data-pts]').forEach(inp => { inp.value = Scoring.defaultPoints(DB.getQuestion(inp.dataset.pts)); });
+        refresh();
+        UI.toast('Poin dikembalikan ke nilai Bank Soal.', 'info');
+      });
+      refresh();
+    }
+
+    /** Field penilaian untuk disimpan: hanya poin yang berbeda dari Bank Soal. */
+    function scoringPayload(sections) {
+      const sc = draft.scoring;
+      const mode = sc.mode === 'points' || sc.mode === 'both' ? sc.mode : 'irt';
+      const out = { scoringMode: mode, pointsBasis: sc.basis, packageTotal: sc.packageTotal, wrongPoints: sc.wrongPoints, points: {} };
+      if (mode !== 'irt' && sc.basis === 'question' && global.Scoring) {
+        sections.forEach(sec => sec.questionIds.forEach(id => {
+          const v = sc.points[id];
+          if (v == null || !Number.isFinite(Number(v))) return;
+          if (Number(v) !== Scoring.defaultPoints(DB.getQuestion(id))) out.points[id] = Number(v);
+        }));
+      }
+      return out;
     }
 
     function doSave() {
@@ -908,6 +1116,11 @@
         startAt: draft.startAt,
         endAt: draft.endAt
       };
+      Object.assign(payload, scoringPayload(sections));
+      if (payload.scoringMode !== 'irt' && global.Scoring) {
+        const total = Object.values(Scoring.maxPointsMap(Object.assign({}, payload))).reduce((n, v) => n + v, 0);
+        if (!(total > 0)) { UI.toast('Total poin ujian masih 0. Atur poin minimal satu soal pada langkah Tinjau.', 'error'); return; }
+      }
 
       if (editing) {
         const patch = DB.stampEditor(payload, user);
@@ -1239,14 +1452,29 @@
     if (global.Scoring) Scoring.recomputeCbt(cbt.id);
     const attempts = DB.getCbtAttemptsByCbt(cbt.id).filter(a => a.submittedAt)
       .map(a => global.Scoring ? Scoring.ensureFresh(a) : a);
-    const scoreOf = a => a.scoring ? a.scoring.scaled200_800 : (a.score || 0);
+    const ptsMode = !!(global.Scoring && Scoring.usesPoints(cbt));
+    const fmtN = global.Scoring ? Scoring.fmtNum : String;
+    const maxTotal = ptsMode ? Object.values(Scoring.maxPointsMap(cbt)).reduce((n, v) => n + v, 0) : 800;
+    const scoreOf = a => (ptsMode && a.scoring && a.scoring.points) ? a.scoring.points.earned
+      : (a.scoring ? a.scoring.scaled200_800 : (a.score || 0));
     const scoredAttempts = attempts.filter(a => scoreOf(a) != null);
-    const avg = scoredAttempts.length ? Math.round(scoredAttempts.reduce((n, a) => n + scoreOf(a), 0) / scoredAttempts.length) : null;
+    const avgRaw = scoredAttempts.length ? scoredAttempts.reduce((n, a) => n + scoreOf(a), 0) / scoredAttempts.length : null;
+    const avg = avgRaw == null ? null : (ptsMode ? Math.round(avgRaw * 100) / 100 : Math.round(avgRaw));
+    const scaleLbl = ptsMode ? `poin, maks ${fmtN(maxTotal)}` : '200–800';
+    const essayQids = sections.flatMap(s => s.questionIds).filter(id => ((DB.getQuestion(id) || {}).questionType || '') === 'Esai');
     const best = scoredAttempts.length ? Math.max(...scoredAttempts.map(scoreOf)) : null;
     const worst = scoredAttempts.length ? Math.min(...scoredAttempts.map(scoreOf)) : null;
 
     // Rata-rata per subtest
-    const subAvg = sections.map(s => {
+    const subAvg = ptsMode ? sections.map(s => {
+      const vals = attempts.map(a => a.scoring && a.scoring.points && (a.scoring.points.sections || []).find(x => x.subtest === s.subtest)).filter(Boolean);
+      return {
+        subtest: s.subtest, count: vals.length,
+        avg: vals.length ? Math.round(vals.reduce((n, v) => n + v.percent, 0) / vals.length) : null,
+        ptsAvg: vals.length ? Math.round(vals.reduce((n, v) => n + v.earned, 0) / vals.length * 100) / 100 : null,
+        ptsMax: vals.length ? vals[0].max : null, scaledAvg: null
+      };
+    }) : sections.map(s => {
       const vals = attempts.map(a => {
         const irt = a.scoring && (a.scoring.sections || []).find(x => x.subtest === s.subtest);
         const legacy = (a.sectionScores || []).find(x => x.subtest === s.subtest);
@@ -1263,11 +1491,14 @@
     body.innerHTML = `
       <div class="stats-grid">
         <div class="stat-card accent-primary"><div class="label">Peserta Selesai</div><div class="value">${attempts.length}</div></div>
-        <div class="stat-card accent-success"><div class="label">Rata-rata (200–800)</div><div class="value">${avg ?? '-'}</div></div>
-        <div class="stat-card accent-warning"><div class="label">Tertinggi (200–800)</div><div class="value">${best ?? '-'}</div></div>
-        <div class="stat-card accent-danger"><div class="label">Terendah (200–800)</div><div class="value">${worst ?? '-'}</div></div>
+        <div class="stat-card accent-success"><div class="label">Rata-rata (${scaleLbl})</div><div class="value">${avg == null ? '-' : fmtN(avg)}</div></div>
+        <div class="stat-card accent-warning"><div class="label">Tertinggi (${scaleLbl})</div><div class="value">${best == null ? '-' : fmtN(best)}</div></div>
+        <div class="stat-card accent-danger"><div class="label">Terendah (${scaleLbl})</div><div class="value">${worst == null ? '-' : fmtN(worst)}</div></div>
       </div>
-      ${attempts.length ? `<div class="alert alert-info small"><strong>Skor cohort-weighted / Rasch-like:</strong> benar=1, salah/kosong=0, tanpa minus. Bobot item dihitung dari ${attempts.length} peserta yang sudah selesai; skala 200–800 ini bersifat ${attempts[0].scoring && attempts[0].scoring.provisional ? 'sementara' : 'terkalibrasi cohort'} dan bukan skor nasional resmi.</div>` : ''}
+      ${ptsMode ? `<div class="alert alert-info small"><strong>${UI.esc(Scoring.describe(cbt))}.</strong>
+        Benar mendapat poin penuh, kosong 0. ${essayQids.length ? `Ujian ini memuat ${essayQids.length} soal esai — beri poinnya lewat tombol <strong>✍️ Nilai Esai</strong> pada tabel peserta.` : ''}
+        ${Scoring.modeOf(cbt) === 'both' ? 'Skor IRT 200–800 tetap ditampilkan sebagai pembanding.' : ''}</div>`
+      : attempts.length ? `<div class="alert alert-info small"><strong>Skor cohort-weighted / Rasch-like:</strong> benar=1, salah/kosong=0, tanpa minus. Bobot item dihitung dari ${attempts.length} peserta yang sudah selesai; skala 200–800 ini bersifat ${attempts[0].scoring && attempts[0].scoring.provisional ? 'sementara' : 'terkalibrasi cohort'} dan bukan skor nasional resmi.</div>` : ''}
 
       <div class="card">
         <div class="card-header">${UI.secHead('🧪', 'Rata-rata per Subtest', 'Membantu melihat subtest terlemah')}</div>
@@ -1275,7 +1506,7 @@
           const st = DB.subtestByName(s.subtest);
           return `<div style="margin-bottom:12px;">
             <div class="flex-between"><strong style="font-size:13px;">${st ? st.icon : '📘'} ${UI.esc(s.subtest)}</strong>
-              <span class="muted small">${s.scaledAvg != null ? `<strong>${s.scaledAvg}/800</strong> • ` : ''}${s.count} peserta</span></div>
+              <span class="muted small">${s.ptsAvg != null ? `<strong>${fmtN(s.ptsAvg)}/${fmtN(s.ptsMax)} poin</strong> • ` : ''}${s.scaledAvg != null ? `<strong>${s.scaledAvg}/800</strong> • ` : ''}${s.count} peserta</span></div>
             ${UI.progressHtml(s.avg ?? 0, '', 'auto')}
           </div>`;
         }).join('')}
@@ -1307,7 +1538,7 @@
       render: (rows, ctx) => `<div class="table-wrap"><table class="table">
           <thead><tr><th>Peserta</th><th>Kelas</th><th>Skor</th><th>Benar</th>
             ${sections.map(s => `<th>${UI.esc(DB.subtestByName(s.subtest)?.short || s.subtest)}</th>`).join('')}
-            <th>Pelanggaran</th><th>Selesai</th></tr></thead>
+            <th>Pelanggaran</th><th>Selesai</th>${ptsMode && essayQids.length ? '<th>Esai</th>' : ''}</tr></thead>
           <tbody>${rows.map(a => {
             const s = DB.getUser(a.studentId);
             const vios = (a.violations || []).length;
@@ -1319,15 +1550,89 @@
               ${sections.map(sec2 => {
                 const ss = (a.sectionScores || []).find(x => x.subtest === sec2.subtest);
                 const irt = a.scoring && (a.scoring.sections || []).find(x => x.subtest === sec2.subtest);
+                const ps = ptsMode && a.scoring && a.scoring.points ? (a.scoring.points.sections || []).find(x => x.subtest === sec2.subtest) : null;
+                if (ps) return `<td><strong>${fmtN(ps.earned)}</strong><span class="muted small">/${fmtN(ps.max)}</span><div class="muted small">${Math.round(ps.percent)}%</div></td>`;
                 return `<td>${irt ? `<strong>${irt.scaled200_800}</strong><div class="muted small">${ss ? ss.score + '%' : ''}</div>` : (ss ? ss.score : '-')}</td>`;
               }).join('')}
               <td>${vios ? `<span class="badge badge-warning">${vios}</span>` : '<span class="muted small">0</span>'}</td>
               <td class="small">${UI.fmtDateTime(a.submittedAt)}</td>
+              ${ptsMode && essayQids.length ? `<td>${essayCellHtml(a)}</td>` : ''}
             </tr>`;
           }).join('')}</tbody>
-        </table></div>`
+        </table></div>`,
+      onPaint: (res) => res.querySelectorAll('[data-essay]').forEach(b => b.addEventListener('click', () =>
+        openEssayGrading(b.dataset.essay, user, () => openResults(cbtId, user, onDone))))
     });
     if (global.Effects) Effects.enhance(body);
+  }
+
+  function essayCellHtml(a) {
+    const p = a.scoring && a.scoring.points;
+    const pending = p ? p.pending : 0;
+    return `<button type="button" class="btn btn-sm ${pending ? 'btn-primary' : 'btn-secondary'}" data-essay="${UI.esc(a.id)}">✍️ ${pending ? `Nilai (${pending})` : 'Ubah'}</button>`;
+  }
+
+  /* =====================================================================
+   * 6b) PENILAIAN ESAI (sistem Poin Manual) — dipakai admin & tutor
+   * ===================================================================*/
+  function openEssayGrading(attemptId, user, onDone) {
+    let attempt = DB.getCbtAttempts().find(a => a.id === attemptId);
+    if (!attempt) { UI.toast('Lembar jawaban tidak ditemukan.', 'error'); return; }
+    const cbt = DB.getCbt(attempt.cbtId);
+    if (!cbt || !global.Scoring) return;
+    const student = DB.getUser(attempt.studentId) || {};
+    const maxMap = Scoring.maxPointsMap(cbt);
+    const essays = DB.cbtSections(cbt).flatMap(s => s.questionIds).map(id => DB.getQuestion(id))
+      .filter(q => q && (q.questionType || '') === 'Esai');
+    if (!essays.length) { UI.toast('Ujian ini tidak memiliki soal esai.', 'info'); return; }
+    const cur = Object.assign({}, attempt.essayPoints || {});
+    const fmt = Scoring.fmtNum;
+    UI.modal.open(`✍️ Nilai Esai — ${student.name || 'Peserta'}`, `
+      <form id="essForm" class="form" novalidate>
+        <p class="muted small" style="margin-top:0;">${UI.esc(cbt.title)} • isi poin 0 sampai poin maksimal tiap soal. Kosongkan bila belum dinilai.</p>
+        ${essays.map((q, i) => `
+          <div class="ess-item">
+            <div class="ess-q"><span class="q-num">${i + 1}</span><div class="rt-content">${RichText.render(q.text)}</div></div>
+            ${(q.keywords || []).length ? `<div class="muted small">Kata kunci penilaian: ${q.keywords.map(k => `<span class="badge badge-gray">${UI.esc(k)}</span>`).join(' ')}</div>` : ''}
+            <div class="ess-ans">${UI.esc((attempt.answers || {})[q.id] || '(tidak dijawab)')}</div>
+            <div class="ess-grade">
+              <label for="ess_${UI.esc(q.id)}">Poin</label>
+              <input type="number" id="ess_${UI.esc(q.id)}" data-ess="${UI.esc(q.id)}" min="0" max="${maxMap[q.id] || 0}" step="any"
+                value="${cur[q.id] != null ? cur[q.id] : ''}" placeholder="0–${fmt(maxMap[q.id] || 0)}" />
+              <span class="muted small">/ ${fmt(maxMap[q.id] || 0)} poin</span>
+            </div>
+          </div>`).join('')}
+        <div class="flex-gap" style="margin-top:12px;">
+          <button type="submit" class="btn btn-primary">💾 Simpan Nilai Esai</button>
+          <button type="button" class="btn btn-secondary" id="essCancel">Batal</button>
+        </div>
+      </form>`, { fullscreenToggle: true, fullKey: 'cbt-essay' });
+    document.getElementById('essCancel').addEventListener('click', () => UI.modal.close());
+    document.getElementById('essForm').addEventListener('submit', (e) => {
+      e.preventDefault();
+      const next = {};
+      let bad = null;
+      document.querySelectorAll('[data-ess]').forEach(inp => {
+        if (inp.value === '') return;
+        const v = Number(inp.value);
+        const m = maxMap[inp.dataset.ess] || 0;
+        if (!Number.isFinite(v) || v < 0 || v > m) { bad = bad || inp; return; }
+        next[inp.dataset.ess] = Math.round(v * 100) / 100;
+      });
+      if (bad) { UI.toast(`Poin harus antara 0 dan ${fmt(Number(bad.max) || 0)}.`, 'error'); bad.focus(); return; }
+      DB.updateCbtAttempt(attempt.id, { essayPoints: next, essayGradedBy: user.id, essayGradedAt: Date.now() });
+      Scoring.recomputeCbt(cbt.id);
+      attempt = DB.getCbtAttempts().find(a => a.id === attemptId) || attempt;
+      const p = attempt.scoring && attempt.scoring.points;
+      if (p) DB.updateCbtAttempt(attempt.id, { score: Math.round(p.percent) });
+      DB.notifyStudentAndParents(attempt.studentId, {
+        type: 'cbt', icon: '✍️', title: 'Nilai esai sudah keluar',
+        body: `${cbt.title} — skor kini ${Scoring.label(attempt)}.`, link: 'cbt'
+      }, { title: `Nilai esai ${student.name || 'anak'} sudah keluar`, link: 'anak-nilai' });
+      UI.modal.close();
+      UI.toast('Nilai esai disimpan.', 'success');
+      if (typeof onDone === 'function') onDone();
+    });
   }
 
   /* =====================================================================
@@ -1399,6 +1704,6 @@
 
   global.CbtAdmin = {
     renderCbtHome, renderBankHome, openWizard, openBankBrowser, openMonitor, openResults,
-    openQuestionForm, closeWorkspace
+    openQuestionForm, closeWorkspace, openEssayGrading
   };
 })(window);

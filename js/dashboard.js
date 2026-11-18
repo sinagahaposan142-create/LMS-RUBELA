@@ -32,6 +32,7 @@
         { key: 'alumni', label: 'Alumni', icon: '🏛️', group: 'Akademik' },
         { key: 'streak-admin', label: 'Streak & Gamifikasi', icon: '🔥', group: 'Motivasi & Gamifikasi' },
         { key: 'arena-admin', label: 'Arena Belajar', icon: '🎮', group: 'Motivasi & Gamifikasi' },
+        { key: 'game-admin', label: 'Game Battle', icon: '⚔️', group: 'Motivasi & Gamifikasi' },
         { key: 'leaderboard', label: 'Papan Peringkat', icon: '🏆', group: 'Motivasi & Gamifikasi' },
         { key: 'birthday', label: 'Ulang Tahun', icon: '🎂', group: 'Motivasi & Gamifikasi' },
         { key: 'motivasi', label: 'Kata Motivasi', icon: '💡', group: 'Motivasi & Gamifikasi' },
@@ -65,6 +66,7 @@
         { key: 'grading', label: 'Penilaian Tugas', icon: '✅', group: 'Mengajar' },
         { key: 'rekap', label: 'Rekapan Kelas', icon: '📈', group: 'Siswa & Laporan' },
         { key: 'streak-siswa', label: 'Streak Siswa', icon: '🔥', group: 'Siswa & Laporan' },
+        { key: 'game-admin', label: 'Game Battle', icon: '⚔️', group: 'Siswa & Laporan' },
         { key: 'leaderboard', label: 'Papan Peringkat', icon: '🏆', group: 'Siswa & Laporan' },
         { key: 'ai-asisten', label: 'Asisten AI', icon: '💬', group: 'Siswa & Laporan' },
         { key: 'ai-analytics', label: 'AI Analytics', icon: '🤖', group: 'Siswa & Laporan' },
@@ -89,6 +91,7 @@
         { key: 'grades', label: 'Nilai', icon: '🏆', group: 'Belajar' },
         { key: 'streak', label: 'Streak Belajar', icon: '🔥', group: 'Gamifikasi' },
         { key: 'arena', label: 'Arena Belajar', icon: '🎮', group: 'Gamifikasi' },
+        { key: 'game-battle', label: 'Game Battle', icon: '⚔️', group: 'Gamifikasi' },
         { key: 'leaderboard', label: 'Papan Peringkat', icon: '🥇', group: 'Gamifikasi' },
         { key: 'jadwal-siswa', label: 'Jadwal Kelas', icon: '🗓️', group: 'Jadwal & Kehadiran' },
         { key: 'absensi', label: 'Presensi Saya', icon: '📋', group: 'Jadwal & Kehadiran' },
@@ -313,11 +316,14 @@
       // Ruang pribadi Mesin Waktu terkunci kembali setiap kali halaman ditinggalkan.
       if (window.TimeCapsule) TimeCapsule.lock();
       if (window.Arena) Arena.stop();
+      if (window.Games) Games.stop();
+      if (window.GamesAdmin) GamesAdmin.stop();
       if (window.CourseHub && key !== 'course' && key !== 'course-admin') CourseHub.reset();
       if (content.__presenceDispose) {
         content.__presenceDispose();
         delete content.__presenceDispose;
       }
+      if (content.__pushObs) { content.__pushObs.disconnect(); delete content.__pushObs; }
       content.innerHTML = '';
       if (window.Presence) Presence.setPage(key);
 
@@ -339,6 +345,8 @@
           Terjadi kesalahan saat membuka halaman ini. Silakan coba lagi.</div>
           <p class="muted small">${UI.esc(err.message || String(err))}</p></div>`;
       }
+      // Notifikasi perangkat: kartu pengaturan di Profil (dan Pengaturan untuk admin).
+      if (window.PushNotif && (key === 'profile' || (key === 'settings' && user.role === 'admin'))) mountPushCard(content);
       // Tema hari besar: kartu ucapan di Overview, partikel hero, akhiri pratinjau admin.
       if (window.HolidayTheme) {
         try { HolidayTheme.onNavigate(key, content, user); } catch (e) { console.warn('[LMS] tema hari besar', e); }
@@ -356,11 +364,29 @@
       else window.scrollTo({ top: 0, behavior: 'smooth' });
     }
 
+    /** Kartu "Notifikasi Perangkat" — dipasang ulang bila halaman merender dirinya sendiri. */
+    function mountPushCard(content) {
+      const put = () => {
+        if (content.querySelector('#pushCard')) return;
+        const box = document.createElement('div');
+        box.className = 'push-card-wrap';
+        box.innerHTML = PushNotif.cardHtml();
+        content.insertBefore(box, content.firstChild);
+        PushNotif.bindCard(box);
+      };
+      put();
+      if ('MutationObserver' in window) {
+        const obs = new MutationObserver(() => { if (!content.querySelector('#pushCard')) put(); });
+        obs.observe(content, { childList: true });
+        content.__pushObs = obs;
+      }
+    }
+
     /* ================= Pembaruan dari perangkat lain (mode server) =================
      * Halaman ringkasan diperbarui otomatis; halaman lain menampilkan tombol
      * "Muat ulang" agar isian/tab yang sedang dibuka tidak tiba-tiba berubah. */
     const AUTO_REFRESH = new Set(['overview', 'notifikasi', 'pengumuman', 'kalender', 'online']);
-    const SELF_LIVE = new Set(['chat']);
+    const SELF_LIVE = new Set(['chat', 'game-battle', 'game-admin']);
     let lastInputAt = 0;
     let liveTimer = null;
     let lastLiveAt = 0;
@@ -729,6 +755,10 @@
     }
 
     navigate('overview');
+    // Notifikasi perangkat (Web Push): daftarkan service worker, pulihkan langganan, ajakan aktifkan.
+    if (window.PushNotif) { try { PushNotif.init(user); } catch (e) { console.warn('[LMS] notifikasi perangkat', e); } }
+    // Game Battle: kartu undangan battle muncul di halaman mana pun (siswa).
+    if (window.Games) { try { Games.init(user); } catch (e) { console.warn('[LMS] game battle', e); } }
     // Musik latar hidup di shell sehingga tidak dimulai ulang saat berpindah menu.
     if (window.Music) { try { Music.init(user); } catch (e) { console.warn('[LMS] musik', e); } }
 

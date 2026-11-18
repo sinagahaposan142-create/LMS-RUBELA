@@ -247,7 +247,8 @@
       grading: 'Penilaian Tugas', chat: 'Chat', pengumuman: 'Pengumuman',
       kalender: 'Kalender', attendance: 'Presensi', absensi: 'Presensi',
       'jadwal-kelas': 'Jadwal Kelas', 'jadwal-siswa': 'Jadwal Kelas',
-      'ai-tools': 'AI Tools', 'ai-analytics': 'AI Analytics', online: 'Status Online'
+      'ai-tools': 'AI Tools', 'ai-analytics': 'AI Analytics', online: 'Status Online',
+      'game-battle': 'Game Battle', 'game-admin': 'Kelola Game Battle', lainnya: 'Halaman lain'
     };
     return labels[key] || String(key || '-').replace(/-/g, ' ');
   }

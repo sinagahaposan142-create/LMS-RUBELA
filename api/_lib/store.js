@@ -38,6 +38,11 @@ const SCHEMA = [
   `CREATE TABLE IF NOT EXISTS blob_meta (
      key TEXT PRIMARY KEY, size INTEGER NOT NULL, type TEXT, parts INTEGER NOT NULL, owner TEXT,
      complete INTEGER NOT NULL DEFAULT 0, updated_at INTEGER NOT NULL)`,
+  // Langganan Web Push per perangkat (tidak pernah disinkronkan ke klien).
+  `CREATE TABLE IF NOT EXISTS push_subs (
+     endpoint TEXT PRIMARY KEY, user_id TEXT NOT NULL, p256dh TEXT NOT NULL, auth TEXT NOT NULL,
+     ua TEXT, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL, last_ok INTEGER, fails INTEGER NOT NULL DEFAULT 0)`,
+  'CREATE INDEX IF NOT EXISTS push_subs_user ON push_subs (user_id)',
   "INSERT INTO meta (name, value) VALUES ('ver', '0') ON CONFLICT(name) DO NOTHING",
   "INSERT INTO meta (name, value) VALUES ('schema', '1') ON CONFLICT(name) DO NOTHING"
 ];

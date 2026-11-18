@@ -12,7 +12,8 @@ const ROLES = ['admin', 'guru', 'siswa', 'orangtua'];
 const ADMIN_ONLY = new Set(['lms_payments', 'lms_expenses', 'lms_salaries', 'lms_motivations', 'lms_security_questions',
   'lms_class_options', 'lms_batches', 'lms_reading_texts', 'lms_verses', 'lms_hub_courses', 'lms_music_tracks', 'lms_streak_grants']);
 const STAFF_ONLY = new Set(['lms_courses', 'lms_materials', 'lms_modules', 'lms_recordings', 'lms_assignments', 'lms_questions',
-  'lms_cbts', 'lms_attendance', 'lms_class_plans', 'lms_whiteboards', 'lms_whiteboard_boards', 'lms_events', 'lms_announcements']);
+  'lms_cbts', 'lms_attendance', 'lms_class_plans', 'lms_whiteboards', 'lms_whiteboard_boards', 'lms_events', 'lms_announcements',
+  'lms_game_questions']);
 // Tutor tidak boleh mengubah pengaturan global di server (termasuk kunci AI):
 // sebelumnya tutor dapat menimpa/mengosongkan kunci & model Gemini milik admin.
 const GURU_SETTINGS = new Set([]);
@@ -120,6 +121,7 @@ function ownerField(k) {
     case 'lms_enrollments': case 'lms_submissions': case 'lms_cbt_attempts':
     case 'lms_hub_progress': case 'lms_birthday_rewards': return 'studentId';
     case 'lms_learning_log': case 'lms_capsules': case 'lms_capsule_vaults': case 'lms_notifications': return 'userId';
+    case 'lms_game_scores': return 'studentId';
     default: return null;
   }
 }
@@ -181,7 +183,15 @@ function checkWrite(ctx, k, id, before, after) {
       return deny('Tugas hanya dapat dikumpulkan oleh pemiliknya.');
     case 'lms_cbt_attempts':
       if (ctx.isStaff) return allow(after);
-      if (ctx.role === 'siswa' && op !== 'delete' && ownsBefore && ownsAfter) return allow(after);
+      if (ctx.role === 'siswa' && op !== 'delete' && ownsBefore && ownsAfter) {
+        // Nilai esai (Poin Manual) hanya diisi tutor/admin — peserta tidak dapat mengubahnya.
+        const out = clone(after);
+        ['essayPoints', 'essayGradedBy', 'essayGradedAt'].forEach(fld => {
+          if (before && Object.prototype.hasOwnProperty.call(before, fld)) out[fld] = clone(before[fld]);
+          else delete out[fld];
+        });
+        return allow(out);
+      }
       // Skor cohort (IRT) dihitung ulang di perangkat mana pun yang membuka hasil ujian.
       if (op === 'update' && (ctx.role === 'siswa' || ctx.role === 'orangtua')) return allow(onlyFields(before, after, ['scoring']));
       return deny('Hasil ujian hanya dapat diubah pemiliknya.');
@@ -219,9 +229,94 @@ function checkWrite(ctx, k, id, before, after) {
       return (after == null || typeof after === 'number') ? allow(after) : deny('Format penanda tidak valid.');
     case 'lms_feedbacks':
       return op === 'create' ? allow(after) : deny('Hanya admin yang dapat mengelola masukan.');
+    case 'lms_game_scores':
+      if (op === 'delete') return ctx.isStaff ? allow(null) : deny('Riwayat game tidak dapat dihapus.');
+      if (ctx.role === 'siswa' && op === 'create' && ownsAfter) return allow(after);
+      return deny('Skor game hanya dicatat oleh pemainnya.');
+    case 'lms_game_battles':
+      return checkBattle(ctx, op, before, after);
     default:
       return deny('Perubahan tidak diizinkan.');
   }
+}
+
+/* ---------- Game Battle ----------
+ * Setiap pemain hanya dapat mengubah entri skornya sendiri (players[id]).
+ * Transisi status yang sah:
+ *   invite → playing (diterima lawan) | declined (lawan) | cancelled (pembuat)
+ *   open   → playing (siswa lain mengambil, p2Id = dirinya) | cancelled (pembuat)
+ *   playing → done (peserta; bila keduanya selesai atau batas waktu lewat)
+ * Pemenang dihitung server dari skor, bukan dari klien. */
+const BATTLE_STATUS = ['invite', 'open', 'playing', 'done', 'declined', 'cancelled'];
+const BATTLE_IMMUTABLE = ['id', 'game', 'subject', 'qids', 'seed', 'limitMs', 'createdAt', 'expiresAt', 'p1Id'];
+const num = (v, d) => (Number.isFinite(Number(v)) ? Number(v) : d);
+function cleanPlayer(p) {
+  const x = p && typeof p === 'object' ? p : {};
+  return {
+    score: Math.round(Math.max(-1e6, Math.min(1e6, num(x.score, 0)))),
+    answered: Math.max(0, Math.min(1000, Math.floor(num(x.answered, 0)))),
+    correct: Math.max(0, Math.min(1000, Math.floor(num(x.correct, 0)))),
+    finished: !!x.finished,
+    finishedAt: x.finished ? num(x.finishedAt, Date.now()) : null,
+    at: num(x.at, Date.now())
+  };
+}
+function battleWinner(b) {
+  const a = (b.players || {})[b.p1Id], c = (b.players || {})[b.p2Id];
+  const sa = a ? a.score : 0, sc = c ? c.score : 0;
+  return sa === sc ? null : (sa > sc ? b.p1Id : b.p2Id);
+}
+function checkBattle(ctx, op, before, after) {
+  const me = ctx.id;
+  const now = Date.now();
+  if (op === 'delete') return ctx.isStaff ? allow(null) : deny('Battle tidak dapat dihapus.');
+  if (op === 'create') {
+    if (ctx.role !== 'siswa' || after.p1Id !== me) return deny('Battle hanya dapat dibuat siswa atas namanya sendiri.');
+    if (after.status !== 'invite' && after.status !== 'open') return deny('Status battle awal tidak valid.');
+    if (after.status === 'invite' && (typeof after.p2Id !== 'string' || !after.p2Id || after.p2Id === me)) return deny('Lawan battle tidak valid.');
+    if (after.status === 'open' && after.p2Id) return deny('Tantangan terbuka belum memiliki lawan.');
+    if (!Array.isArray(after.qids) || after.qids.length < 1 || after.qids.length > 60) return deny('Daftar soal battle tidak valid.');
+    const out = clone(after);
+    out.players = { [me]: cleanPlayer((after.players || {})[me]) };
+    out.limitMs = Math.max(30000, Math.min(15 * 60000, num(after.limitMs, 300000)));
+    out.createdAt = now;
+    out.expiresAt = Math.min(now + 10 * 60000, Math.max(now, num(after.expiresAt, now + 120000)));
+    out.startAt = null; out.winnerId = null; out.endedAt = null;
+    return allow(out);
+  }
+  const isP1 = before.p1Id === me, isP2 = !!before.p2Id && before.p2Id === me;
+  const claim = before.status === 'open' && !before.p2Id && ctx.role === 'siswa' && !isP1 && after.p2Id === me;
+  if (!isP1 && !isP2 && !claim) return deny('Battle milik pemain lain.');
+  const out = clone(before);
+  BATTLE_IMMUTABLE.forEach(f => { if (Object.prototype.hasOwnProperty.call(before, f)) out[f] = clone(before[f]); });
+  out.players = clone(before.players || {});
+  if (after.players && after.players[me] && before.status !== 'done') out.players[me] = cleanPlayer(after.players[me]);
+  const from = before.status, to = BATTLE_STATUS.includes(after.status) ? after.status : from;
+  if (to !== from) {
+    const ok =
+      (from === 'invite' && to === 'playing' && isP2) ||
+      (from === 'invite' && to === 'declined' && isP2) ||
+      (from === 'invite' && to === 'cancelled' && isP1) ||
+      (from === 'open' && to === 'playing' && claim) ||
+      (from === 'open' && to === 'cancelled' && isP1) ||
+      (from === 'playing' && to === 'done' && (isP1 || isP2));
+    if (!ok) return deny('Perubahan status battle tidak diizinkan.');
+    if (to === 'playing') {
+      if (num(before.expiresAt, 0) < now - 15000) return deny('Tantangan sudah kedaluwarsa.');
+      if (claim) out.p2Id = me;
+      out.players[me] = cleanPlayer((after.players || {})[me]);
+      out.startAt = Math.max(now, Math.min(now + 30000, num(after.startAt, now + 6000)));
+    }
+    if (to === 'done') {
+      const p1 = out.players[out.p1Id], p2 = out.players[out.p2Id];
+      const timeUp = now > num(before.startAt, now) + num(before.limitMs, 300000) + 30000;
+      if (!(p1 && p2 && p1.finished && p2.finished) && !timeUp) return deny('Battle belum selesai.');
+      out.endedAt = now;
+      out.winnerId = battleWinner(out);
+    }
+    out.status = to;
+  } else out.status = from;
+  return allow(out);
 }
 
 function checkUser(ctx, op, before, after) {

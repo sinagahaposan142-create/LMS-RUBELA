@@ -60,6 +60,9 @@
     lms_capsules: { type: RECORDS, quiet: true },
     lms_music_tracks: { type: RECORDS },
     lms_ai_chats: { type: RECORDS, quiet: true },           // riwayat chat AI pribadi (7 hari)
+    lms_game_questions: { type: RECORDS },                  // soal khusus Game Battle (js/games-admin.js)
+    lms_game_battles: { type: RECORDS, target: ['p1Id', 'p2Id'] },   // battle 1 lawan 1 (js/games.js)
+    lms_game_scores: { type: RECORDS, quiet: true },        // riwayat skor game per siswa
     lms_settings: { type: MAP },
     lms_birthday_notified: { type: MAP, quiet: true },
     lms_class_options: { type: DOC }

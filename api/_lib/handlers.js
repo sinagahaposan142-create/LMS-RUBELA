@@ -8,6 +8,7 @@ const security = require('./security');
 const rules = require('./rules');
 const catalog = require('../../js/sync-catalog.js');
 const aiProviders = require('../../js/ai-providers.js');
+const push = require('./push');
 
 const SESSION_DAYS = 30;
 const PRESENCE_TTL = 90 * 1000;
@@ -354,7 +355,11 @@ function presenceStmts(tokenHash, pres, now) {
       args: [pres.tab, JSON.stringify(pres.data), now, tokenHash, now]
     });
   }
-  out.push({ sql: 'SELECT user_id, tab, data, last_seen FROM presence WHERE last_seen > ?', args: [now - PRESENCE_TTL] });
+  out.push({
+    sql: `SELECT p.user_id, p.tab, p.data, p.last_seen, json_extract(u.v, '$.role') AS role
+          FROM presence p LEFT JOIN kv u ON u.k = 'lms_users' AND u.id = p.user_id WHERE p.last_seen > ?`,
+    args: [now - PRESENCE_TTL]
+  });
   out.push({
     sql: 'UPDATE sessions SET last_seen = ?, expires_at = ? WHERE token_hash = ? AND last_seen < ?',
     args: [now, now + SESSION_DAYS * 86400000, tokenHash, now - 10 * 60000]
@@ -363,9 +368,15 @@ function presenceStmts(tokenHash, pres, now) {
 }
 
 function presenceFor(ctx, rows) {
-  return (rows || []).filter(r => ctx.isStaff || r.user_id === ctx.id).map(r => {
+  // Siswa melihat sesama siswa yang online (untuk mencari lawan Game Battle), tanpa detail perangkat.
+  return (rows || []).filter(r => ctx.isStaff || r.user_id === ctx.id || (ctx.role === 'siswa' && r.role === 'siswa')).map(r => {
     const d = parse(r.data) || {};
-    return Object.assign({ tabId: r.tab, userId: r.user_id, lastSeen: Number(r.last_seen) }, d);
+    const base = { tabId: r.tab, userId: r.user_id, lastSeen: Number(r.last_seen) };
+    if (ctx.isStaff || r.user_id === ctx.id) return Object.assign(base, d);
+    return Object.assign(base, {
+      page: d.page === 'game-battle' ? 'game-battle' : 'lainnya', visibility: d.visibility === 'hidden' ? 'hidden' : 'visible',
+      idle: Math.max(0, int(d.idle, 0)), browser: '', os: '', device: ''
+    });
   });
 }
 
@@ -468,6 +479,10 @@ async function sync(db, req, body) {
     }
     user = out.user;
     applied = out.applied; rejected = out.rejected; nudge = out.nudge;
+    if (out.createdNotifs && out.createdNotifs.length) {
+      // Dikirim setelah commit (bukan di dalam transaksi) dengan tenggat singkat.
+      try { await deliverPush(db, req, user, out.createdNotifs, now); } catch (e) { console.warn('[push]', e && e.message); }
+    }
     const m = {};
     (out.after[0].rows || []).forEach(r => { m[r.name] = Number(r.value) || 0; });
     verNow = m.ver || 0; purgeVer = m.purge_ver || 0;
@@ -495,7 +510,8 @@ async function housekeeping(db, now) {
     { sql: 'DELETE FROM sessions WHERE expires_at < ?', args: [now] },
     { sql: 'DELETE FROM presence WHERE last_seen < ?', args: [now - 86400000] },
     { sql: 'DELETE FROM challenges WHERE expires_at < ?', args: [now] },
-    { sql: 'DELETE FROM throttle WHERE locked_until < ? AND window_start < ?', args: [now, now - 86400000] }
+    { sql: 'DELETE FROM throttle WHERE locked_until < ? AND window_start < ?', args: [now, now - 86400000] },
+    { sql: 'DELETE FROM push_subs WHERE fails >= 8 OR (updated_at < ? AND (last_ok IS NULL OR last_ok < ?))', args: [now - 120 * 86400000, now - 120 * 86400000] }
   ];
   if (m) {
     stmts.push({ sql: 'DELETE FROM kv WHERE v IS NULL AND ver <= ?', args: [m] });
@@ -562,6 +578,7 @@ async function applyChanges(db, req, tokenHash, changes, now, afterStmts) {
     const targets = new Set();
     let broadcastAll = false;
     const written = new Set();
+    const createdNotifs = [];
     const put = (k, id, value, seqOf) => {
       ver++;
       written.add(k + '\u0001' + id);
@@ -637,6 +654,7 @@ async function applyChanges(db, req, tokenHash, changes, now, afterStmts) {
       }
       const newVer = (value != null && before != null && rules.same(value, before)) ? cur.ver : put(c.k, c.id, value, cur ? cur.seq : 0);
       noteNudge(c.k, value, before);
+      if (c.k === 'lms_notifications' && before == null && value && typeof value.userId === 'string') createdNotifs.push(value);
       if (c.k === 'lms_users') {
         if (password && pwHashes.has(c.id)) {
           writes.push({ sql: 'INSERT INTO auth (user_id, hash, updated_at) VALUES (?, ?, ?) ON CONFLICT(user_id) DO UPDATE SET hash = excluded.hash, updated_at = excluded.updated_at', args: [c.id, pwHashes.get(c.id), now] });
@@ -654,6 +672,7 @@ async function applyChanges(db, req, tokenHash, changes, now, afterStmts) {
           writes.push({ sql: 'DELETE FROM auth WHERE user_id = ?', args: [c.id] });
           writes.push({ sql: 'DELETE FROM sessions WHERE user_id = ?', args: [c.id] });
           writes.push({ sql: 'DELETE FROM presence WHERE user_id = ?', args: [c.id] });
+          writes.push({ sql: 'DELETE FROM push_subs WHERE user_id = ?', args: [c.id] });
           writes.push({ sql: "DELETE FROM blobs WHERE key >= ? AND key < ?", args: ['cap:' + c.id + ':', 'cap:' + c.id + ';'] });
           writes.push({ sql: "DELETE FROM blob_meta WHERE key >= ? AND key < ?", args: ['cap:' + c.id + ':', 'cap:' + c.id + ';'] });
         } else if ((value.status || 'Aktif') === 'Dikeluarkan') {
@@ -680,11 +699,156 @@ async function applyChanges(db, req, tokenHash, changes, now, afterStmts) {
     let nudge = null;
     if (broadcastAll) nudge = { scope: 'all' };
     else if (targets.size) nudge = { scope: 'users', users: [...targets] };
-    return { user, applied, rejected, after: out.after, nudge };
+    return { user, applied, rejected, after: out.after, nudge, createdNotifs };
   } catch (e) {
     await tx.rollback();
     throw e;
   }
+}
+
+/* ============================ WEB PUSH ============================ */
+const PUSH_ROLES_DEFAULT = ['admin', 'guru', 'siswa', 'orangtua'];
+
+async function pushSettings(db) {
+  const st = await store.readSettings(db, ['pushEnabled', 'pushRoles', 'appName']);
+  return {
+    enabled: st.pushEnabled !== false,
+    roles: Array.isArray(st.pushRoles) ? st.pushRoles.filter(r => PUSH_ROLES_DEFAULT.includes(r)) : PUSH_ROLES_DEFAULT.slice(),
+    appName: typeof st.appName === 'string' && st.appName.trim() ? st.appName.trim() : 'LMS Rubela'
+  };
+}
+
+/** Kunci publik VAPID + status fitur untuk peran pengguna ini. */
+async function pushKey(db, req) {
+  const { user } = await requireUser(db, req);
+  const cfg = await pushSettings(db);
+  const v = await push.vapid(db);
+  const rows = await db.query('SELECT COUNT(*) AS n FROM push_subs WHERE user_id = ?', [user.id]);
+  return { ok: true, publicKey: v.publicKey, enabled: cfg.enabled, allowed: cfg.enabled && cfg.roles.includes(user.role), devices: Number(rows[0] && rows[0].n) || 0 };
+}
+
+/** Simpan / hapus langganan perangkat ini. body: { on, sub:{endpoint, keys:{p256dh, auth}} } */
+async function pushSubscribe(db, req, body) {
+  const { user } = await requireUser(db, req);
+  const sub = body.sub && typeof body.sub === 'object' ? body.sub : {};
+  const endpoint = str(sub.endpoint, 1000);
+  const now = Date.now();
+  if (body.on === false) {
+    if (endpoint) await db.run([{ sql: 'DELETE FROM push_subs WHERE endpoint = ? AND user_id = ?', args: [endpoint, user.id] }]);
+    return { ok: true, on: false };
+  }
+  const keys = sub.keys && typeof sub.keys === 'object' ? sub.keys : {};
+  const p256dh = str(keys.p256dh, 200), auth = str(keys.auth, 100);
+  if (!push.validEndpoint(endpoint)) throw bad('Alamat layanan notifikasi peramban tidak dikenali.');
+  if (!push.validKeys(p256dh, auth)) throw bad('Kunci langganan notifikasi tidak valid.');
+  const cfg = await pushSettings(db);
+  if (!cfg.enabled || !cfg.roles.includes(user.role)) return { ok: false, code: 'disabled', error: 'Notifikasi perangkat sedang dinonaktifkan admin untuk peran Anda.' };
+  const tkey = 'pushsub:' + user.id;
+  const tst = await security.throttleState(db, tkey, now);
+  if (tst.lockedFor > 0) return { ok: false, error: 'Terlalu sering mengubah langganan. Coba lagi sebentar lagi.' };
+  await security.throttleFail(db, tkey, { limit: 30, windowMs: 3600000, lockMs: 600000 }, now);
+  // Satu pengguna maksimal 10 perangkat: yang paling lama tidak dipakai dihapus.
+  await db.run([
+    { sql: `INSERT INTO push_subs (endpoint, user_id, p256dh, auth, ua, created_at, updated_at, fails) VALUES (?, ?, ?, ?, ?, ?, ?, 0)
+            ON CONFLICT(endpoint) DO UPDATE SET user_id = excluded.user_id, p256dh = excluded.p256dh, auth = excluded.auth,
+            ua = excluded.ua, updated_at = excluded.updated_at, fails = 0`,
+      args: [endpoint, user.id, p256dh, auth, str(req.headers && req.headers['user-agent'], 200), now, now] },
+    { sql: `DELETE FROM push_subs WHERE user_id = ? AND endpoint NOT IN
+            (SELECT endpoint FROM push_subs WHERE user_id = ? ORDER BY updated_at DESC LIMIT 10)`, args: [user.id, user.id] }
+  ]);
+  return { ok: true, on: true };
+}
+
+/** Kirim notifikasi uji ke semua perangkat milik pengguna ini. */
+async function pushTest(db, req) {
+  const { user } = await requireUser(db, req);
+  const now = Date.now();
+  const key = 'pushtest:' + user.id;
+  const st = await security.throttleState(db, key, now);
+  if (st.lockedFor > 0) return { ok: false, error: `Tunggu ${Math.ceil(st.lockedFor / 1000)} detik sebelum mengirim tes lagi.` };
+  await security.throttleFail(db, key, { limit: 5, windowMs: 600000, lockMs: 120000 }, now);
+  const cfg = await pushSettings(db);
+  const res = await sendPushTo(db, req, [{ userId: user.id, notif: {
+    id: 'test_' + now.toString(36), title: 'Notifikasi aktif 🎉',
+    body: `Perangkat ini akan menerima pemberitahuan dari ${cfg.appName}, walau situs sedang ditutup.`, link: 'notifikasi', createdAt: now
+  } }], cfg, now, { ignoreRoles: true });
+  return { ok: true, sent: res.sent, failed: res.failed, devices: res.devices };
+}
+
+/**
+ * Notifikasi baru di sync → push ke perangkat penerima.
+ * Batas: notifikasi lama (>6 jam) diabaikan, maks 3 pesan per penerima per batch
+ * (sisanya diringkas), dan pengirim non-staf dibatasi agar tidak bisa membanjiri.
+ */
+async function deliverPush(db, req, sender, notifs, now) {
+  const fresh = notifs.filter(n => !(Number(n.createdAt) < now - 6 * 3600000));
+  if (!fresh.length) return;
+  const cfg = await pushSettings(db);
+  if (!cfg.enabled) return;
+  const staff = sender.role === 'admin' || sender.role === 'guru';
+  const byUser = new Map();
+  fresh.forEach(n => { if (!byUser.has(n.userId)) byUser.set(n.userId, []); byUser.get(n.userId).push(n); });
+  let recipients = [...byUser.keys()];
+  const cap = staff ? 1500 : 12;
+  if (recipients.length > cap) recipients = recipients.slice(0, cap);
+  if (!staff) {
+    const tkey = 'pushsend:' + sender.id;
+    const tst = await security.throttleState(db, tkey, now);
+    if (tst.lockedFor > 0) return;
+    await security.throttleFail(db, tkey, { limit: 120, windowMs: 600000, lockMs: 300000 }, now);
+  }
+  const jobs = [];
+  recipients.forEach(uid => {
+    const list = byUser.get(uid).sort((a, b) => (Number(b.createdAt) || 0) - (Number(a.createdAt) || 0));
+    if (list.length <= 3) list.forEach(n => jobs.push({ userId: uid, notif: n }));
+    else jobs.push({ userId: uid, notif: { id: 'sum_' + now.toString(36), title: `${list.length} notifikasi baru`,
+      body: list.slice(0, 3).map(n => n.title).filter(Boolean).join(' • '), link: 'notifikasi', createdAt: now } });
+  });
+  await sendPushTo(db, req, jobs, cfg, now, {});
+}
+
+async function sendPushTo(db, req, jobs, cfg, now, opts) {
+  const o = opts || {};
+  const uids = [...new Set(jobs.map(j => j.userId))];
+  if (!uids.length) return { sent: 0, failed: 0, devices: 0 };
+  const subs = [], roles = new Map();
+  for (const part of chunk(uids, 200)) {
+    const qs = part.map(() => '?').join(',');
+    const [srows, urows] = await db.run([
+      { sql: `SELECT endpoint, user_id, p256dh, auth FROM push_subs WHERE user_id IN (${qs})`, args: part },
+      { sql: `SELECT id, json_extract(v, '$.role') AS r, json_extract(v, '$.status') AS s FROM kv WHERE k = 'lms_users' AND v IS NOT NULL AND id IN (${qs})`, args: part }
+    ]);
+    srows.forEach(r => subs.push(r));
+    urows.forEach(r => roles.set(r.id, { r: r.r, s: r.s || 'Aktif' }));
+  }
+  if (!subs.length) return { sent: 0, failed: 0, devices: 0 };
+  const v = await push.vapid(db);
+  const subject = push.subjectFor(req);
+  const tasks = [];
+  jobs.forEach(j => {
+    const u = roles.get(j.userId);
+    if (!u || u.s === 'Dikeluarkan') return;
+    if (!o.ignoreRoles && !cfg.roles.includes(u.r)) return;
+    const payload = push.payloadOf(j.notif, cfg.appName);
+    subs.filter(sb => sb.user_id === j.userId).forEach(sb => tasks.push(async () => {
+      const r = await push.sendOne(v, sb, payload, { subject, urgency: 'high', timeoutMs: 5000 });
+      return { sb, r };
+    }));
+  });
+  const results = await push.pool(tasks.slice(0, 3000), 24, 8000);
+  const gone = [], okEp = [], failEp = [];
+  let sent = 0, failed = 0;
+  results.forEach(x => {
+    if (!x || !x.r) { failed++; return; }
+    if (x.r.ok) { sent++; okEp.push(x.sb.endpoint); }
+    else { failed++; if (x.r.gone) gone.push(x.sb.endpoint); else failEp.push(x.sb.endpoint); }
+  });
+  const stmts = [];
+  chunk([...new Set(gone)], 200).forEach(p => stmts.push({ sql: `DELETE FROM push_subs WHERE endpoint IN (${p.map(() => '?').join(',')})`, args: p }));
+  chunk([...new Set(okEp)], 200).forEach(p => stmts.push({ sql: `UPDATE push_subs SET last_ok = ?, fails = 0 WHERE endpoint IN (${p.map(() => '?').join(',')})`, args: [now].concat(p) }));
+  chunk([...new Set(failEp)], 200).forEach(p => stmts.push({ sql: `UPDATE push_subs SET fails = fails + 1 WHERE endpoint IN (${p.map(() => '?').join(',')})`, args: p }));
+  if (stmts.length) await db.run(stmts);
+  return { sent, failed, devices: new Set(subs.map(sb => sb.endpoint)).size };
 }
 
 /* ============================ BLOB ============================ */
@@ -925,6 +1089,6 @@ async function agentProxy(db, req, body) {
 
 module.exports = {
   HttpError, health, login, quizAnswer, register, logout, verify, sync,
-  blobPut, blobGet, blobDel, aiProxy, aiModels, agentProxy,
+  blobPut, blobGet, blobDel, aiProxy, aiModels, agentProxy, pushKey, pushSubscribe, pushTest,
   _internals: { normalizeChanges, mergeChange, viewSig, publicUser, pruneAiChats }
 };

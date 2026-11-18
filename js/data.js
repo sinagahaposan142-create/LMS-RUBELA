@@ -55,7 +55,7 @@
     'lms_activity_log', 'lms_birthday_notified', 'lms_whiteboard_boards',
     'lms_learning_log', 'lms_streak_grants', 'lms_reading_texts', 'lms_verses',
     'lms_hub_courses', 'lms_hub_progress', 'lms_capsule_vaults', 'lms_capsules',
-    'lms_music_tracks', 'lms_ai_chats'
+    'lms_music_tracks', 'lms_ai_chats', 'lms_game_questions', 'lms_game_battles', 'lms_game_scores'
   ];
 
   /* ===== Hari & jadwal ===== */
@@ -1383,6 +1383,15 @@
       holidayEffects: true,
       holidayBanner: true,
       holidayMessages: {},
+      /* ===== Notifikasi perangkat (Web Push, js/push.js) ===== */
+      pushEnabled: true,
+      pushRoles: ['admin', 'guru', 'siswa', 'orangtua'],
+      /* ===== Game Battle (js/games.js) ===== */
+      gamesEnabled: true,
+      gameBattleEnabled: true,
+      gameBotEnabled: true,
+      gameSource: 'both',              // both = Bank Soal + Soal Game | game = Soal Game saja | bank = Bank Soal saja
+      gameDisabled: [],                // id game yang dimatikan admin
       examSecurityDefaults: {
         requireCamera: false, requireMic: false, fullscreen: true,
         blockTabSwitch: true, blockCopy: true, blockScreenshot: true,

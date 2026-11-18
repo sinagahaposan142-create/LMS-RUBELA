@@ -1123,13 +1123,19 @@
         scorable++;
         if (g.correct) correct++;
       });
-      const score = scorable ? Math.round((correct / scorable) * 100) : 0;
+      let score = scorable ? Math.round((correct / scorable) * 100) : 0;
+      // Poin Manual: persentase bagian dihitung dari poin, bukan jumlah benar.
+      let pts = null;
+      if (global.Scoring && Scoring.usesPoints(cbt)) {
+        pts = (Scoring.computePoints(cbt, answers, null).sections || []).find(x => x.subtest === section.subtest) || null;
+        if (pts) score = Math.round(pts.percent);
+      }
 
       const fresh = DB.getCbtAttempts().find(a => a.id === attempt.id) || attempt;
       const sectionScores = (fresh.sectionScores || []).filter(s => s.subtest !== section.subtest);
-      sectionScores.push({
+      sectionScores.push(Object.assign({
         subtest: section.subtest, correct, total: scorable, score, essayCount: essays
-      });
+      }, pts ? { points: pts.earned, maxPoints: pts.max } : {}));
 
       if (sectionIndex < sections.length - 1) {
         sectionIndex++;
@@ -1154,7 +1160,9 @@
         scorable++;
         if (g.correct) correct++;
       });
-      const score = scorable ? Math.round((correct / scorable) * 100) : 0;
+      let score = scorable ? Math.round((correct / scorable) * 100) : 0;
+      // Poin Manual: skor legacy 0–100 = persentase poin (esai menunggu dihitung 0 sampai dinilai).
+      if (global.Scoring && Scoring.usesPoints(cbt)) score = Math.round(Scoring.computePoints(cbt, answers, null).percent);
 
       DB.updateCbtAttempt(attempt.id, {
         answers, score, correctCount: correct, totalCount: scorable,
@@ -1165,11 +1173,14 @@
       if (global.Scoring) Scoring.recomputeCbt(cbt.id);
       const updated = DB.getCbtAttempts().find(a => a.id === attempt.id);
       const scaled = updated && updated.scoring ? updated.scoring.scaled200_800 : null;
+      const prim = global.Scoring && updated ? Scoring.primary(updated) : null;
+      const scoreText = prim && prim.kind === 'points' ? `skor ${prim.text}`
+        : (scaled != null ? `skor cohort ${scaled}/800` : `skor ${score}`);
 
       DB.notifyStudentAndParents(user.id, {
         type: 'cbt', icon: '🖥️',
         title: 'Ujian CBT selesai',
-        body: `${cbt.title} — ${correct}/${scorable} benar${scaled != null ? `, skor cohort ${scaled}/800` : `, skor ${score}`}.`,
+        body: `${cbt.title} — ${correct}/${scorable} benar, ${scoreText}.`,
         link: 'cbt'
       }, { title: `${user.name} menyelesaikan ujian`, link: 'anak-nilai' });
 
@@ -1180,7 +1191,7 @@
         document.exitFullscreen().catch(() => { /* noop */ });
       }
       cleanup();
-      UI.toast(`Ujian selesai. ${scaled != null ? `Skor cohort: ${scaled}/800` : `Skor: ${score}`}`, 'success');
+      UI.toast(`Ujian selesai — ${scoreText.charAt(0).toUpperCase() + scoreText.slice(1)}.`, 'success');
       showResult(cbt, updated);
       if (typeof onFinish === 'function') onFinish();
     }
@@ -1194,7 +1205,10 @@
     if (global.Scoring) attempt = Scoring.ensureFresh(attempt);
     const content = document.getElementById('content');
     const sections = DB.cbtSections(cbt);
-    const scores = attempt.sectionScores || [];
+    let scores = attempt.sectionScores || [];
+    if (!scores.length && attempt.scoring && attempt.scoring.points && attempt.scoring.mode !== 'irt') {
+      scores = (attempt.scoring.points.sections || []).map(x => ({ subtest: x.subtest, correct: x.correct, total: x.total, score: Math.round(x.percent), essayCount: x.pending }));
+    }
 
     content.innerHTML = `
       <div class="exam-shell">
@@ -1203,7 +1217,7 @@
             ${attempt.scoring ? Scoring.scoreHtml(attempt, false) : `<div class="score">${attempt.score ?? 0}</div>
               <div class="label">Skor Akhir — ${attempt.correctCount || 0} benar dari ${attempt.totalCount || 0} soal</div>`}
           </div>
-          ${attempt.scoring && attempt.scoring.scaled200_800 != null ? `<div class="alert alert-info small" style="margin-top:10px;">
+          ${attempt.scoring && attempt.scoring.points && attempt.scoring.mode !== 'irt' ? pointsExplainHtml(attempt.scoring) : attempt.scoring && attempt.scoring.scaled200_800 != null ? `<div class="alert alert-info small" style="margin-top:10px;">
             <strong>Metode cohort-weighted / Rasch-like.</strong> Benar = 1, salah/kosong = 0, tanpa minus.
             Kesulitan dihitung dari ${attempt.scoring.cohortN} peserta CBT ini; soal yang lebih jarang benar berbobot lebih tinggi.
             ${attempt.scoring.provisional ? 'Skor masih sementara karena cohort belum mencapai 30 peserta.' : ''}
@@ -1223,12 +1237,15 @@
             : scores.slice().sort((a, b) => DB.subtestOrder(a.subtest) - DB.subtestOrder(b.subtest)).map(s => {
               const st = DB.subtestByName(s.subtest);
               const irt = attempt.scoring && (attempt.scoring.sections || []).find(x => x.subtest === s.subtest);
+              const pts = attempt.scoring && attempt.scoring.points && attempt.scoring.mode !== 'irt'
+                ? (attempt.scoring.points.sections || []).find(x => x.subtest === s.subtest) : null;
+              const showIrt = irt && irt.scaled200_800 != null && (!pts || attempt.scoring.mode === 'both');
               return `<div style="margin-bottom:12px;">
                 <div class="flex-between">
                   <strong style="font-size:13px;">${st ? st.icon : '📘'} ${UI.esc(s.subtest)}</strong>
-                  <span class="muted small">${irt ? `<strong>${irt.scaled200_800}/800</strong> • ` : ''}${s.correct}/${s.total} benar${s.essayCount ? ` • ${s.essayCount} esai dinilai manual` : ''}</span>
+                  <span class="muted small">${pts ? `<strong>${Scoring.fmtNum(pts.earned)}/${Scoring.fmtNum(pts.max)} poin</strong> • ` : ''}${showIrt ? `<strong>${irt.scaled200_800}/800</strong> • ` : ''}${s.correct}/${s.total} benar${s.essayCount ? ` • ${s.essayCount} esai dinilai manual` : ''}</span>
                 </div>
-                ${UI.progressHtml(s.score, '', 'auto')}
+                ${UI.progressHtml(pts ? Math.round(pts.percent) : s.score, '', 'auto')}
               </div>`;
             }).join('')}
         </div>
@@ -1256,6 +1273,31 @@
     if (global.Responsive) Responsive.apply(content);
   }
 
+  /** Penjelasan sistem Poin Manual pada halaman hasil. */
+  function pointsExplainHtml(s) {
+    const p = s.points;
+    const f = Scoring.fmtNum;
+    return `<div class="alert alert-info small" style="margin-top:10px;">
+      <strong>Sistem Poin Manual${s.mode === 'both' ? ' + IRT' : ''}.</strong>
+      ${p.basis === 'package' ? `Total paket ${f(p.packageTotal)} poin dibagi rata ke setiap soal.` : 'Setiap soal memiliki poin sendiri sesuai pengaturan ujian.'}
+      Jawaban benar mendapat poin penuh, kosong 0${p.wrongPoints ? `, salah ${f(p.wrongPoints)} poin` : ', salah 0 (tanpa minus)'}.
+      ${p.pending ? `${p.pending} soal esai menunggu nilai tutor, sehingga skor masih dapat bertambah.` : ''}
+      ${s.mode === 'both' && s.scaled200_800 != null ? `Sebagai pembanding, skor IRT cohort Anda ${s.scaled200_800}/800${s.provisional ? ' (sementara)' : ''}.` : ''}
+    </div>`;
+  }
+
+  /** Chip "+poin" per soal pada pembahasan (hanya ujian berpoin). */
+  function pointChipHtml(q, attempt) {
+    const s = attempt && attempt.scoring;
+    if (!s || !s.points || s.mode === 'irt' || !s.points.perQuestion) return '';
+    const pq = s.points.perQuestion[q.id];
+    if (!pq) return '';
+    const f = Scoring.fmtNum;
+    if (pq.state === 'pending') return `<span class="qc-chip">⏳ maks ${f(pq.max)} poin</span>`;
+    const cls = pq.earned > 0 ? 'd-mudah' : (pq.earned < 0 ? 'd-sulit' : '');
+    return `<span class="qc-chip ${cls}">⭐ ${pq.earned > 0 ? '+' : ''}${f(pq.earned)} / ${f(pq.max)} poin</span>`;
+  }
+
   /** Satu blok pembahasan, menyesuaikan format soal. */
   function reviewBlock(q, qi, attempt) {
     const ans = attempt.answers ? attempt.answers[q.id] : null;
@@ -1267,6 +1309,7 @@
         <span class="qc-chip type">${UI.esc(f)}</span>
         ${g.auto ? `<span class="qc-chip ${g.correct ? 'd-mudah' : 'd-sulit'}">${g.correct ? 'BENAR' : 'BELUM TEPAT'}</span>`
                  : '<span class="qc-chip">DINILAI MANUAL</span>'}
+        ${pointChipHtml(q, attempt)}
       </div>`;
     let body = '';
 
@@ -1375,5 +1418,5 @@
     });
   }
 
-  global.Exam = { start, showResult, cleanup, gradeQuestion, askConfirm };
+  global.Exam = { start, showResult, cleanup, gradeQuestion, isAnswered, askConfirm };
 })(window);

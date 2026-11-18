@@ -19,7 +19,7 @@
 
   /* Kolom F–H dipakai bila soal Majemuk berisi lebih dari 5 pernyataan.
    * "Kolom" = nama kolom jawaban Majemuk Kompleks, dipisah | (mis. Benar | Salah | Tidak diketahui). */
-  const COLS = ['Subtest', 'Format', 'Tingkat', 'Pertanyaan', 'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'Kolom', 'Kunci', 'Pembahasan'];
+  const COLS = ['Subtest', 'Format', 'Tingkat', 'Pertanyaan', 'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'Kolom', 'Kunci', 'Pembahasan', 'Poin'];
   const LETTERS = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H'];
 
   function esc(s) { return UI.esc(s); }
@@ -78,6 +78,13 @@
       explanation: explanation ? wrapParagraph(explanation) : '',
       options: []
     };
+    // Kolom "Poin" opsional (sistem Poin Manual). Kosong → poin bawaan 1.
+    const ptsRaw = row.Poin == null ? '' : String(row.Poin).trim().replace(',', '.');
+    if (ptsRaw !== '') {
+      const pv = Number(ptsRaw);
+      if (!Number.isFinite(pv) || pv < 0 || pv > 10000) return { error: 'Kolom Poin harus angka 0–10000' };
+      base.points = pv;
+    }
 
     if (format === 'Esai') {
       base.correctIndex = null;
@@ -199,6 +206,7 @@
     else if (fmt === 'Pilihan Lebih dari Satu') row.Kunci = (q.correctIndices || []).map(i => LETTERS[i]).join(', ');
     else row.Kunci = LETTERS[q.correctIndex] || '';
     row.Pembahasan = RichText.plain(q.explanation || '', 2000);
+    row.Poin = q.points != null ? q.points : '';
     return row;
   }
 
@@ -243,7 +251,7 @@
     const sample = [
       { Subtest: 'Pengetahuan Kuantitatif (PK)', Format: 'Pilihan Ganda', Tingkat: 'mudah',
         Pertanyaan: 'Hasil dari 12 + 8 adalah ...', A: '18', B: '20', C: '22', D: '24', E: '',
-        Kunci: 'B', Pembahasan: '12 + 8 = 20.' },
+        Kunci: 'B', Pembahasan: '12 + 8 = 20.', Poin: 4 },
       { Subtest: 'PU', Format: 'Pilihan Lebih dari Satu', Tingkat: 'sedang',
         Pertanyaan: 'Manakah bilangan prima?', A: '2', B: '3', C: '4', D: '9', E: '',
         Kunci: 'A, B', Pembahasan: '2 dan 3 adalah bilangan prima.' },

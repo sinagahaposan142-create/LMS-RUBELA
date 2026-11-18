@@ -276,8 +276,11 @@
       pairs: [],
       orderItems: [],
       keywords: [],
-      explanation: ''
+      explanation: '',
+      points: 1
     }, existing || {});
+    // Poin bawaan hanya relevan untuk Bank Soal utama (dipakai sistem Poin Manual CBT).
+    const showPoints = bank === 'questions' && (!detached || !!o.showPoints);
     // Bank keamanan memakai field "subtest", bank soal utama memakai "subject"
     if (bank === 'security') draft.subject = draft.subtest || draft.subject;
     else draft.subtest = draft.subject;
@@ -291,13 +294,13 @@
       wsEl = document.createElement('div');
       // Mode kuis course dibuka DI ATAS modal pelajaran, tanpa animasi masuk.
       wsEl.className = 'qe-workspace' + (detached ? ' is-detached' : '');
-      const where = detached ? 'Soal kuis course — disimpan di pelajaran ini, bank soal tidak berubah'
+      const where = o.where ? o.where : detached ? 'Soal kuis course — disimpan di pelajaran ini, bank soal tidak berubah'
         : bank === 'security' ? 'Bank soal verifikasi login' : 'Bank soal ujian CBT';
       wsEl.innerHTML = `
         <div class="qe-top">
           <button class="btn btn-secondary btn-sm" id="qeBack">← Batal</button>
           <div class="qe-title">
-            <strong id="qeHeading">${detached ? (existing ? 'Edit Soal Kuis' : 'Tambah Soal Kuis') : (existing ? 'Edit Soal' : 'Tambah Soal')}</strong>
+            <strong id="qeHeading">${o.heading ? esc(o.heading) : detached ? (existing ? 'Edit Soal Kuis' : 'Tambah Soal Kuis') : (existing ? 'Edit Soal' : 'Tambah Soal')}</strong>
             <div class="muted small">${where} • mendukung LaTeX, gambar, audio, dan tautan</div>
           </div>
           <div class="qe-top-actions">
@@ -348,6 +351,11 @@
                 ${DB.DIFFICULTIES.map(d => `<option value="${d}" ${draft.difficulty === d ? 'selected' : ''}>${d.charAt(0).toUpperCase() + d.slice(1)}</option>`).join('')}
               </select>
             </div>
+            ${showPoints ? `<div class="form-group">
+              <label for="qePoints">Poin bawaan</label>
+              <input type="number" id="qePoints" min="0" max="10000" step="any" value="${esc(String(draft.points == null ? 1 : draft.points))}" />
+              <div class="muted small">Dipakai ujian bersistem Poin Manual; dapat diubah per ujian.</div>
+            </div>` : ''}
           </div>
           <div class="form-group">
             <label>Format Soal</label>
@@ -398,6 +406,12 @@
         draft.subject = e.target.value;
         draft.subtest = e.target.value;
         renderPreview();
+      });
+      const ptsEl = main.querySelector('#qePoints');
+      if (ptsEl) ptsEl.addEventListener('change', () => {
+        const v = Number(ptsEl.value);
+        draft.points = ptsEl.value !== '' && Number.isFinite(v) && v >= 0 ? Math.min(10000, v) : 1;
+        ptsEl.value = draft.points;
       });
       main.querySelector('#qeDiff').addEventListener('change', (e) => {
         draft.difficulty = e.target.value;
@@ -876,6 +890,8 @@
       } else {
         payload.subject = draft.subject;
         payload.authorId = (existing && existing.authorId) || user.id;
+        const pv = Number(draft.points);
+        payload.points = Number.isFinite(pv) && pv >= 0 ? Math.min(10000, pv) : 1;
         saved = existing ? DB.updateQuestion(existing.id, payload) : DB.addQuestion(payload);
       }
 

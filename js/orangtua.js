@@ -223,7 +223,7 @@
       const cbt = DB.getCbt(a.cbtId);
       items.push({
         ts: a.submittedAt,
-        title: `Menyelesaikan ujian — skor ${a.scoring && a.scoring.scaled200_800 != null ? a.scoring.scaled200_800 + '/800' : (a.score ?? 0)}`,
+        title: `Menyelesaikan ujian — skor ${global.Scoring && a.scoring ? Scoring.primary(a).text : (a.score ?? 0)}`,
         meta: cbt ? cbt.title : 'CBT',
         body: `${a.correctCount ?? 0} benar dari ${a.totalCount ?? 0} soal`
       });
@@ -301,7 +301,10 @@
           <tbody>${attempts.map(at => {
             const cbt = DB.getCbt(at.cbtId);
             const c = cbt ? DB.getCourse(cbt.courseId) : null;
-            const tone = at.scoring
+            const prim = global.Scoring && at.scoring ? Scoring.primary(at) : null;
+            const tone = prim && prim.kind === 'points'
+              ? (prim.percent >= 75 ? 'var(--success)' : (prim.percent >= 50 ? 'var(--warning)' : 'var(--danger)'))
+              : at.scoring
               ? (at.scoring.scaled200_800 >= 600 ? 'var(--success)' : (at.scoring.scaled200_800 >= 450 ? 'var(--warning)' : 'var(--danger)'))
               : ((at.score || 0) >= 75 ? 'var(--success)' : ((at.score || 0) >= 50 ? 'var(--warning)' : 'var(--danger)'));
             return `<tr>
