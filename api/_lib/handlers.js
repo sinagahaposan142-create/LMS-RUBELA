@@ -675,6 +675,8 @@ async function applyChanges(db, req, tokenHash, changes, now, afterStmts) {
           writes.push({ sql: 'DELETE FROM push_subs WHERE user_id = ?', args: [c.id] });
           writes.push({ sql: "DELETE FROM blobs WHERE key >= ? AND key < ?", args: ['cap:' + c.id + ':', 'cap:' + c.id + ';'] });
           writes.push({ sql: "DELETE FROM blob_meta WHERE key >= ? AND key < ?", args: ['cap:' + c.id + ':', 'cap:' + c.id + ';'] });
+          writes.push({ sql: "DELETE FROM blobs WHERE key >= ? AND key < ?", args: ['proof:' + c.id + ':', 'proof:' + c.id + ';'] });
+          writes.push({ sql: "DELETE FROM blob_meta WHERE key >= ? AND key < ?", args: ['proof:' + c.id + ':', 'proof:' + c.id + ';'] });
         } else if ((value.status || 'Aktif') === 'Dikeluarkan') {
           writes.push({ sql: 'DELETE FROM sessions WHERE user_id = ?', args: [c.id] });
         }
@@ -854,13 +856,37 @@ async function sendPushTo(db, req, jobs, cfg, now, opts) {
 /* ============================ BLOB ============================ */
 const BLOB_CHUNK_MAX = 1100000;   // karakter base64 per bagian (~800 KB data)
 
+/**
+ * Kebijakan berkas per awalan kunci:
+ *  music:<id>               lagu latar — baca semua, tulis/hapus admin
+ *  cap:<siswaId>:<...>      lampiran Mesin Waktu — hanya pemilik (hapus juga admin)
+ *  qris:<courseId>:<versi>  gambar QRIS course berbayar — baca semua yang login, tulis/hapus admin
+ *  proof:<siswaId>:<payId>  bukti transfer — baca pemilik/admin, tulis pemilik (sekali), hapus admin
+ * images:true = isi wajib PNG/JPEG/WEBP (diperiksa dari byte awal, bukan dari nama/tipe kiriman).
+ */
 function blobPolicy(ctx, key) {
-  const m = /^(music|cap):([A-Za-z0-9_.:-]{1,200})$/.exec(String(key || ''));
+  const m = /^(music|cap|qris|proof):([A-Za-z0-9_.:-]{1,200})$/.exec(String(key || ''));
   if (!m) return null;
   if (m[1] === 'music') return { read: true, write: ctx.isAdmin, del: ctx.isAdmin, maxBytes: 16 * 1024 * 1024 };
+  if (m[1] === 'qris') return { read: true, write: ctx.isAdmin, del: ctx.isAdmin, maxBytes: 1536 * 1024, images: true };
   const owner = m[2].split(':')[0];
   const mine = owner === ctx.id;
+  if (m[1] === 'proof') {
+    if (!/^[A-Za-z0-9_.-]{1,80}:[A-Za-z0-9_.-]{1,80}$/.test(m[2])) return null;
+    return { read: mine || ctx.isAdmin, write: mine && ctx.role === 'siswa', del: ctx.isAdmin, maxBytes: 3 * 1024 * 1024, images: true, once: true };
+  }
   return { read: mine, write: mine && ctx.role === 'siswa', del: mine || ctx.isAdmin, maxBytes: 4 * 1024 * 1024 };
+}
+
+const IMAGE_TYPES = ['image/png', 'image/jpeg', 'image/webp'];
+/** Kenali gambar dari byte awal (magic number). */
+function sniffImage(b64) {
+  let bytes;
+  try { bytes = Buffer.from(String(b64).slice(0, 24), 'base64'); } catch (e) { return null; }
+  if (bytes.length >= 8 && bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4E && bytes[3] === 0x47) return 'image/png';
+  if (bytes.length >= 3 && bytes[0] === 0xFF && bytes[1] === 0xD8 && bytes[2] === 0xFF) return 'image/jpeg';
+  if (bytes.length >= 12 && bytes.toString('latin1', 0, 4) === 'RIFF' && bytes.toString('latin1', 8, 12) === 'WEBP') return 'image/webp';
+  return null;
 }
 
 async function blobPut(db, req, body) {
@@ -874,6 +900,19 @@ async function blobPut(db, req, body) {
   if (!(parts >= 1 && parts <= 40 && part >= 0 && part < parts)) throw bad('Bagian berkas tidak valid.');
   if (!(size >= 0 && size <= pol.maxBytes)) throw bad('Ukuran berkas melebihi batas.');
   if (!data || data.length > BLOB_CHUNK_MAX || !/^[A-Za-z0-9+/=]+$/.test(data)) throw bad('Data berkas tidak valid.');
+  let type = str(body.type, 100);
+  if (pol.images) {
+    if (part === 0) {
+      const real = sniffImage(data);
+      if (!real) throw bad('Berkas harus berupa gambar PNG, JPG, atau WEBP.');
+      type = real;
+    } else if (!IMAGE_TYPES.includes(type)) throw bad('Berkas harus berupa gambar PNG, JPG, atau WEBP.');
+  }
+  if (pol.once) {
+    // Bukti transfer tidak dapat ditimpa: unggahan ulang memakai kunci baru (riwayat tetap utuh).
+    const meta = await db.query('SELECT complete, owner FROM blob_meta WHERE key = ?', [key]);
+    if (meta.length && (Number(meta[0].complete) === 1 || meta[0].owner !== user.id)) throw forbidden('Bukti transfer ini sudah tersimpan dan tidak dapat diganti.');
+  }
   const now = Date.now();
   const stmts = [];
   if (part === 0) {
@@ -881,7 +920,7 @@ async function blobPut(db, req, body) {
     stmts.push({
       sql: `INSERT INTO blob_meta (key, size, type, parts, owner, complete, updated_at) VALUES (?, ?, ?, ?, ?, 0, ?)
             ON CONFLICT(key) DO UPDATE SET size = excluded.size, type = excluded.type, parts = excluded.parts, owner = excluded.owner, complete = 0, updated_at = excluded.updated_at`,
-      args: [key, size, str(body.type, 100), parts, user.id, now]
+      args: [key, size, type, parts, user.id, now]
     });
   }
   stmts.push({ sql: 'INSERT INTO blobs (key, part, data) VALUES (?, ?, ?) ON CONFLICT(key, part) DO UPDATE SET data = excluded.data', args: [key, part, data] });
