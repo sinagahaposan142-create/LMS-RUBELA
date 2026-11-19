@@ -56,6 +56,7 @@
     lms_verses: { type: RECORDS },
     lms_hub_courses: { type: RECORDS },
     lms_hub_progress: { type: RECORDS, quiet: true },
+    lms_hub_payments: { type: RECORDS, target: ['studentId'] },   // pembayaran manual course berbayar (js/hub-pay.js)
     lms_capsule_vaults: { type: RECORDS, idField: 'userId', quiet: true },
     lms_capsules: { type: RECORDS, quiet: true },
     lms_music_tracks: { type: RECORDS },

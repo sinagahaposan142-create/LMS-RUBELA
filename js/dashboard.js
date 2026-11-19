@@ -22,6 +22,7 @@
         { key: 'staff', label: 'Admin & Staff', icon: '🛡️', group: 'Pengguna' },
         { key: 'courses', label: 'Semua Kelas', icon: '📚', group: 'Akademik' },
         { key: 'course-admin', label: 'Course Mandiri', icon: '🎓', group: 'Akademik' },
+        { key: 'hub-pay', label: 'Pembayaran Course', icon: '💳', group: 'Akademik' },
         { key: 'pusat-konten', label: 'Pusat Konten', icon: '📦', group: 'Akademik' },
         { key: 'jadwal-kelas', label: 'Jadwal Kelas', icon: '🗓️', group: 'Akademik' },
         { key: 'attendance', label: 'Presensi', icon: '📋', group: 'Akademik' },
@@ -385,7 +386,7 @@
     /* ================= Pembaruan dari perangkat lain (mode server) =================
      * Halaman ringkasan diperbarui otomatis; halaman lain menampilkan tombol
      * "Muat ulang" agar isian/tab yang sedang dibuka tidak tiba-tiba berubah. */
-    const AUTO_REFRESH = new Set(['overview', 'notifikasi', 'pengumuman', 'kalender', 'online']);
+    const AUTO_REFRESH = new Set(['overview', 'notifikasi', 'pengumuman', 'kalender', 'online', 'hub-pay']);
     const SELF_LIVE = new Set(['chat', 'game-battle', 'game-admin']);
     let lastInputAt = 0;
     let liveTimer = null;

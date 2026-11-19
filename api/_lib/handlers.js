@@ -421,6 +421,10 @@ async function fetchPull(db, ctx, metaRows, cursor, full, snap) {
   if (ctx.role === 'guru' && !ctx.teacherStudents && rows.some(r => r.k === 'lms_payments')) {
     ctx.teacherStudents = await teacherStudents(db, ctx.id);
   }
+  if (!ctx.isAdmin && !ctx.paidCourses && rows.some(r => r.k === 'lms_hub_courses')) {
+    const paid = await db.query("SELECT json_extract(v, '$.courseId') AS c FROM kv WHERE k = 'lms_hub_payments' AND v IS NOT NULL AND json_extract(v, '$.studentId') = ? AND json_extract(v, '$.status') = 'approved'", [ctx.id]);
+    ctx.paidCourses = new Set(paid.map(r => r.c));
+  }
   const records = [];
   rows.forEach(r => {
     if (!catalog.has(r.k)) return;
@@ -559,11 +563,28 @@ async function applyChanges(db, req, tokenHash, changes, now, afterStmts) {
       args: deletedUsers.concat(deletedUsers, deletedUsers)
     });
   }
+  // Rujukan course berbayar: ringkasan semua course + pembayaran milik pengirim (validasi pembayaran & progres).
+  let idxRefs = -1;
+  if (byKey.has('lms_hub_payments') || byKey.has('lms_hub_progress')) {
+    idxRefs = head.length + reads.length + extra.length;
+    extra.push("SELECT id, json_extract(v, '$.accessType') AS t, json_extract(v, '$.price') AS p, json_extract(v, '$.active') AS a FROM kv WHERE k = 'lms_hub_courses' AND v IS NOT NULL");
+    extra.push({
+      sql: "SELECT id, json_extract(v, '$.courseId') AS c, json_extract(v, '$.status') AS s FROM kv WHERE k = 'lms_hub_payments' AND v IS NOT NULL AND json_extract(v, '$.studentId') = (SELECT user_id FROM sessions WHERE token_hash = ?)",
+      args: [tokenHash]
+    });
+  }
   const { tx, rows } = await db.begin(head.concat(reads, extra));
   try {
     const user = userFromSessionRows(rows[2], now);
     if (!user) throw unauthorized();
     const ctx = rules.makeCtx(user);
+    if (idxRefs >= 0) {
+      const courses = new Map();
+      (rows[idxRefs] || []).forEach(r => courses.set(r.id, {
+        accessType: r.t || 'free', price: r.p == null ? null : Number(r.p), active: !(r.a === 0 || r.a === false || r.a === 'false')
+      }));
+      ctx.refs = { courses, myPayments: (rows[idxRefs + 1] || []).map(r => ({ id: r.id, courseId: r.c, status: r.s })) };
+    }
     let ver = Number(rows[1][0] && rows[1][0].v) || 0;
     const current = new Map();
     rows.slice(head.length, head.length + reads.length).forEach(list => list.forEach(r => {
@@ -654,6 +675,21 @@ async function applyChanges(db, req, tokenHash, changes, now, afterStmts) {
       }
       const newVer = (value != null && before != null && rules.same(value, before)) ? cur.ver : put(c.k, c.id, value, cur ? cur.seq : 0);
       noteNudge(c.k, value, before);
+      if (c.k === 'lms_hub_payments') {
+        // Akses berubah → naikkan versi course agar perangkat siswa menarik ulang (isi terbuka/tertutup).
+        const was = before && before.status === 'approved', now2 = value && value.status === 'approved';
+        const cid = (value && value.courseId) || (before && before.courseId);
+        if (was !== now2 && typeof cid === 'string' && !written.has('lms_hub_courses\u0001' + cid)) {
+          ver++;
+          written.add('lms_hub_courses\u0001' + cid);
+          writes.push({ sql: "UPDATE kv SET ver = ?, updated_at = ?, updated_by = ? WHERE k = 'lms_hub_courses' AND id = ? AND v IS NOT NULL", args: [ver, now, user.id, cid] });
+          broadcastAll = true;
+        }
+        if (ctx.refs && value) {
+          ctx.refs.myPayments = ctx.refs.myPayments.filter(p => p.id !== c.id);
+          if (value.studentId === ctx.id) ctx.refs.myPayments.push({ id: c.id, courseId: value.courseId, status: value.status });
+        }
+      }
       if (c.k === 'lms_notifications' && before == null && value && typeof value.userId === 'string') createdNotifs.push(value);
       if (c.k === 'lms_users') {
         if (password && pwHashes.has(c.id)) {

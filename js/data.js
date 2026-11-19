@@ -54,7 +54,7 @@
     'lms_schema_version', 'lms_birthday_wishes', 'lms_birthday_rewards',
     'lms_activity_log', 'lms_birthday_notified', 'lms_whiteboard_boards',
     'lms_learning_log', 'lms_streak_grants', 'lms_reading_texts', 'lms_verses',
-    'lms_hub_courses', 'lms_hub_progress', 'lms_capsule_vaults', 'lms_capsules',
+    'lms_hub_courses', 'lms_hub_progress', 'lms_hub_payments', 'lms_capsule_vaults', 'lms_capsules',
     'lms_music_tracks', 'lms_ai_chats', 'lms_game_questions', 'lms_game_battles', 'lms_game_scores'
   ];
 
@@ -1185,6 +1185,27 @@
   const hubQType = (q) => (q && HUB_QTYPES.includes(q.questionType)) ? q.questionType : 'Pilihan Ganda';
 
   /** Bagian yang belum lengkap dari sebuah soal kuis; null bila valid. */
+
+  /** Tipe akses course (gratis/berbayar) + tujuan pembayaran. Record lama tanpa accessType = gratis. */
+  function normHubAccess(rec) {
+    if (rec.accessType !== 'paid') return { accessType: 'free', price: 0, payment: null };
+    const price = Math.round(Number(rec.price));
+    if (!Number.isFinite(price) || price < 1000 || price > 100000000) throw new Error('Harga course Rp1.000 – Rp100.000.000.');
+    const p = rec.payment || {};
+    const bank = String(p.bank || '').replace(/[<>]/g, '').trim().slice(0, 60);
+    const accountNo = String(p.accountNo || '').trim();
+    const accountName = String(p.accountName || '').replace(/[<>]/g, '').trim().slice(0, 80);
+    if (accountNo && !/^[0-9][0-9 -]{4,29}$/.test(accountNo)) throw new Error('Nomor rekening hanya angka, spasi, atau tanda hubung (5–30 karakter).');
+    const hasBank = !!(bank && accountNo && accountName);
+    if ((bank || accountNo || accountName) && !hasBank) throw new Error('Lengkapi nama bank, nomor rekening, dan nama pemilik rekening.');
+    if (!hasBank && !p.qrisKey) throw new Error('Course berbayar membutuhkan rekening lengkap atau gambar QRIS.');
+    return {
+      accessType: 'paid', price,
+      payment: { bank, accountNo, accountName, qrisKey: p.qrisKey || '', qrisAt: p.qrisKey ? (p.qrisAt || Date.now()) : 0,
+        instructions: String(p.instructions || '').replace(/[<>]/g, '').trim().slice(0, 1000) }
+    };
+  }
+
   function hubQuestionProblem(q) {
     if (!q || typeof q !== 'object') return 'data soal';
     const t = hubQType(q);
@@ -1820,6 +1841,8 @@
         save('lms_learning_log', load('lms_learning_log', []).filter(e => e.userId !== id));
         save('lms_streak_grants', load('lms_streak_grants', []).filter(g => g.userId !== id));
         save('lms_hub_progress', load('lms_hub_progress', []).filter(p => p.studentId !== id));
+        // Bukti transfer (berkas proof:<id>:*) ikut dihapus server saat akun dihapus.
+        save('lms_hub_payments', load('lms_hub_payments', []).filter(p => p.studentId !== id));
         // Kapsul terenkripsi ikut dihapus (tidak ada yang dapat membukanya lagi).
         save('lms_capsules', load('lms_capsules', []).filter(c => c.userId !== id));
         save('lms_capsule_vaults', load('lms_capsule_vaults', []).filter(v => v.userId !== id));
@@ -3514,6 +3537,7 @@
           else delete l.minSec;
         });
       });
+      const access = normHubAccess(rec);
       const list = load('lms_hub_courses', []);
       const now = Date.now();
       const inact = Number(rec.inactivityDays);
@@ -3529,7 +3553,7 @@
           ? HUB_DEFAULT_INACTIVE_DAYS : Math.max(0, Math.min(365, Math.round(inact))),
         color: /^#[0-9a-f]{6}$/i.test(String(rec.color || '')) ? rec.color : '#4f46e5',
         active: rec.active !== false, updatedAt: now
-      });
+      }, access);
       let out;
       const i = rec.id ? list.findIndex(c => c.id === rec.id) : -1;
       if (i >= 0) out = list[i] = Object.assign({}, list[i], clean);
@@ -3540,8 +3564,11 @@
     },
     deleteHubCourse: (id, actor) => {
       if (!actor || actor.role !== 'admin') throw new Error('Course hanya dapat dikelola admin.');
+      const gone = DB.getHubCourse(id);
       save('lms_hub_courses', load('lms_hub_courses', []).filter(c => c.id !== id));
       save('lms_hub_progress', load('lms_hub_progress', []).filter(p => p.courseId !== id));
+      // Riwayat pembayaran dipertahankan untuk audit; gambar QRIS course dihapus.
+      if (gone && gone.payment && gone.payment.qrisKey && global.BlobStore) BlobStore.remove(gone.payment.qrisKey).catch(() => {});
       DB.logActivity('hub.delete', 'Menghapus course', id);
     },
     setHubCourseActive: (id, active, actor) => {
@@ -3604,6 +3631,7 @@
       if (!isAdmin && (!actor || actor.id !== studentId)) throw new Error('Pendaftaran tidak sah.');
       if (!DB.hubAudienceIncludes(c, st)) throw new Error('Course ini bukan untuk kelasmu.');
       if (!isAdmin && c.enrollMode === 'assigned') throw new Error('Course ini didaftarkan oleh admin.');
+      if (!isAdmin && !DB.hubHasAccess(c, studentId)) throw new Error('Course berbayar: kirim bukti pembayaran dan tunggu persetujuan admin.');
       const list = load('lms_hub_progress', []);
       const existing = list.find(p => p.courseId === courseId && p.studentId === studentId);
       const now = Date.now();
@@ -3621,6 +3649,80 @@
       list.push(rec); save('lms_hub_progress', list);
       return rec;
     },
+    /* ---------- Course berbayar: pembayaran manual (transfer/QRIS + bukti) ---------- */
+    getHubPayments: () => load('lms_hub_payments', []),
+    getHubPayment: (id) => load('lms_hub_payments', []).find(p => p.id === id) || null,
+    /** Pembayaran terbaru seorang siswa untuk satu course (null bila belum pernah). */
+    hubPaymentFor: (courseId, studentId) => load('lms_hub_payments', [])
+      .filter(p => p.courseId === courseId && p.studentId === studentId)
+      .sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0))[0] || null,
+    hubIsPaid: (course) => !!course && course.accessType === 'paid',
+    /** Gratis = selalu; berbayar = ada pembayaran disetujui. Penegakan sebenarnya di server. */
+    hubHasAccess: (course, studentId) => !DB.hubIsPaid(course) || load('lms_hub_payments', [])
+      .some(p => p.courseId === course.id && p.studentId === studentId && p.status === 'approved'),
+    /** Siswa mengirim bukti (berkas sudah diunggah ke proofKey). */
+    hubSubmitPayment: ({ courseId, proofKey, proofName, note }) => {
+      const actor = sessionActor();
+      if (!actor || actor.role !== 'siswa') throw new Error('Hanya siswa yang dapat mengirim bukti pembayaran.');
+      const c = DB.getHubCourse(courseId);
+      if (!c || c.active === false || !DB.hubIsPaid(c)) throw new Error('Course tidak tersedia untuk dibayar.');
+      const last = DB.hubPaymentFor(courseId, actor.id);
+      if (last && last.status === 'pending') throw new Error('Masih ada pembayaran yang menunggu verifikasi.');
+      if (last && last.status === 'approved') throw new Error('Pembayaran course ini sudah disetujui.');
+      if (!new RegExp('^proof:' + actor.id + ':').test(String(proofKey || ''))) throw new Error('Unggah bukti transfer terlebih dahulu.');
+      const rec = {
+        id: uid('hpay'), courseId, studentId: actor.id, amount: c.price, status: 'pending',
+        proofKey, proofName: String(proofName || '').replace(/[<>]/g, '').slice(0, 120), note: String(note || '').replace(/[<>]/g, '').trim().slice(0, 300),
+        createdAt: Date.now()
+      };
+      const list = load('lms_hub_payments', []);
+      list.push(rec);
+      save('lms_hub_payments', list);
+      const admins = load(KEYS.users, []).filter(u => u.role === 'admin' && u.status !== 'Dikeluarkan').map(u => u.id);
+      DB.notifyUsers(admins, { icon: '💳', title: 'Bukti pembayaran baru', body: `${actor.name || 'Siswa'} — ${c.title} (${DB.formatRupiah(c.price)})`, link: 'hub-pay' });
+      return rec;
+    },
+    /** Admin menyetujui / menolak. Disetujui → siswa langsung terdaftar di course. */
+    hubDecidePayment: (payId, decision, reason, actor) => {
+      if (!actor || actor.role !== 'admin') throw new Error('Hanya admin yang dapat memverifikasi pembayaran.');
+      const list = load('lms_hub_payments', []);
+      const p = list.find(x => x.id === payId);
+      if (!p) throw new Error('Data pembayaran tidak ditemukan.');
+      if (decision !== 'approved' && decision !== 'rejected') throw new Error('Keputusan tidak valid.');
+      const why = String(reason || '').replace(/[<>]/g, '').trim().slice(0, 300);
+      if (decision === 'rejected' && !why) throw new Error('Tuliskan alasan penolakan agar siswa tahu yang harus diperbaiki.');
+      p.status = decision;
+      p.rejectReason = decision === 'rejected' ? why : '';
+      p.decidedAt = Date.now();
+      p.decidedBy = actor.id;
+      save('lms_hub_payments', list);
+      const c = DB.getHubCourse(p.courseId);
+      const title = c ? c.title : 'Course';
+      if (decision === 'approved' && c) { try { DB.hubEnroll(c.id, p.studentId); } catch (e) { /* sasaran berubah: akses tetap tercatat */ } }
+      DB.addNotification({
+        userId: p.studentId, link: 'course', icon: '💳',
+        title: decision === 'approved' ? 'Pembayaran disetujui' : 'Pembayaran ditolak',
+        body: decision === 'approved' ? `Akses ke "${title}" sudah dibuka. Selamat belajar.` : `"${title}": ${why}`
+      });
+      DB.logActivity('hub.pay.' + decision, `${decision === 'approved' ? 'Menyetujui' : 'Menolak'} pembayaran "${title}"`, payId);
+      return p;
+    },
+    /** Admin memberi akses tanpa bukti (mis. beasiswa, bayar tunai). */
+    hubGrantAccess: (courseId, studentId, actor, note) => {
+      if (!actor || actor.role !== 'admin') throw new Error('Hanya admin yang dapat memberi akses.');
+      const c = DB.getHubCourse(courseId);
+      if (!c) throw new Error('Course tidak ditemukan.');
+      if (!DB.hubIsPaid(c) || DB.hubHasAccess(c, studentId)) return null;
+      const now = Date.now();
+      const rec = { id: uid('hpay'), courseId, studentId, amount: 0, status: 'approved', method: 'manual',
+        note: String(note || 'Akses diberikan admin').replace(/[<>]/g, '').slice(0, 300), createdAt: now, decidedAt: now, decidedBy: actor.id };
+      const list = load('lms_hub_payments', []);
+      list.push(rec);
+      save('lms_hub_payments', list);
+      DB.logActivity('hub.pay.grant', `Memberi akses course "${c.title}"`, studentId);
+      return rec;
+    },
+    formatRupiah: (n) => 'Rp' + Math.round(Number(n) || 0).toLocaleString('id-ID'),
     hubLessonVisible: (course, lesson, progress) => {
       if (!lesson || lesson.active === false) return false;
       if (progress && course.newStudentPolicy === 'fromJoin') {

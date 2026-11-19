@@ -15,6 +15,7 @@
     if (section === 'arena-admin') return Arena.renderAdmin(container, user);
     if (section === 'game-admin') return GamesAdmin.render(container, user);
     if (section === 'course-admin') return CourseHub.renderAdmin(container, user);
+    if (section === 'hub-pay') return HubPay.renderAdmin(container, user);
     if (section === 'ayat-admin') return Verses.renderAdmin(container, user);
     if (section === 'musik') return Music.renderAdmin(container, user);
     if (section === 'tema-hari-besar') return HolidayTheme.renderAdmin(container, user);

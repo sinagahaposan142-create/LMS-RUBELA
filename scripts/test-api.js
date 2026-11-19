@@ -4,7 +4,7 @@
  * + /api/rubela asli, lewat HTTP sungguhan.
  *   node scripts/test-api.js
  * Mencakup: kebijakan berkas (QRIS, bukti transfer), validasi gambar,
- * pesan chat, dan video pembahasan.
+ * pesan chat, video pembahasan, dan pembayaran Course Mandiri berbayar.
  * Butuh Node.js >= 22.5.
  * ===================================================================*/
 const http = require('http');
@@ -50,7 +50,7 @@ async function main() {
   async function pull(token) {
     const r = await call('sync', { cursor: 0, full: true }, token);
     const map = {};
-    (r.data.changes || r.data.items || []).forEach(x => { (map[x.k] = map[x.k] || {})[x.id] = x.v; });
+    (r.data.records || []).forEach(x => { (map[x.k] = map[x.k] || {})[x.id] = x.v; });
     return map;
   }
   const b64 = (bytes) => Buffer.from(bytes).toString('base64');
@@ -126,6 +126,72 @@ async function main() {
   check('guru menyimpan video pembahasan', r.rejected.length === 0, r.rejected);
   r = await push(admin, [{ k: 'lms_questions', id: 'q2', v: Object.assign({}, q, { id: 'q2', explanationVideo: { id: 'x"><script>', url: 'javascript:alert(1)' } }) }]);
   check('video pembahasan tidak valid ditolak (juga untuk admin)', r.rejected.length === 1, r);
+
+  /* ---------- Course berbayar ---------- */
+  console.log('\n[Course berbayar]');
+  const lesson = { id: 'l1', title: 'Pengantar', type: 'article', content: '<p>ISI RAHASIA</p>', durationMin: 5 };
+  const course = { id: 'hc1', title: 'Persiapan UTBK', active: true, enrollMode: 'open', audience: { type: 'all' },
+    sections: [{ id: 's1', title: 'Bab 1', lessons: [lesson, { id: 'l2', title: 'Kuis', type: 'quiz', questions: [{ text: 'q', options: ['a', 'b'], correctIndex: 0 }] }] }],
+    accessType: 'paid', price: 150000, payment: { bank: 'BCA', accountNo: '1234567890', accountName: 'Rubela', qrisKey: 'qris:hc1:1', instructions: '' } };
+  r = await push(admin, [{ k: 'lms_hub_courses', id: 'hc1', v: Object.assign({}, course, { price: 50 }) }]);
+  check('harga di bawah Rp1.000 ditolak (juga untuk admin)', r.rejected.length === 1, r);
+  r = await push(admin, [{ k: 'lms_hub_courses', id: 'hc1', v: Object.assign({}, course, { payment: { bank: 'BCA', accountNo: '', accountName: '' } }) }]);
+  check('course berbayar tanpa rekening/QRIS ditolak', r.rejected.length === 1, r);
+  r = await push(admin, [{ k: 'lms_hub_courses', id: 'hc1', v: course }]);
+  check('admin menyimpan course berbayar', r.rejected.length === 0, r.rejected);
+  let view = await pull(s1);
+  let hc = (view.lms_hub_courses || {}).hc1;
+  check('siswa melihat kurikulum tanpa isi (dikunci server)', hc && hc.contentLocked && !hc.sections[0].lessons[0].content && hc.sections[0].lessons[0].title === 'Pengantar' && !hc.sections[0].lessons[1].questions, hc && hc.sections);
+  check('isi rahasia tidak terkirim ke siswa', !JSON.stringify(hc).includes('ISI RAHASIA'));
+  view = await pull(guru);
+  check('guru juga tidak menerima isi course berbayar', !JSON.stringify(view.lms_hub_courses || {}).includes('ISI RAHASIA'));
+  view = await pull(admin);
+  check('admin menerima isi lengkap', JSON.stringify(view.lms_hub_courses.hc1).includes('ISI RAHASIA'));
+  const prog = { id: 'hp1', courseId: 'hc1', studentId: 'u_s1', enrolledAt: Date.now(), completed: {}, quiz: {}, notes: {} };
+  r = await push(s1, [{ k: 'lms_hub_progress', id: 'hp1', v: prog }]);
+  check('siswa tidak dapat bergabung sebelum pembayaran disetujui', r.rejected.length === 1, r);
+
+  r = await putBlob(s1, 'proof:u_s1:p5', JPG);
+  const pay = { id: 'pay1', courseId: 'hc1', studentId: 'u_s1', amount: 150000, status: 'pending', proofKey: 'proof:u_s1:p5', note: 'a.n. Budi <b>', createdAt: Date.now() };
+  r = await push(s1, [{ k: 'lms_hub_payments', id: 'pay1', v: Object.assign({}, pay, { amount: 1000 }) }]);
+  check('nominal tidak sesuai harga ditolak', r.rejected.length === 1, r);
+  r = await push(s1, [{ k: 'lms_hub_payments', id: 'pay1', v: Object.assign({}, pay, { proofKey: 'proof:u_s2:x' }) }]);
+  check('bukti milik siswa lain ditolak', r.rejected.length === 1, r);
+  r = await push(s1, [{ k: 'lms_hub_payments', id: 'pay1', v: Object.assign({}, pay, { status: 'approved' }) }]);
+  check('siswa mengirim status "approved" → dipaksa "pending"', r.rejected.length === 0 && r.applied[0].v.status === 'pending', r);
+  check('catatan siswa disanitasi', r.applied[0] && !/[<>]/.test(r.applied[0].v.note), r.applied[0]);
+  r = await push(s1, [{ k: 'lms_hub_payments', id: 'pay2', v: Object.assign({}, pay, { id: 'pay2', proofKey: 'proof:u_s1:p6' }) }]);
+  check('pembayaran ganda saat masih menunggu ditolak', r.rejected.length === 1, r);
+  r = await push(s1, [{ k: 'lms_hub_payments', id: 'pay1', v: Object.assign({}, pay, { status: 'approved', note: 'x' }) }]);
+  check('siswa tidak dapat mengubah pembayarannya', r.rejected.length === 1, r);
+  r = await push(guru, [{ k: 'lms_hub_payments', id: 'pay3', v: Object.assign({}, pay, { id: 'pay3', studentId: 'u_g1' }) }]);
+  check('guru tidak dapat membuat pembayaran', r.rejected.length === 1, r);
+  view = await pull(s2);
+  check('siswa lain tidak melihat pembayaran siswa1', !(view.lms_hub_payments || {}).pay1);
+
+  const cur = (await pull(admin)).lms_hub_payments.pay1;
+  r = await push(admin, [{ k: 'lms_hub_payments', id: 'pay1', v: Object.assign({}, cur, { status: 'rejected', rejectReason: '' }) }]);
+  check('penolakan tanpa alasan ditolak', r.rejected.length === 1, r);
+  r = await push(admin, [{ k: 'lms_hub_payments', id: 'pay1', v: Object.assign({}, cur, { status: 'approved' }) }]);
+  check('admin menyetujui pembayaran (pemutus & waktu dicatat server)', r.rejected.length === 0 && !!r.applied[0].v.decidedBy && !!r.applied[0].v.decidedAt, r);
+  view = await pull(s1);
+  hc = view.lms_hub_courses.hc1;
+  check('setelah disetujui, siswa menerima isi lengkap', hc && !hc.contentLocked && JSON.stringify(hc).includes('ISI RAHASIA'), hc && hc.contentLocked);
+  r = await push(s1, [{ k: 'lms_hub_progress', id: 'hp1', v: prog }]);
+  check('siswa dapat bergabung setelah disetujui', r.rejected.length === 0, r.rejected);
+  view = await pull(s2);
+  check('siswa lain tetap terkunci', view.lms_hub_courses.hc1.contentLocked === true);
+
+  // Sinkron bertahap (cursor): perangkat siswa menerima versi baru course saat akses dicabut
+  let page = await call('sync', { cursor: 0, full: true }, s1);
+  let cursor = page.data.cursor;
+  while (page.data.more) { page = await call('sync', { cursor }, s1); cursor = page.data.cursor; }
+  const appr = (await pull(admin)).lms_hub_payments.pay1;
+  r = await push(admin, [{ k: 'lms_hub_payments', id: 'pay1', v: Object.assign({}, appr, { status: 'rejected', rejectReason: 'Dana dikembalikan' }) }]);
+  check('admin mencabut akses dengan alasan', r.rejected.length === 0, r.rejected);
+  const inc = await call('sync', { cursor }, s1);
+  const upd = (inc.data.records || []).find(x => x.k === 'lms_hub_courses' && x.id === 'hc1');
+  check('perubahan akses ikut tersinkron sebagai pembaruan course', upd && upd.v.contentLocked === true, (inc.data.records || []).map(x => x.k));
 
   const failed = results.filter(x => !x.ok);
   console.log(`\n${results.length - failed.length}/${results.length} lulus`);

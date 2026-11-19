@@ -28,12 +28,102 @@ function makeCtx(user, extra) {
     childIds: Array.isArray(user.childIds) ? user.childIds.map(String) : [],
     isAdmin: user.role === 'admin',
     isStaff: user.role === 'admin' || user.role === 'guru',
-    teacherStudents: null      // Set id siswa di kelas yang diampu guru (diisi pemanggil bila perlu)
+    teacherStudents: null,     // Set id siswa di kelas yang diampu guru (diisi pemanggil bila perlu)
+    paidCourses: null,         // Set id course berbayar yang sudah disetujui untuk pengguna ini (diisi pemanggil)
+    refs: null                 // Data rujukan untuk validasi tulis course/pembayaran (diisi applyChanges)
   }, extra || {});
 }
 
 const clone = (v) => (v == null ? v : JSON.parse(JSON.stringify(v)));
 const same = (a, b) => catalog.canon(a) === catalog.canon(b);
+
+/* ============================ COURSE BERBAYAR ============================ */
+const PAY_STATUS = ['pending', 'approved', 'rejected'];
+const PRICE_MAX = 100000000;
+const cleanText = (v, max) => cut(v, max).replace(/[<>]/g, '').trim();
+
+/** Versi course tanpa isi pelajaran (judul, jenis, durasi tetap terlihat di kurikulum). */
+function lockedCourse(rec) {
+  const out = Object.assign({}, rec);
+  out.sections = (Array.isArray(rec.sections) ? rec.sections : []).map(sec => Object.assign({}, sec, {
+    lessons: (Array.isArray(sec.lessons) ? sec.lessons : []).map(l => ({
+      id: l.id, title: l.title, type: l.type, durationMin: l.durationMin, dripDays: l.dripDays, active: l.active,
+      createdAt: l.createdAt, reactivatedAt: l.reactivatedAt,
+      questionCount: Array.isArray(l.questions) ? l.questions.length : 0, locked: true
+    }))
+  }));
+  out.contentLocked = true;
+  return out;
+}
+
+/** Validasi tipe akses & tujuan pembayaran course (berlaku juga untuk admin). */
+function hubCourseAccessProblem(c) {
+  if (c.accessType == null || c.accessType === 'free') return null;
+  if (c.accessType !== 'paid') return 'Tipe akses course tidak valid.';
+  const price = c.price;
+  if (!Number.isInteger(price) || price < 1000 || price > PRICE_MAX) return 'Harga course harus bilangan bulat Rp1.000 – Rp100.000.000.';
+  const p = c.payment && typeof c.payment === 'object' ? c.payment : {};
+  const bank = typeof p.bank === 'string' ? p.bank.trim() : '';
+  const no = typeof p.accountNo === 'string' ? p.accountNo.trim() : '';
+  const name = typeof p.accountName === 'string' ? p.accountName.trim() : '';
+  if (bank.length > 60 || name.length > 80 || String(p.instructions || '').length > 1000) return 'Data tujuan pembayaran terlalu panjang.';
+  if (no && !/^[0-9][0-9 -]{4,29}$/.test(no)) return 'Nomor rekening hanya boleh angka, spasi, atau tanda hubung (5–30 karakter).';
+  if (p.qrisKey != null && p.qrisKey !== '' && !new RegExp('^qris:' + String(c.id).replace(/[^A-Za-z0-9_.-]/g, '') + ':[0-9]{1,16}$').test(p.qrisKey)) return 'Gambar QRIS tidak valid.';
+  const hasBank = !!(bank && no && name);
+  if (!hasBank && !p.qrisKey) return 'Course berbayar membutuhkan rekening lengkap (bank, nomor, nama pemilik) atau gambar QRIS.';
+  if ((bank || no || name) && !hasBank) return 'Lengkapi nama bank, nomor rekening, dan nama pemilik rekening.';
+  return null;
+}
+
+/** Siswa boleh mulai course? Gratis selalu boleh; berbayar perlu pembayaran disetujui. */
+function hubAccessOk(ctx, courseId) {
+  const refs = ctx.refs || {};
+  const c = refs.courses && refs.courses.get(courseId);
+  if (!c || c.accessType !== 'paid') return true;
+  return (refs.myPayments || []).some(p => p.courseId === courseId && p.status === 'approved');
+}
+
+/**
+ * Pembayaran manual:
+ *  - siswa membuat record "pending" untuk dirinya sendiri, nominal = harga course saat ini,
+ *    bukti = berkas proof:<dirinya>:… ; tidak boleh ada pembayaran lain yang menunggu/disetujui.
+ *  - siswa tidak dapat mengubah/menghapus; admin memutuskan (setuju/tolak dengan alasan) atau memberi akses manual.
+ */
+function checkHubPayment(ctx, op, before, after) {
+  const me = ctx.id;
+  const refs = ctx.refs || {};
+  if (op === 'delete') return ctx.isAdmin ? allow(null) : deny('Data pembayaran tidak dapat dihapus.');
+  if (ctx.isAdmin) {
+    if (!PAY_STATUS.includes(after.status)) return deny('Status pembayaran tidak valid.');
+    if (typeof after.courseId !== 'string' || typeof after.studentId !== 'string') return deny('Data pembayaran tidak lengkap.');
+    const out = Object.assign({}, after, {
+      note: cleanText(after.note, 300),
+      rejectReason: after.status === 'rejected' ? cleanText(after.rejectReason, 300) : ''
+    });
+    if (after.status === 'rejected' && !out.rejectReason) return deny('Tuliskan alasan penolakan.');
+    if (before && before.status !== after.status) { out.decidedBy = me; out.decidedAt = Date.now(); }
+    if (op === 'create' && after.status !== 'pending') { out.decidedBy = me; out.decidedAt = out.decidedAt || Date.now(); }
+    return allow(out);
+  }
+  if (ctx.role !== 'siswa') return deny('Hanya siswa yang dapat mengirim bukti pembayaran.');
+  if (op !== 'create') return deny('Pembayaran yang sudah dikirim tidak dapat diubah. Hubungi admin.');
+  if (after.studentId !== me) return deny('Pembayaran hanya untuk akun sendiri.');
+  const course = refs.courses && refs.courses.get(after.courseId);
+  if (!course || course.active === false) return deny('Course tidak tersedia.');
+  if (course.accessType !== 'paid') return deny('Course ini gratis.');
+  if (after.amount !== course.price) return deny('Nominal pembayaran tidak sesuai harga course saat ini. Muat ulang halaman.');
+  if (typeof after.proofKey !== 'string' || !new RegExp('^proof:' + me.replace(/[^A-Za-z0-9_.-]/g, '') + ':[A-Za-z0-9_.-]{1,80}$').test(after.proofKey)) {
+    return deny('Bukti transfer belum diunggah.');
+  }
+  const open = (refs.myPayments || []).find(p => p.courseId === after.courseId && (p.status === 'pending' || p.status === 'approved'));
+  if (open) return deny(open.status === 'approved' ? 'Pembayaran course ini sudah disetujui.' : 'Masih ada pembayaran yang menunggu verifikasi.');
+  const created = Number(after.createdAt);
+  return allow({
+    id: after.id, courseId: after.courseId, studentId: me, amount: course.price, status: 'pending',
+    proofKey: after.proofKey, proofName: cleanText(after.proofName, 120), note: cleanText(after.note, 300),
+    createdAt: Number.isFinite(created) && created > 0 ? Math.min(created, Date.now() + 5 * 60 * 1000) : Date.now()
+  });
+}
 
 /* ============================ VIDEO PEMBAHASAN ============================ */
 const YT_ID = /^[A-Za-z0-9_-]{11}$/;
@@ -107,6 +197,14 @@ function present(ctx, k, id, rec) {
       return rec.userId === me ? rec : undefined;
     case 'lms_messages':
       return (rec.senderId === me || rec.receiverId === me) ? rec : undefined;
+    case 'lms_hub_payments':
+      if (ctx.isAdmin || rec.studentId === me) return rec;
+      return ctx.role === 'orangtua' && ctx.childIds.includes(rec.studentId) ? rec : undefined;
+    case 'lms_hub_courses':
+      // Course berbayar: isi pelajaran hanya untuk admin dan siswa yang pembayarannya disetujui.
+      if (ctx.isAdmin || rec.accessType !== 'paid') return rec;
+      if (ctx.paidCourses && ctx.paidCourses.has(rec.id)) return rec;
+      return lockedCourse(rec);
     case 'lms_ai_chats':
       return rec.userId === me ? rec : undefined;      // riwayat chat AI hanya untuk pemiliknya
     case 'lms_users': {
@@ -223,6 +321,11 @@ function checkWrite(ctx, k, id, before, after) {
   }
   // Pesan divalidasi untuk semua peran (termasuk admin): bentuk, panjang, balasan, terusan.
   if (k === 'lms_messages') return checkMessage(ctx, op, before, after);
+  if (k === 'lms_hub_payments') return checkHubPayment(ctx, op, before, after);
+  if (k === 'lms_hub_courses' && after) {
+    const prob = hubCourseAccessProblem(after);
+    if (prob) return deny(prob);
+  }
   // Video pembahasan soal: hanya ID YouTube yang valid (semua peran, termasuk admin).
   if (k === 'lms_questions' && after && after.explanationVideo != null) {
     const v = normVideo(after.explanationVideo);
@@ -269,7 +372,10 @@ function checkWrite(ctx, k, id, before, after) {
       if (ctx.role === 'siswa' && op === 'create' && ownsAfter) return allow(after);
       return deny('Catatan belajar hanya dapat ditambah oleh pemiliknya.');
     case 'lms_hub_progress':
-      if (ctx.role === 'siswa' && op !== 'delete' && ownsBefore && ownsAfter) return allow(after);
+      if (ctx.role === 'siswa' && op !== 'delete' && ownsBefore && ownsAfter) {
+        if (op === 'create' && !hubAccessOk(ctx, after.courseId)) return deny('Course berbayar ini belum dapat diikuti: pembayaran belum disetujui admin.');
+        return allow(after);
+      }
       return deny('Progres course hanya milik siswa bersangkutan.');
     case 'lms_capsules':
     case 'lms_capsule_vaults':

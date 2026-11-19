@@ -142,7 +142,8 @@
           <div class="hub-meta">${n} pelajaran • ${fmtMin(totalMin(c))} • ${esc(c.level || 'Semua level')}${c.sequential === 'lesson' || c.sequential === 'section' ? ' • 🔒 berurutan' : ''}</div>
           ${p ? `<div class="hub-prog"><i style="width:${pct}%"></i></div><div class="hub-meta">${p.completedAt ? '✅ Selesai' : `${pct}% selesai`}</div>`
             : rec && rec.removedAt ? '<div class="hub-meta hub-meta-warn">⏳ Dikeluarkan karena tidak aktif — progres tersimpan</div>'
-            : `<div class="hub-meta">${c.enrollMode === 'assigned' ? '🔐 Didaftarkan admin' : '🆓 Bebas bergabung'}</div>`}</div></article>`;
+            : `<div class="hub-meta">${DB.hubIsPaid(c) ? `<span class="hp-tag">${esc(DB.formatRupiah(c.price))}</span>${(() => { const pay = DB.hubPaymentFor(c.id, user.id); return pay ? ' ' + HubPay.badge(pay.status) : ''; })()}`
+                : c.enrollMode === 'assigned' ? '🔐 Didaftarkan admin' : '🆓 Bebas bergabung'}</div>`}</div></article>`;
       }).join('')}</div>`,
       onPaint: (box) => box.querySelectorAll('[data-hub-open]').forEach(el => {
         const open = () => go(container, user, { mode: 'landing', courseId: el.dataset.hubOpen });
@@ -189,6 +190,8 @@
           Progresmu (${DB.hubPercent(c, removed)}%) dan catatanmu tetap tersimpan.</div>
         ${c.enrollMode === 'assigned' ? '<div class="alert alert-info small">Course ini didaftarkan oleh admin. Hubungi admin agar didaftarkan kembali.</div>'
           : '<button type="button" class="btn btn-primary btn-block" id="hubEnroll">↩ Bergabung kembali</button>'}`;
+    } else if (DB.hubIsPaid(c)) {
+      aside = HubPay.landingAside(c, user);
     } else {
       aside = c.enrollMode === 'assigned' ? '<div class="alert alert-info small">Course ini didaftarkan oleh admin. Hubungi admin bila ingin mengikutinya.</div>'
         : '<button type="button" class="btn btn-primary btn-block" id="hubEnroll">Ikuti course — gratis</button>';
@@ -205,7 +208,7 @@
         <div class="hub-landing-main"><span class="hub-cat">${esc(c.category || 'Umum')}</span>
           <h1>${esc(c.title)}</h1><p class="hub-sub">${esc(c.subtitle || '')}</p>
           <div class="hub-facts"><span>📚 ${visibleCount} pelajaran</span><span>⏱️ ${fmtMin(totalMin(c))}</span><span>📶 ${esc(c.level || 'Semua level')}</span>
-            <span>🌐 ${esc(c.language || 'Bahasa Indonesia')}</span><span>🏫 Disusun tim Rubela</span>${c.certificate ? '<span>🎓 Sertifikat</span>' : ''}
+            <span>🌐 ${esc(c.language || 'Bahasa Indonesia')}</span><span>🏫 Disusun tim Rubela</span>${c.certificate ? '<span>🎓 Sertifikat</span>' : ''}${DB.hubIsPaid(c) ? `<span>${esc(DB.formatRupiah(c.price))}</span>` : ''}
             ${seq !== 'off' ? `<span>🔒 ${esc(SEQ_LABEL[seq])}</span>` : ''}</div></div>
         <aside class="hub-landing-card">${coverHtml(c, 'is-lg')}${aside}</aside>
       </section>
@@ -234,6 +237,7 @@
         go(container, user, {});
       } catch (e) { UI.toast(e.message, 'error'); }
     });
+    if (DB.hubIsPaid(c)) HubPay.bindLanding(container, c, user, () => go(container, user, {}));
     const cont = container.querySelector('#hubContinue');
     if (cont) cont.addEventListener('click', () => go(container, user, { mode: 'player', lessonId: nl ? nl.id : null }));
     const cert = container.querySelector('#hubCert');
@@ -273,7 +277,9 @@
     const passed = !!(qr && qr.passed);
 
     let content = '';
-    if (l.type === 'article') content = `<div class="rt-content hub-article">${RichText.render(l.content || '')}</div>`;
+    if (l.locked) content = `<div class="hp-locked">${HubPay.lockedIcon}<div><strong>Isi pelajaran terkunci</strong>
+      <span>Akses course berbayar ini belum aktif atau sudah dicabut. Buka halaman course untuk melihat status pembayaran.</span></div></div>`;
+    else if (l.type === 'article') content = `<div class="rt-content hub-article">${RichText.render(l.content || '')}</div>`;
     else if (l.type === 'video') content = `${l.url ? Shared.videoEmbedHtml(l.url) : '<div class="muted">Video belum diatur.</div>'}<div class="rt-content mt-1">${RichText.render(l.content || '')}</div>`;
     else if (l.type === 'pdf' || l.type === 'link') content = `<div class="rt-content">${RichText.render(l.content || '')}</div>
       ${l.url ? `<a class="btn btn-secondary" href="${esc(l.url)}" target="_blank" rel="noopener noreferrer">${TYPE[l.type].ic} Buka ${l.type === 'pdf' ? 'dokumen' : 'tautan'} ↗</a>` : '<div class="muted">Tautan belum diatur.</div>'}`;
@@ -446,7 +452,7 @@
   /* =====================================================================
    * ADMIN
    * ===================================================================*/
-  let adm = { mode: 'list', draft: null };
+  let adm = { mode: 'list', draft: null, qris: { pending: [], stale: [] } };
   function renderAdmin(container, admin) {
     if (adm.mode === 'edit' && adm.draft) return renderEditor(container, admin);
     const swept = sweep(admin);
@@ -459,7 +465,7 @@
       adm = { mode: 'edit', draft: { id: null, title: '', subtitle: '', description: '', category: '', level: 'Pemula', language: 'Bahasa Indonesia', color: '#4f46e5', cover: '',
         outcomes: [], requirements: [], audience: { type: 'all', classes: [], studentIds: [] }, enrollMode: 'open', active: false, newStudentPolicy: 'all', certificate: true,
         sequential: 'off', inactivityDays: DB.HUB_DEFAULT_INACTIVE_DAYS,
-        sections: [{ id: nid('sec'), title: 'Bab 1', lessons: [] }] } };
+        sections: [{ id: nid('sec'), title: 'Bab 1', lessons: [] }], accessType: 'free', price: 0, payment: null }, qris: { pending: [], stale: [] } };
       renderAdmin(container, admin);
     });
     DataSearch.mount({
@@ -473,7 +479,7 @@
           const rm = DB.getHubRemovedByCourse(c.id).length;
           const days = DB.hubInactivityDays(c);
           const seq = c.sequential === 'lesson' || c.sequential === 'section' ? c.sequential : 'off';
-          return `<tr><td><div class="user-cell">${coverHtml(c, 'is-sm')}<div><strong>${ctx.highlight(c.title)}</strong><div class="muted small">${esc(c.category || '-')} • ${c.enrollMode === 'assigned' ? 'didaftarkan admin' : 'bebas bergabung'}${seq !== 'off' ? ' • 🔒 ' + esc(SEQ_LABEL[seq].toLowerCase()) : ''}</div></div></div></td>
+          return `<tr><td><div class="user-cell">${coverHtml(c, 'is-sm')}<div><strong>${ctx.highlight(c.title)}</strong><div class="muted small">${esc(c.category || '-')} • ${DB.hubIsPaid(c) ? 'berbayar ' + esc(DB.formatRupiah(c.price)) + ' • ' : 'gratis • '}${c.enrollMode === 'assigned' ? 'didaftarkan admin' : 'bebas bergabung'}${seq !== 'off' ? ' • 🔒 ' + esc(SEQ_LABEL[seq].toLowerCase()) : ''}</div></div></div></td>
             <td>${lessonsOf(c).length}</td><td class="small">${a.type === 'kelas' ? esc((a.classes || []).join(', ') || '-') : a.type === 'students' ? `${(a.studentIds || []).length} mentee` : 'Semua mentee'}</td>
             <td>${ps.length}<div class="muted small">${ps.filter(p => p.completedAt).length} selesai${rm ? ` • ${rm} dikeluarkan` : ''}</div><div class="muted small">${days ? `⏳ keluar otomatis ${days} hari` : 'tanpa keluar otomatis'}</div></td><td>${avg}%</td>
             <td>${c.active !== false ? '<span class="badge badge-success">Aktif</span>' : '<span class="badge badge-gray">Nonaktif</span>'}${c.newStudentPolicy === 'fromJoin' ? '<div class="muted small">siswa baru: konten baru</div>' : ''}</td>
@@ -482,7 +488,7 @@
               <button type="button" class="btn btn-sm btn-secondary" data-hub-toggle="${c.id}">${c.active !== false ? '⏸ Matikan' : '▶ Aktifkan'}</button>
               <button type="button" class="btn btn-sm btn-danger" data-hub-del="${c.id}">Hapus</button></td></tr>`; }).join('')}</tbody></table></div>`,
       onPaint: (box) => {
-        box.querySelectorAll('[data-hub-edit]').forEach(b => b.addEventListener('click', () => { adm = { mode: 'edit', draft: clone(DB.getHubCourse(b.dataset.hubEdit)) }; renderAdmin(container, admin); }));
+        box.querySelectorAll('[data-hub-edit]').forEach(b => b.addEventListener('click', () => { adm = { mode: 'edit', draft: clone(DB.getHubCourse(b.dataset.hubEdit)), qris: { pending: [], stale: [] } }; renderAdmin(container, admin); }));
         box.querySelectorAll('[data-hub-toggle]').forEach(b => b.addEventListener('click', () => {
           const c = DB.getHubCourse(b.dataset.hubToggle);
           if (c.active !== false && !UI.confirmDialog('Matikan course ini? Mentee tidak dapat membukanya sampai diaktifkan kembali.')) return;
@@ -501,11 +507,16 @@
 
   function renderEditor(container, admin) {
     const d = adm.draft;
+    if (!adm.qris) adm.qris = { pending: [], stale: [] };
     if (!d.sequential) d.sequential = 'off';
     if (d.inactivityDays == null) d.inactivityDays = DB.HUB_DEFAULT_INACTIVE_DAYS;
     const classes = DB.getMainClasses();
     const students = DB.getUsers().filter(u => u.role === 'siswa');
     const color = /^#[0-9a-f]{6}$/i.test(String(d.color || '')) ? d.color : '#4f46e5';
+    if (!d.accessType) d.accessType = 'free';
+    const pay = d.payment || {};
+    const paid = d.accessType === 'paid';
+    const priceTxt = d.price ? Number(d.price).toLocaleString('id-ID') : '';
     const lessonMeta = (l) => {
       const parts = [TYPE[l.type].label];
       if (l.durationMin) parts.push(l.durationMin + ' mnt');
@@ -553,6 +564,24 @@
               <div class="muted small">0 = tidak pernah. Hanya Course Mandiri; kelas tidak terpengaruh. Progres tetap tersimpan bila mentee bergabung kembali.</div></div></div>
           <label class="check-row"><input type="checkbox" name="cert" ${d.certificate ? 'checked' : ''}/> Berikan sertifikat penyelesaian</label>
           <label class="check-row"><input type="checkbox" name="active" ${d.active !== false ? 'checked' : ''}/> Course aktif (tampil untuk mentee)</label>
+          <h4>Akses &amp; harga</h4>
+          <div class="form-row"><div class="form-group"><label for="hubAccess">Tipe course</label><select id="hubAccess" class="input">
+              <option value="free" ${!paid ? 'selected' : ''}>Gratis</option><option value="paid" ${paid ? 'selected' : ''}>Berbayar</option></select></div>
+            <div class="form-group ${paid ? '' : 'hidden'}" data-hub-paid><label for="hubPrice">Harga</label>
+              <div class="input-prefix"><span>Rp</span><input id="hubPrice" class="input" inputmode="numeric" autocomplete="off" maxlength="15" value="${esc(priceTxt)}" placeholder="150.000" aria-describedby="hubPriceHint" /></div>
+              <div class="muted small" id="hubPriceHint">Rp1.000 – Rp100.000.000</div></div></div>
+          <div class="hub-paybox ${paid ? '' : 'hidden'}" data-hub-paid>
+            <div class="form-row"><div class="form-group"><label for="hubBank">Nama bank / e-wallet</label><input id="hubBank" class="input" maxlength="60" value="${esc(pay.bank || '')}" placeholder="BCA" /></div>
+              <div class="form-group"><label for="hubAccNo">Nomor rekening</label><input id="hubAccNo" class="input" inputmode="numeric" maxlength="30" value="${esc(pay.accountNo || '')}" placeholder="1234567890" /></div>
+              <div class="form-group"><label for="hubAccName">Nama pemilik rekening</label><input id="hubAccName" class="input" maxlength="80" value="${esc(pay.accountName || '')}" /></div></div>
+            <div class="form-group"><label>Gambar QRIS <span class="muted small">(opsional bila rekening sudah diisi)</span></label>
+              <div class="hub-qris-field">${pay.qrisKey ? HubPay.imgHtml(pay.qrisKey, 'QRIS course', 'hp-qris-sm') : '<span class="hp-img hp-qris-sm is-empty">Belum ada</span>'}
+                <div><input type="file" id="hubQris" class="input" accept="image/png,image/jpeg,image/webp" aria-describedby="hubQrisHint" />
+                  <div class="muted small" id="hubQrisHint">PNG, JPG, atau WEBP · maks. 10 MB (dikompres otomatis)</div>
+                  ${pay.qrisKey ? '<button type="button" class="btn btn-sm btn-ghost" id="hubQrisRm">Hapus QRIS</button>' : ''}</div></div></div>
+            <div class="form-group"><label for="hubPayInstr">Instruksi tambahan untuk siswa</label><textarea id="hubPayInstr" rows="3" maxlength="1000" placeholder="Contoh: tambahkan 3 digit terakhir NIS pada nominal transfer.">${esc(pay.instructions || '')}</textarea></div>
+            <div class="alert alert-info small">Pembayaran manual: siswa mengunggah bukti transfer, lalu admin memverifikasi di menu <strong>Pembayaran Course</strong>. Isi pelajaran baru terbuka setelah disetujui (ditegakkan di server).</div>
+          </div>
         </form>
         <div class="card"><div class="card-header">${UI.secHead('🧭', 'Kurikulum', 'bab berisi pelajaran: artikel, video, PDF, tautan, atau kuis')}
           <button type="button" class="btn btn-sm btn-secondary" id="hubAddSec">+ Bab</button></div>
@@ -581,7 +610,11 @@
         color: val('#hubColor').value, description: RichText.sanitize(val('#hubDesc').innerHTML), outcomes: linesOf(val('#hubOut').value), requirements: linesOf(val('#hubReq').value),
         enrollMode: val('#hubEnrollMode').value, newStudentPolicy: val('#hubPolicy').value, certificate: info.cert.checked, active: info.active.checked,
         sequential: val('#hubSeq').value, inactivityDays: isFinite(inact) && val('#hubInact').value !== '' ? Math.max(0, Math.min(365, Math.round(inact))) : DB.HUB_DEFAULT_INACTIVE_DAYS,
-        audience: { type: val('#hubAud').value, classes: [...info.querySelectorAll('input[name=cls]:checked')].map(x => x.value), studentIds: [...info.querySelectorAll('input[name=stu]:checked')].map(x => x.value) } });
+        audience: { type: val('#hubAud').value, classes: [...info.querySelectorAll('input[name=cls]:checked')].map(x => x.value), studentIds: [...info.querySelectorAll('input[name=stu]:checked')].map(x => x.value) },
+        accessType: val('#hubAccess').value === 'paid' ? 'paid' : 'free',
+        price: Number(String(val('#hubPrice').value).replace(/[^0-9]/g, '')) || 0,
+        payment: { bank: val('#hubBank').value, accountNo: val('#hubAccNo').value, accountName: val('#hubAccName').value,
+          qrisKey: (d.payment && d.payment.qrisKey) || '', qrisAt: (d.payment && d.payment.qrisAt) || 0, instructions: val('#hubPayInstr').value } });
       container.querySelectorAll('[data-sec-title]').forEach(inp => { d.sections[Number(inp.dataset.secTitle)].title = inp.value; });
     };
     // Warna tema: pratinjau cover ikut berubah saat warna dipilih
@@ -589,6 +622,32 @@
       const cv = info.querySelector('.photo-field .hub-cover');
       if (cv) cv.style.setProperty('--hub-c', val('#hubColor').value);
     });
+    val('#hubAccess').addEventListener('change', () => {
+      info.querySelectorAll('[data-hub-paid]').forEach(el => el.classList.toggle('hidden', val('#hubAccess').value !== 'paid'));
+    });
+    // Harga ditampilkan dengan pemisah ribuan saat diketik
+    val('#hubPrice').addEventListener('input', (e) => {
+      const digits = e.target.value.replace(/[^0-9]/g, '').replace(/^0+/, '').slice(0, 9);
+      e.target.value = digits ? Number(digits).toLocaleString('id-ID') : '';
+    });
+    HubPay.hydrate(info);
+    val('#hubQris').addEventListener('change', async () => {
+      const f = val('#hubQris').files[0];
+      if (!f) return;
+      syncInfo();
+      try {
+        if (!d.id) d.id = DB.uid('hub');        // kunci QRIS memakai id course
+        const old = d.payment.qrisKey;
+        const key = await HubPay.uploadQris(d.id, f);
+        adm.qris.pending.push(key);
+        if (old) adm.qris.stale.push(old);
+        d.payment.qrisKey = key; d.payment.qrisAt = Date.now();
+        UI.toast('QRIS diunggah. Simpan course untuk menerapkan.', 'info');
+        renderEditor(container, admin);
+      } catch (e) { UI.toast(e.message || 'QRIS gagal diunggah.', 'error'); }
+    });
+    const qrm = container.querySelector('#hubQrisRm');
+    if (qrm) qrm.addEventListener('click', () => { syncInfo(); if (d.payment.qrisKey) adm.qris.stale.push(d.payment.qrisKey); d.payment.qrisKey = ''; d.payment.qrisAt = 0; renderEditor(container, admin); });
     val('#hubAud').addEventListener('change', () => {
       container.querySelector('#hubAudKelas').classList.toggle('hidden', val('#hubAud').value !== 'kelas');
       container.querySelector('#hubAudStu').classList.toggle('hidden', val('#hubAud').value !== 'students');
@@ -600,17 +659,27 @@
       try { syncInfo(); d.cover = await Editor.compressImage(f); renderEditor(container, admin); } catch (e) { UI.toast(e.message, 'error'); }
     });
     const rmc = container.querySelector('#hubRmCover'); if (rmc) rmc.addEventListener('click', () => { syncInfo(); d.cover = ''; renderEditor(container, admin); });
-    container.querySelector('#hubCancel').addEventListener('click', () => { if (UI.confirmDialog('Keluar tanpa menyimpan perubahan?')) { adm = { mode: 'list' }; renderAdmin(container, admin); } });
+    container.querySelector('#hubCancel').addEventListener('click', () => {
+      if (!UI.confirmDialog('Keluar tanpa menyimpan perubahan?')) return;
+      adm.qris.pending.forEach(k => BlobStore.remove(k).catch(() => {}));   // QRIS yang belum tersimpan
+      adm = { mode: 'list' };
+      renderAdmin(container, admin);
+    });
     container.querySelector('#hubSave').addEventListener('click', () => {
       syncInfo();
       if (d.audience.type === 'kelas' && !d.audience.classes.length) { UI.toast('Pilih minimal satu kelas utama.', 'error'); return; }
       if (d.audience.type === 'students' && !d.audience.studentIds.length) { UI.toast('Pilih minimal satu mentee.', 'error'); return; }
       try {
         const saved = DB.saveHubCourse(d, admin);
-        // Mode "didaftarkan admin": daftarkan otomatis mentee sasaran tertentu.
-        if (saved.enrollMode === 'assigned' && saved.audience.type === 'students') saved.audience.studentIds.forEach(id => { try { DB.hubEnroll(saved.id, id); } catch (e) { /* lewati */ } });
+        // QRIS lama (diganti/dihapus) dibersihkan setelah course tersimpan.
+        const keep = saved.payment && saved.payment.qrisKey;
+        adm.qris.stale.concat(adm.qris.pending).filter(k => k && k !== keep).forEach(k => BlobStore.remove(k).catch(() => {}));
+        // Mode "didaftarkan admin": daftarkan otomatis mentee sasaran tertentu (course berbayar: akses dicatat manual).
+        if (saved.enrollMode === 'assigned' && saved.audience.type === 'students') saved.audience.studentIds.forEach(id => {
+          try { if (DB.hubIsPaid(saved)) DB.hubGrantAccess(saved.id, id, admin, 'Didaftarkan admin'); DB.hubEnroll(saved.id, id); } catch (e) { /* lewati */ }
+        });
         UI.toast('Course disimpan.');
-        adm = { mode: 'edit', draft: clone(saved) };
+        adm = { mode: 'edit', draft: clone(saved), qris: { pending: [], stale: [] } };
         renderEditor(container, admin);
       } catch (e) { UI.toast(e.message, 'error'); }
     });
