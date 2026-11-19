@@ -52,6 +52,13 @@
     'arctan', 'sinh', 'cosh', 'tanh', 'log', 'ln', 'lg', 'exp', 'det', 'dim',
     'gcd', 'lcm', 'max', 'min', 'mod', 'deg', 'arg', 'sgn'];
 
+  // Perintah struktural yang ditangani parser (bukan simbol)
+  const KNOWN_CMDS = ['frac', 'dfrac', 'tfrac', 'sqrt', 'text', 'textrm', 'textnormal', 'mathrm',
+    'operatorname', 'textbf', 'mathbf', 'textit', 'mathit', 'ce', 'vec', 'hat', 'bar', 'overline',
+    'underline', 'sum', 'int', 'lim', 'prod', 'left', 'right', 'begin', 'end', 'quad', 'qquad',
+    'ang', 'unit', 'binom', 'dbinom', 'tbinom', 'limits', 'nolimits', 'mathbb', 'mathcal',
+    'boldsymbol', 'displaystyle', 'dots', 'ldots', 'cdots', 'vdots', 'ddots', 'degree'];
+
   function esc(s) {
     return String(s == null ? '' : s)
       .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
@@ -127,6 +134,42 @@
       i++;
     }
     return '<span class="mf-chem">' + out + '</span>';
+  }
+
+  /** Pisahkan isi lingkungan menjadi baris (\\\\) dan kolom (&) pada kedalaman 0. */
+  function splitEnv(inner) {
+    const rows = [[]];
+    let cur = '', depth = 0;
+    for (let k = 0; k < inner.length; k++) {
+      const c = inner[k];
+      if (c === '\\' && inner[k + 1] === '\\' && depth === 0) {
+        rows[rows.length - 1].push(cur); cur = ''; rows.push([]); k++; continue;
+      }
+      if (c === '\\') { cur += c + (inner[k + 1] || ''); k++; continue; }
+      if (c === '{') depth++;
+      if (c === '}') depth--;
+      if (c === '&' && depth === 0) { rows[rows.length - 1].push(cur); cur = ''; continue; }
+      cur += c;
+    }
+    rows[rows.length - 1].push(cur);
+    if (rows.length > 1 && rows[rows.length - 1].every(x => !x.trim())) rows.pop();
+    return rows;
+  }
+
+  /** Render lingkungan matriks / cases / aligned pada renderer cadangan. */
+  function renderEnv(env, inner) {
+    const rows = splitEnv(inner);
+    const table = (cls) => '<span class="mf-matrix ' + cls + '">' + rows.map(r =>
+      '<span class="mf-mrow">' + r.map(c => '<span class="mf-mcell">' + toHtml(c.trim()) + '</span>').join('') + '</span>'
+    ).join('') + '</span>';
+    const wrap = { pmatrix: ['(', ')'], bmatrix: ['[', ']'], Bmatrix: ['{', '}'], vmatrix: ['|', '|'],
+                   Vmatrix: ['‖', '‖'], matrix: ['', ''], cases: ['{', ''], array: ['', ''],
+                   aligned: ['', ''], align: ['', ''], gathered: ['', ''], split: ['', ''] };
+    const w = wrap[env];
+    if (!w) return '<span class="mf-unknown">\\begin{' + esc(env) + '}</span>' + toHtml(inner);
+    const cls = (env === 'cases' || /^align|^split|^gathered/.test(env)) ? 'mf-left' : '';
+    return (w[0] ? '<span class="mf-delim mf-bigdelim">' + esc(w[0]) + '</span>' : '') + table(cls) +
+           (w[1] ? '<span class="mf-delim mf-bigdelim">' + esc(w[1]) + '</span>' : '');
   }
 
   /**
@@ -266,13 +309,48 @@
             i = j + 1;
             continue;
           }
-          case 'begin':
-          case 'end': {
-            // Lingkungan tidak didukung penuh: lewati namanya
+          case 'begin': {
             const g = readGroup(src, skipSpace(j));
+            const env = g.body.trim();
+            const endTag = '\\end{' + env + '}';
+            const stop = src.indexOf(endTag, g.next);
+            const inner = stop === -1 ? src.slice(g.next) : src.slice(g.next, stop);
+            out += renderEnv(env, inner);
+            i = stop === -1 ? src.length : stop + endTag.length;
+            continue;
+          }
+          case 'end': {                      // \end liar tanpa \begin: lewati
+            i = readGroup(src, skipSpace(j)).next;
+            continue;
+          }
+          case 'binom':
+          case 'dbinom':
+          case 'tbinom': {
+            const a = readGroup(src, skipSpace(j));
+            const b = readGroup(src, skipSpace(a.next));
+            out += '<span class="mf-delim">(</span><span class="mf-frac mf-binom"><span class="mf-num">' +
+                   toHtml(a.body) + '</span><span class="mf-den">' + toHtml(b.body) +
+                   '</span></span><span class="mf-delim">)</span>';
+            i = b.next;
+            continue;
+          }
+          case 'mathbb': {
+            const g = readGroup(src, skipSpace(j));
+            const BB = { R: 'ℝ', N: 'ℕ', Z: 'ℤ', Q: 'ℚ', C: 'ℂ', P: 'ℙ' };
+            out += '<span class="mf-text">' + esc(BB[g.body] || g.body) + '</span>';
             i = g.next;
             continue;
           }
+          case 'mathcal':
+          case 'boldsymbol': {
+            const g = readGroup(src, skipSpace(j));
+            out += '<strong>' + toHtml(g.body) + '</strong>';
+            i = g.next;
+            continue;
+          }
+          case 'displaystyle':
+          case 'limits':
+          case 'nolimits': i = j; continue;
           case 'quad': out += '<span class="mf-space-q"></span>'; i = j; continue;
           case 'qquad': out += '<span class="mf-space-qq"></span>'; i = j; continue;
           case 'ang': {                       // \ang{90} -> 90°
@@ -344,22 +422,72 @@
     return !!(global.katex && typeof global.katex.renderToString === 'function');
   }
 
+  /** Makro tambahan agar \unit, \ang, \degree yang dipakai guru ikut jalan di KaTeX. */
+  const KATEX_MACROS = {
+    '\\unit': '\\mathrm{#1}',
+    '\\ang': '#1^{\\circ}',
+    '\\degree': '^{\\circ}'
+  };
+
   /**
    * Render satu ekspresi LaTeX menjadi HTML.
+   * KaTeX dipakai bila sudah dimuat (CDN); bila tidak, renderer mandiri
+   * menjadi cadangan sehingga rumus tetap tampil saat offline.
+   * Rumus panjang dibungkus .mf-wrap agar bisa digulir di layar kecil.
    * @param {string} src  isi rumus (tanpa pembatas $)
    * @param {boolean} display  true = rumus blok (tengah), false = sebaris
    */
   function renderLatex(src, display) {
     const raw = String(src == null ? '' : src);
     if (!raw.trim()) return '';
-    if (hasKatex()) {
+    // mhchem (\ce) tidak dimuat di KaTeX: pakai renderer kimia mandiri
+    if (hasKatex() && !/\\ce\b/.test(raw)) {
       try {
-        return global.katex.renderToString(raw, {
-          displayMode: !!display, throwOnError: false, output: 'html'
+        const html = global.katex.renderToString(raw, {
+          displayMode: !!display, throwOnError: false, errorColor: '#b91c1c',
+          strict: 'ignore', trust: false, output: 'htmlAndMathml', macros: Object.assign({}, KATEX_MACROS)
         });
+        return '<span class="mf-wrap' + (display ? ' mf-wrap-block' : '') + '">' + html + '</span>';
       } catch (e) { /* jatuh ke renderer mandiri */ }
     }
-    return '<span class="mathfmt' + (display ? ' mf-display' : '') + '">' + toHtml(raw) + '</span>';
+    return '<span class="mf-wrap' + (display ? ' mf-wrap-block' : '') + '"><span class="mathfmt' +
+           (display ? ' mf-display' : '') + '">' + toHtml(raw) + '</span></span>';
+  }
+
+  /**
+   * Periksa sintaks LaTeX. Mengembalikan null bila valid, atau pesan galat
+   * berbahasa Indonesia. Tidak pernah melempar.
+   */
+  function validateLatex(src) {
+    const s = String(src == null ? '' : src);
+    if (!s.trim()) return null;
+    if (hasKatex() && !/\\ce\b/.test(s)) {
+      try {
+        global.katex.renderToString(s, { throwOnError: true, strict: 'ignore', trust: false, macros: Object.assign({}, KATEX_MACROS) });
+        return null;
+      } catch (e) {
+        return 'Rumus belum valid: ' + String((e && e.message) || e).replace(/^KaTeX parse error:\s*/, '').slice(0, 160);
+      }
+    }
+    // Pemeriksaan mandiri (tanpa KaTeX)
+    let depth = 0;
+    for (let k = 0; k < s.length; k++) {
+      const c = s[k];
+      if (c === '\\') { k++; continue; }
+      if (c === '{') depth++;
+      else if (c === '}') { depth--; if (depth < 0) return 'Ada kurung kurawal penutup "}" tanpa pasangan.'; }
+    }
+    if (depth > 0) return 'Ada ' + depth + ' kurung kurawal "{" yang belum ditutup.';
+    const begins = (s.match(/\\begin\{/g) || []).length, ends = (s.match(/\\end\{/g) || []).length;
+    if (begins !== ends) return 'Jumlah \\begin{...} dan \\end{...} tidak sama.';
+    const bad = [];
+    s.replace(/\\([a-zA-Z]+)/g, (m, cmd) => {
+      const known = SYMBOLS[cmd] != null || FUNCTIONS.indexOf(cmd) !== -1 || KNOWN_CMDS.indexOf(cmd) !== -1;
+      if (!known && bad.indexOf(cmd) === -1) bad.push(cmd);
+      return m;
+    });
+    if (bad.length) return 'Perintah tidak dikenal: \\' + bad.slice(0, 3).join(', \\') + '.';
+    return null;
   }
 
   /* =====================================================================
@@ -605,7 +733,7 @@
     }
   }
 
-  global.MathFmt = { renderLatex, toHtml, renderChem, hasKatex, SYMBOLS };
+  global.MathFmt = { renderLatex, toHtml, renderChem, hasKatex, validateLatex, SYMBOLS };
   global.RichText = {
     render, renderInto, plain, sanitize, renderMathInText, renderMathInElement,
     embedHtml, linkKind, esc

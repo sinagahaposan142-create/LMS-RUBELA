@@ -1013,6 +1013,9 @@
         </div>
         <div class="chat-messages" id="chatMessages">${messagesHtml(messages)}</div>
         <form class="chat-input-box" id="chatForm">
+          <button type="button" class="chat-fx-btn" id="chatFx" title="Sisipkan rumus" aria-label="Sisipkan rumus">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 5H7l6 7-6 7h11"/></svg>
+          </button>
           <input id="chatInput" placeholder="Ketik pesan..." autocomplete="off" maxlength="2000" aria-label="Ketik pesan" enterkeyhint="send" />
           <button type="submit" class="btn btn-primary btn-sm" id="chatSendBtn">Kirim</button>
         </form>
@@ -1038,6 +1041,21 @@
         if (again) again.focus({ preventScroll: true });
       };
       document.getElementById('chatForm').addEventListener('submit', (e) => { e.preventDefault(); send(); });
+      document.getElementById('chatFx').addEventListener('click', () => {
+        if (!global.MathPad) return;
+        MathPad.open({
+          onInsert: (latex, isBlock) => {
+            const box = document.getElementById('chatInput');
+            if (!box) return;
+            const d = isBlock ? '$$' : '$';
+            const add = d + latex.replace(/\s*\n\s*/g, ' ') + d;
+            const a = box.selectionStart == null ? box.value.length : box.selectionStart;
+            const b = box.selectionEnd == null ? a : box.selectionEnd;
+            box.value = (box.value.slice(0, a) + add + box.value.slice(b)).slice(0, 2000);
+            box.focus({ preventScroll: true });
+          }
+        });
+      });
       const input = document.getElementById('chatInput');
       // Fokus otomatis hanya di layar lebar agar keyboard ponsel tidak langsung muncul.
       if (global.innerWidth > 860) input.focus({ preventScroll: true });
@@ -1053,7 +1071,7 @@
       return messages.length === 0 ? '<div class="muted small" style="text-align:center;padding:20px;">Belum ada pesan. Kirim pesan pertama!</div>' :
         messages.map(m => `
           <div class="chat-bubble ${m.senderId === user.id ? 'sent' : 'received'}">
-            <div class="chat-text">${UI.esc(m.text)}</div>
+            <div class="chat-text">${global.RichText ? RichText.renderMathInText(m.text) : UI.esc(m.text)}</div>
             <div class="chat-time">${formatChatTime(m.createdAt)}</div>
           </div>`).join('');
     }

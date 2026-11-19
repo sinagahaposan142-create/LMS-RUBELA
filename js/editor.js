@@ -913,36 +913,13 @@
   }
 
   function openFormulaDialog() {
-    openEditorDialog('Sisipkan Rumus (LaTeX)', `
-      <p class="muted small" style="margin-top:0;">Tulis rumus tanpa tanda <code>$</code>. Contoh:
-        <code>\\frac{1}{2}</code>, <code>x^2 + y^2</code>, <code>\\ce{H2SO4}</code>, <code>\\sum_{i=1}^{n} i</code>.</p>
-      <textarea id="qeFx" class="qe-fx-input" rows="3" placeholder="\\frac{a}{b}"></textarea>
-      <div class="qe-fx-preview" id="qeFxPrev"><span class="muted small">Pratinjau akan muncul di sini…</span></div>
-      <label class="qe-check"><input type="checkbox" id="qeFxBlock" /> Tampilkan sebagai rumus blok (baris sendiri)</label>
-      <div class="flex-gap mt-2" style="justify-content:flex-end;">
-        <button type="button" class="btn btn-secondary" data-cancel>Batal</button>
-        <button type="button" class="btn btn-primary" data-ok>Sisipkan</button>
-      </div>
-    `, (back, close) => {
-      const input = back.querySelector('#qeFx');
-      const prev = back.querySelector('#qeFxPrev');
-      const block = back.querySelector('#qeFxBlock');
-      const update = () => {
-        const v = input.value.trim();
-        prev.innerHTML = v ? MathFmt.renderLatex(v, block.checked)
-                           : '<span class="muted small">Pratinjau akan muncul di sini…</span>';
-      };
-      input.addEventListener('input', update);
-      block.addEventListener('change', update);
-      back.querySelector('[data-cancel]').addEventListener('click', close);
-      back.querySelector('[data-ok]').addEventListener('click', () => {
-        const v = input.value.trim();
-        if (!v) { close(); return; }
-        const delim = block.checked ? '$$' : '$';
-        close();                              // tutup dulu, lalu sisipkan
-        insertHtml(delim + v + delim + '&nbsp;');
-      });
-      setTimeout(() => input.focus(), 60);
+    if (!global.MathPad) { toast('Editor rumus belum dimuat.', 'error'); return; }
+    MathPad.open({
+      anchor: editorAnchor(),
+      onInsert: (latex, isBlock) => {
+        const d = isBlock ? '$$' : '$';
+        insertHtml(d + esc(latex) + d + '&nbsp;');   // esc: rumus berisi < > & tidak boleh jadi HTML
+      }
     });
   }
 
