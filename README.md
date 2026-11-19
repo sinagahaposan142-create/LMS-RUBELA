@@ -273,6 +273,23 @@ Hasil audit lengkap 23 poin permintaan beserta buktinya ada di
   dengan siswa online (pilih manual, Cari Otomatis oleh bot matchmaking, atau Lawan Bot). Kelola soal game dengan editor
   soal LMS, salin dari Bank Soal, atau buat dengan AI; tersedia paket 47 soal contoh.
 
+### Rumus, Chat, Video Pembahasan & Course Berbayar (uji: `docs/UJI-FITUR-RONDE-13.md`)
+- **Editor Rumus** (tombol rumus di editor soal/pembahasan dan di chat): toolbar 8 kategori (pecahan & akar, pangkat &
+  indeks, kalkulus, matriks, huruf Yunani, operator, himpunan & logika, fungsi), autocomplete perintah, pintasan
+  Alt+1…8 dan Ctrl+Enter, 14 template, riwayat, salin LaTeX, pratinjau langsung dengan pesan galat. Tab **Visual**
+  memakai MathLive (CDN). Rumus dirender KaTeX (CDN + SRI); bila CDN gagal, renderer bawaan tetap menampilkan rumus.
+  Rumus panjang bisa digulir horizontal di ponsel.
+- **Chat**: balas lewat geser kanan (ponsel), tombol/klik kanan (desktop), atau tekan lama; kutipan bisa diklik untuk
+  lompat ke pesan asal; **teruskan** ke banyak kontak dengan pencarian (ditandai "Diteruskan"); hapus pesan sendiri.
+  Rumus `$...$` dan tautan tampil di pesan. Isi pesan divalidasi server.
+- **Video pembahasan YouTube** per soal (link watch/youtu.be/shorts/embed): thumbnail dulu, diputar lewat
+  youtube-nocookie, kontrol sendiri tanpa opsi kecepatan (dikunci 1x), opsi **cegah loncat maju**. Pembatasan ini
+  berjalan di peramban, jadi menyulitkan, bukan menjamin.
+- **Course Mandiri gratis/berbayar**: harga rupiah, rekening & QRIS, siswa mengunggah bukti transfer, admin
+  memverifikasi di menu **Pembayaran Course** (setujui/tolak dengan alasan/cabut/akses manual). Pembayaran
+  **manual** (tidak ada verifikasi otomatis). Isi pelajaran course berbayar dikunci di server sampai disetujui.
+- **Arsitektur penyimpanan**: `docs/ARSITEKTUR-PENYIMPANAN.md`.
+
 ### Tema Hari Besar Nasional (detail: `docs/TEMA-HARI-BESAR.md`)
 - Menu admin **Operasional → Tema Hari Besar**: 13 tema yang diaktifkan manual. Tersedia Tahun Baru, Imlek, Nyepi,
   Idulfitri, Hardiknas, Kenaikan Yesus Kristus, Waisak, Iduladha, Hari Lahir Pancasila, Hari Anak Nasional,
@@ -353,7 +370,9 @@ Tekan *Export Excel* untuk mengunduh template berisi kolom lengkap (termasuk dat
 2. Vercel → **Storage/Integrations → Turso → Connect Project** ke project ini. Vercel akan membuat
    env `TURSO_DATABASE_URL` dan `TURSO_AUTH_TOKEN`. **Redeploy** setelah menghubungkan.
 3. Buka `https://<domain>/api/rubela?action=health` → harus `"configured": true, "ready": true`.
-4. Masuk sebagai **admin** dengan password bawaan **`rubela2026`** (ditetapkan di `api/_lib/store.js`,
+4. **Wajib bila repositori publik:** isi env `ADMIN_PASSWORD` di Vercel (password bawaan di bawah terlihat publik)
+   atau ganti password admin lewat menu profil setelah login pertama.
+5. Masuk sebagai **admin** dengan password bawaan **`rubela2026`** (ditetapkan di `api/_lib/store.js`,
    konstanta `ADMIN_PASSWORD`). Server otomatis menyesuaikan hash-nya saat deploy — jika database sudah
    dibuat sebelumnya dengan password lain, cukup **Redeploy** sekali, lalu login kembali dengan
    `rubela2026`. Untuk mengganti password, ubah `ADMIN_PASSWORD` lalu redeploy, atau ganti dari menu
@@ -378,6 +397,8 @@ node scripts/dev-server.js --local    # atau: python3 -m http.server 8080
 ```
 Data dasar server dibangun dari `js/data.js` dengan `node scripts/build-seed.js` (menghasilkan
 `api/_lib/seed-base.json`).
+
+Uji API end-to-end (database tiruan, tanpa dependensi): `node scripts/test-api.js`.
 
 ## Akun Demo (khusus mode lokal)
 
@@ -468,6 +489,9 @@ LMS-RUBELA/
     ├── arena.js         # Arena Belajar: tantangan, mini quiz, latihan, Reading Text, games
     ├── verses.js        # Ayat Harian sesuai agama
     ├── course-hub.js    # Course mandiri (admin, tanpa tutor) + pemutar pelajaran
+    ├── hub-pay.js       # Course berbayar: checkout manual (rekening/QRIS + bukti), verifikasi admin
+    ├── mathpad.js       # Editor rumus LaTeX (toolbar, autocomplete, template, riwayat, MathLive opsional)
+    ├── yt-player.js     # Pemutar YouTube lazy (nocookie), mode pembahasan terkunci 1x & cegah loncat maju
     ├── timecapsule.js   # Mesin Waktu + enkripsi F2 & Recovery Key
     ├── music.js         # Musik latar global + pengelola admin
     ├── dashboard.js     # Router role-based + sidebar + pusat notifikasi + tema + drawer mobile
