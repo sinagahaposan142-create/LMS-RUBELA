@@ -1397,6 +1397,7 @@
     return `<div class="question-card">
       ${head}${body}
       ${q.explanation ? `<div class="alert alert-info mt-2"><strong>Pembahasan:</strong> <span class="rt-content">${RichText.render(q.explanation)}</span></div>` : ''}
+      ${YTPlayer.expVideo(q)}
       ${aiOk ? `<div class="ex-ai-row"><button type="button" class="btn btn-secondary btn-sm" data-ai-explain="${UI.esc(q.id)}" data-ai-correct="${g.auto ? (g.correct ? '1' : '0') : ''}">🤖 Tanya AI tentang soal ini</button>
         <span class="muted small">${q.explanation ? 'Belum paham pembahasannya? AI menjelaskan langkah demi langkah.' : 'Belum ada pembahasan tutor — minta AI menjelaskan.'}</span></div>` : ''}
     </div>`;

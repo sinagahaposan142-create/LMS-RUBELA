@@ -505,7 +505,8 @@
   const ALLOWED_ATTRS = {
     href: 1, src: 1, alt: 1, title: 1, colspan: 1, rowspan: 1, span: 1,
     controls: 1, loop: 1, muted: 1, poster: 1, width: 1, height: 1,
-    class: 1, style: 1, 'data-latex': 1, start: 1, type: 1, dir: 1, lang: 1
+    class: 1, style: 1, start: 1, type: 1, dir: 1, lang: 1,
+    'data-yt-id': 1, 'data-yt-lock': 1, 'data-yt-noskip': 1      // kartu YouTube (dibangkitkan ulang saat render)
   };
   // Properti CSS aman untuk atribut style
   const ALLOWED_CSS = /^(text-align|font-weight|font-style|text-decoration|color|background-color|width|height|max-width|vertical-align|border|border-collapse|padding|margin|font-size|line-height|white-space)$/;
@@ -675,8 +676,22 @@
     // Bila konten polos (bukan HTML), pertahankan baris baru
     const looksLikeHtml = /<[a-z][\s\S]*>/i.test(raw);
     holder.innerHTML = looksLikeHtml ? sanitize(raw) : esc(raw).replace(/\n/g, '<br>');
+    upgradeVideoCards(holder);
     renderMathInElement(holder);
     return holder.innerHTML;
+  }
+
+  /** Kartu YouTube tersimpan hanya dipercaya lewat data-yt-*; markup dibangun ulang dari ID tervalidasi. */
+  function upgradeVideoCards(root) {
+    root.querySelectorAll('[data-yt-id]').forEach(el => {
+      const html = global.YTPlayer ? YTPlayer.cardHtml(el.getAttribute('data-yt-id'), {
+        lock: el.getAttribute('data-yt-lock') === '1', noSkip: el.getAttribute('data-yt-noskip') === '1'
+      }) : '';
+      if (!html) { el.remove(); return; }
+      const t = document.createElement('template');
+      t.innerHTML = html.trim();
+      el.replaceWith(t.content.firstChild);
+    });
   }
 
   /** Render langsung ke sebuah elemen (lebih hemat daripada innerHTML manual). */
@@ -705,7 +720,7 @@
     const u = String(url || '').trim();
     if (/\.(png|jpe?g|gif|webp|svg)(\?|$)/i.test(u) || /^data:image\//i.test(u)) return 'image';
     if (/\.(mp3|wav|ogg|m4a)(\?|$)/i.test(u) || /^data:audio\//i.test(u)) return 'audio';
-    if (/(youtube\.com\/watch|youtu\.be\/|vimeo\.com\/)/i.test(u)) return 'video';
+    if ((global.YTPlayer && YTPlayer.parseId(u) && /youtu/i.test(u)) || /vimeo\.com\//i.test(u)) return 'video';
     if (/\.(mp4|webm|mov)(\?|$)/i.test(u)) return 'file-video';
     return 'link';
   }
@@ -723,7 +738,8 @@
       case 'file-video':
         return `<figure class="rt-media"><video controls preload="none" src="${esc(u)}"></video>${cap}</figure>`;
       case 'video': {
-        // Pakai helper embed yang sudah ada bila tersedia
+        const ytId = global.YTPlayer ? YTPlayer.parseId(u) : null;
+        if (ytId) return `<figure class="rt-media">${YTPlayer.cardHtml(ytId)}${cap}</figure>`;
         const embed = (global.Shared && Shared.toEmbedUrl) ? Shared.toEmbedUrl(u) : u;
         return `<figure class="rt-media"><div class="video-wrap"><iframe src="${esc(embed)}" allowfullscreen
           allow="accelerometer; clipboard-write; encrypted-media; gyroscope; picture-in-picture"></iframe></div>${cap}</figure>`;

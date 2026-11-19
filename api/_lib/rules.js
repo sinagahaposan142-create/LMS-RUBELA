@@ -35,6 +35,16 @@ function makeCtx(user, extra) {
 const clone = (v) => (v == null ? v : JSON.parse(JSON.stringify(v)));
 const same = (a, b) => catalog.canon(a) === catalog.canon(b);
 
+/* ============================ VIDEO PEMBAHASAN ============================ */
+const YT_ID = /^[A-Za-z0-9_-]{11}$/;
+/** { id, url, noSkip } → dinormalisasi; null bila tidak valid. */
+function normVideo(v) {
+  if (!v || typeof v !== 'object' || !YT_ID.test(String(v.id || ''))) return null;
+  const url = typeof v.url === 'string' ? v.url.trim().slice(0, 500) : '';
+  if (url && !/^https:\/\/([a-z0-9-]+\.)*(youtube\.com|youtu\.be|youtube-nocookie\.com)\//i.test(url)) return null;
+  return { id: v.id, url: url || 'https://youtu.be/' + v.id, noSkip: v.noSkip === true };
+}
+
 /* ============================ CHAT ============================ */
 const MSG_MAX = 2000;
 const cut = (v, max) => (typeof v === 'string' ? v.slice(0, max) : '');
@@ -213,6 +223,12 @@ function checkWrite(ctx, k, id, before, after) {
   }
   // Pesan divalidasi untuk semua peran (termasuk admin): bentuk, panjang, balasan, terusan.
   if (k === 'lms_messages') return checkMessage(ctx, op, before, after);
+  // Video pembahasan soal: hanya ID YouTube yang valid (semua peran, termasuk admin).
+  if (k === 'lms_questions' && after && after.explanationVideo != null) {
+    const v = normVideo(after.explanationVideo);
+    if (!v) return deny('Link video pembahasan tidak valid. Gunakan link YouTube.');
+    after = Object.assign({}, after, { explanationVideo: v });
+  }
   if (ctx.isAdmin) return allow(after);
 
   if (ADMIN_ONLY.has(k)) return deny('Hanya admin yang dapat mengubah data ini.');

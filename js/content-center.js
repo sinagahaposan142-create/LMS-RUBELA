@@ -345,7 +345,7 @@
 
   /* Salin soal bank menjadi soal kuis Course Mandiri (snapshot, tidak menunjuk bank). */
   const Q_FIELDS = ['text', 'options', 'correctIndex', 'correctIndices', 'answers', 'numeric', 'numericTolerance', 'shortAnswerPolicy',
-    'statements', 'columns', 'pairs', 'orderItems', 'keywords', 'explanation', 'subject', 'difficulty'];
+    'statements', 'columns', 'pairs', 'orderItems', 'keywords', 'explanation', 'explanationVideo', 'subject', 'difficulty'];
   function quizQuestionsFrom(ids) {
     return (ids || []).map(id => DB.getQuestion(id)).filter(Boolean).map(src => {
       const out = { id: nid('hq'), sourceId: src.id, questionType: DB.hubQType(src) };

@@ -4,18 +4,11 @@
 (function (global) {
 
   /* ===== YouTube / Video embed helper ===== */
+  /** URL embed Vimeo (YouTube ditangani YTPlayer: thumbnail dulu, youtube-nocookie saat diputar). */
   function toEmbedUrl(url) {
     if (!url) return '';
     try {
       const u = new URL(url);
-      if (u.hostname.includes('youtube.com')) {
-        const v = u.searchParams.get('v');
-        if (v) return `https://www.youtube.com/embed/${v}`;
-      }
-      if (u.hostname === 'youtu.be') {
-        const v = u.pathname.slice(1);
-        if (v) return `https://www.youtube.com/embed/${v}`;
-      }
       if (u.hostname.includes('vimeo.com')) {
         const v = u.pathname.split('/').filter(Boolean).pop();
         if (v) return `https://player.vimeo.com/video/${v}`;
@@ -26,9 +19,10 @@
 
   function videoEmbedHtml(url) {
     if (!url) return '';
+    const ytId = global.YTPlayer ? YTPlayer.parseId(url) : null;
+    if (ytId) return YTPlayer.cardHtml(ytId);
     const embed = toEmbedUrl(url);
-    const isEmbeddable = /youtube\.com\/embed|player\.vimeo\.com/.test(embed);
-    if (isEmbeddable) {
+    if (/player\.vimeo\.com/.test(embed)) {
       return `<div class="video-wrap"><iframe src="${UI.esc(embed)}" allowfullscreen allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"></iframe></div>`;
     }
     // Fallback: external link
@@ -232,6 +226,7 @@
                 }).join('')}
               </div>
               ${q.explanation ? `<div class="alert alert-info mt-2"><strong>Pembahasan:</strong> ${UI.esc(q.explanation)}</div>` : ''}
+              ${YTPlayer.expVideo(q)}
             </div>`;
         }).join('')}
       </div>

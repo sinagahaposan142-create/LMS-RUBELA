@@ -88,7 +88,7 @@
     }
     else if (t === 'Menjodohkan') body = (q.pairs || []).map(p => `${R(p.left)} → ${R(p.right)}`).join('<br>');
     else if (t === 'Urutan') body = `<ol>${(q.orderItems || []).map(it => `<li>${R(it)}</li>`).join('')}</ol>`;
-    const exp = q.explanation && RichText.plain(q.explanation) ? `<div class="mt-1"><strong>Pembahasan:</strong> <span class="rt-content">${R(q.explanation)}</span></div>` : '';
+    const exp = (q.explanation && RichText.plain(q.explanation) ? `<div class="mt-1"><strong>Pembahasan:</strong> <span class="rt-content">${R(q.explanation)}</span></div>` : '') + YTPlayer.expVideo(q);
     if (!body && !exp) return '';
     return `<div class="hub-key">${body ? `<strong>Kunci:</strong><div class="rt-content">${body}</div>` : ''}${exp}</div>`;
   }
@@ -663,7 +663,7 @@
     const q = clone(src);
     const out = { id: nid('hq'), sourceId: src.id, questionType: DB.hubQType(src) };
     ['text', 'options', 'correctIndex', 'correctIndices', 'answers', 'numeric', 'numericTolerance', 'shortAnswerPolicy',
-      'statements', 'columns', 'pairs', 'orderItems', 'keywords', 'explanation', 'subject', 'difficulty'].forEach(k => { if (q[k] !== undefined && q[k] !== null) out[k] = q[k]; });
+      'statements', 'columns', 'pairs', 'orderItems', 'keywords', 'explanation', 'explanationVideo', 'subject', 'difficulty'].forEach(k => { if (q[k] !== undefined && q[k] !== null) out[k] = q[k]; });
     if (out.questionType === 'Benar/Salah' && !(out.options || []).length) out.options = ['Benar', 'Salah'];
     return out;
   }

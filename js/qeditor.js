@@ -277,8 +277,11 @@
       orderItems: [],
       keywords: [],
       explanation: '',
+      explanationVideo: null,
       points: 1
     }, existing || {});
+    // Teks kolom link video (bisa sementara tidak valid saat diketik)
+    let ytUrl = (draft.explanationVideo && draft.explanationVideo.url) || '';
     // Poin bawaan hanya relevan untuk Bank Soal utama (dipakai sistem Poin Manual CBT).
     const showPoints = bank === 'questions' && (!detached || !!o.showPoints);
     // Bank keamanan memakai field "subtest", bank soal utama memakai "subject"
@@ -391,6 +394,14 @@
           ${toolbarHtml('qeExp')}
           <div class="qe-editor short" id="qeExp" contenteditable="true" spellcheck="false"
                data-ph="Jelaskan langkah penyelesaian…">${draft.explanation || ''}</div>
+          ${bank === 'security' ? '' : `<div class="qe-yt">
+            <label class="qe-yt-label" for="qeYtUrl">Video pembahasan YouTube <span class="muted small">(opsional)</span></label>
+            <input type="url" id="qeYtUrl" inputmode="url" autocomplete="off" spellcheck="false" maxlength="500"
+              placeholder="https://www.youtube.com/watch?v=… atau https://youtu.be/…" value="${esc(ytUrl)}" aria-describedby="qeYtMsg" />
+            <label class="qe-check"><input type="checkbox" id="qeYtNoSkip" ${draft.explanationVideo && draft.explanationVideo.noSkip ? 'checked' : ''} />
+              Cegah siswa melompati bagian video yang belum ditonton</label>
+            <div class="qe-yt-msg small" id="qeYtMsg">Siswa menonton dengan kecepatan 1x (opsi kecepatan disembunyikan).</div>
+          </div>`}
         </section>
       `;
       bindMain();
@@ -448,6 +459,28 @@
       });
 
       bindAnswerBox();
+
+      const yt = main.querySelector('#qeYtUrl');
+      if (yt) {
+        const noSkip = main.querySelector('#qeYtNoSkip');
+        const msg = main.querySelector('#qeYtMsg');
+        const syncYt = () => {
+          ytUrl = yt.value.trim();
+          const id = ytUrl ? YTPlayer.parseId(ytUrl) : null;
+          draft.explanationVideo = id ? { id, url: /^https:\/\//i.test(ytUrl) ? ytUrl : 'https://youtu.be/' + id, noSkip: !!noSkip.checked } : null;
+          const bad = !!ytUrl && !id;
+          yt.setAttribute('aria-invalid', bad ? 'true' : 'false');
+          msg.classList.toggle('is-error', bad);
+          msg.textContent = bad
+            ? 'Link tidak dikenali. Gunakan link YouTube (watch, youtu.be, shorts, atau embed).'
+            : (id ? 'Video terdeteksi (ID ' + id + '). Kecepatan dikunci 1x' + (noSkip.checked ? ', tidak bisa dilompati.' : '.')
+                  : 'Siswa menonton dengan kecepatan 1x (opsi kecepatan disembunyikan).');
+          renderPreview();
+        };
+        yt.addEventListener('input', syncYt);
+        noSkip.addEventListener('change', syncYt);
+        if (ytUrl) syncYt();
+      }
     }
 
     function bindAnswerBox() {
@@ -706,6 +739,7 @@
           <div class="rt-content qe-prev-text">${draft.text ? RichText.render(draft.text) : '<span class="muted">Pertanyaan belum diisi…</span>'}</div>
           <div class="qe-prev-ans">${previewAnswerHtml()}</div>
           ${draft.explanation ? `<div class="alert alert-info mt-2"><strong>Pembahasan:</strong> <span class="rt-content">${RichText.render(draft.explanation)}</span></div>` : ''}
+          ${YTPlayer.expVideo(draft)}
         </div>
         <div class="qe-side-foot muted small">
           ${fmt.auto ? '✓ Soal ini dinilai otomatis oleh sistem.' : '⚠ Soal ini perlu dinilai manual oleh guru.'}
@@ -774,6 +808,7 @@
       collect();
       const plainText = RichText.plain(draft.text);
       if (!plainText) return 'Isi pertanyaan tidak boleh kosong.';
+      if (ytUrl && !YTPlayer.parseId(ytUrl)) return 'Link video pembahasan bukan link YouTube yang valid.';
       const f = draft.questionType;
 
       if (f === 'Pilihan Ganda' || f === 'Pilihan Lebih dari Satu') {
@@ -820,6 +855,9 @@
         difficulty: draft.difficulty,
         text: RichText.sanitize(draft.text),
         explanation: RichText.sanitize(draft.explanation || ''),
+        explanationVideo: draft.explanationVideo && YTPlayer.isValidId(draft.explanationVideo.id)
+          ? { id: draft.explanationVideo.id, url: String(draft.explanationVideo.url || '').slice(0, 500), noSkip: !!draft.explanationVideo.noSkip }
+          : null,
         options: (draft.options || []).map(o => RichText.sanitize(o))
       };
 
