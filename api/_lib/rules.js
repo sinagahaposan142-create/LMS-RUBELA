@@ -35,6 +35,55 @@ function makeCtx(user, extra) {
 const clone = (v) => (v == null ? v : JSON.parse(JSON.stringify(v)));
 const same = (a, b) => catalog.canon(a) === catalog.canon(b);
 
+/* ============================ CHAT ============================ */
+const MSG_MAX = 2000;
+const cut = (v, max) => (typeof v === 'string' ? v.slice(0, max) : '');
+
+/**
+ * Pesan chat:
+ *  - create: pengirim = akun sendiri; teks 1..2000 karakter; balasan (replyToId +
+ *    cuplikan) dan terusan (forwarded + forwardedFrom) dinormalisasi. Field lain dibuang.
+ *  - update: hanya pengirim, dan hanya untuk "hapus pesan" (hapus lunak: isi dikosongkan).
+ *  - delete permanen: hanya admin (pembersihan saat akun dihapus).
+ */
+function checkMessage(ctx, op, before, after) {
+  const me = ctx.id;
+  if (op === 'delete') {
+    return ctx.isAdmin ? allow(null) : deny('Pesan tidak dapat dihapus permanen. Gunakan "Hapus pesan".');
+  }
+  if (op === 'create') {
+    if (after.senderId !== me) return deny('Pengirim pesan tidak sesuai.');
+    if (typeof after.receiverId !== 'string' || !after.receiverId || after.receiverId.length > 200 || after.receiverId === me) {
+      return deny('Penerima pesan tidak valid.');
+    }
+    if (typeof after.text !== 'string' || !after.text.trim()) return deny('Pesan tidak boleh kosong.');
+    if (after.text.length > MSG_MAX) return deny('Pesan terlalu panjang (maksimal 2000 karakter).');
+    const created = Number(after.createdAt);
+    const out = {
+      id: after.id, senderId: me, receiverId: after.receiverId, text: after.text,
+      createdAt: Number.isFinite(created) && created > 0 ? Math.min(created, Date.now() + 5 * 60 * 1000) : Date.now()
+    };
+    if (after.replyToId != null) {
+      if (typeof after.replyToId !== 'string' || !after.replyToId || after.replyToId.length > 200) return deny('Rujukan balasan tidak valid.');
+      const q = after.replyTo && typeof after.replyTo === 'object' ? after.replyTo : {};
+      out.replyToId = after.replyToId;
+      out.replyTo = { senderId: cut(q.senderId, 200), text: cut(q.text, 200) };
+    }
+    if (after.forwarded === true) {
+      out.forwarded = true;
+      out.forwardedFrom = cut(after.forwardedFrom, 80).replace(/[<>]/g, '').trim();
+    }
+    return allow(out);
+  }
+  if (before.senderId !== me) return deny('Pesan milik pengguna lain tidak dapat diubah.');
+  if (before.deleted) return allow(before);
+  if (after.deleted !== true) return deny('Pesan yang sudah terkirim tidak dapat diedit.');
+  return allow({
+    id: before.id, senderId: before.senderId, receiverId: before.receiverId, createdAt: before.createdAt,
+    text: '', deleted: true, deletedAt: Number(after.deletedAt) || Date.now()
+  });
+}
+
 /* ============================ BACA ============================ */
 /**
  * Nilai record sebagaimana boleh dilihat ctx. undefined = disembunyikan.
@@ -162,6 +211,8 @@ function checkWrite(ctx, k, id, before, after) {
     const okOwner = (before == null || before.userId === me) && (after == null || after.userId === me);
     return okOwner ? allow(after) : deny('Riwayat chat AI milik pengguna lain.');
   }
+  // Pesan divalidasi untuk semua peran (termasuk admin): bentuk, panjang, balasan, terusan.
+  if (k === 'lms_messages') return checkMessage(ctx, op, before, after);
   if (ctx.isAdmin) return allow(after);
 
   if (ADMIN_ONLY.has(k)) return deny('Hanya admin yang dapat mengubah data ini.');
@@ -198,9 +249,6 @@ function checkWrite(ctx, k, id, before, after) {
     case 'lms_notifications':
       if (op === 'create') return typeof rec.userId === 'string' ? allow(after) : deny('Notifikasi tanpa penerima.');
       return before.userId === me ? allow(after) : deny('Notifikasi milik pengguna lain.');
-    case 'lms_messages':
-      if (op === 'create') return after.senderId === me ? allow(after) : deny('Pengirim pesan tidak sesuai.');
-      return (before.senderId === me || before.receiverId === me) ? allow(after) : deny('Pesan milik pengguna lain.');
     case 'lms_learning_log':
       if (ctx.role === 'siswa' && op === 'create' && ownsAfter) return allow(after);
       return deny('Catatan belajar hanya dapat ditambah oleh pemiliknya.');

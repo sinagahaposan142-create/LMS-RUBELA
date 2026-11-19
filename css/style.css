@@ -1084,13 +1084,11 @@ select.form, input.form, textarea.form, .att-input { width: auto; }
   line-height: 1.4;
 }
 .chat-bubble.sent {
-  align-self: flex-end;
   background: var(--primary);
   color: #fff;
   border-bottom-right-radius: 4px;
 }
 .chat-bubble.received {
-  align-self: flex-start;
   background: var(--surface);
   border: 1px solid var(--gray-200);
   border-bottom-left-radius: 4px;
@@ -5676,3 +5674,73 @@ html[data-theme="dark"] .mpd-error { color: var(--danger); }
 .chat-fx-btn:hover { color: var(--primary); border-color: var(--primary); }
 .chat-fx-btn:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
 .chat-bubble .mf-wrap { max-width: 100%; }
+
+/* =========================================================================
+   CHAT — balas (geser/tombol/menu), teruskan, hapus, kutipan
+   ========================================================================= */
+.chat-row { position: relative; display: flex; align-items: center; gap: 4px; min-width: 0; }
+.chat-row.sent { flex-direction: row-reverse; }
+.chat-row .chat-bubble { position: relative; min-width: 0; touch-action: pan-y; transition: transform 0.22s var(--ease); -webkit-user-select: text; user-select: text; }
+.chat-row.is-swiping .chat-bubble { -webkit-user-select: none; user-select: none; }
+.chat-bubble:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+.chat-bubble.sent:focus-visible { outline-color: var(--gray-800); }
+.chat-bubble.is-deleted { font-style: italic; opacity: 0.75; }
+.chat-bubble.sent.is-deleted { background: var(--gray-200); color: var(--gray-700); }
+.chat-text a { color: inherit; text-decoration: underline; text-underline-offset: 2px; overflow-wrap: anywhere; }
+.chat-empty { text-align: center; padding: 20px; color: var(--gray-500); font-size: 13px; }
+
+.chat-swipe-ind { position: absolute; left: 4px; top: 50%; width: 30px; height: 30px; margin-top: -15px; display: grid; place-items: center;
+  border-radius: 50%; background: var(--surface); border: 1px solid var(--gray-200); color: var(--gray-600);
+  opacity: var(--swipe, 0); transform: scale(calc(0.6 + var(--swipe, 0) * 0.4)); pointer-events: none; }
+.chat-row.is-armed .chat-swipe-ind { background: var(--primary); border-color: var(--primary); color: #fff; }
+
+.chat-actions { display: flex; gap: 2px; opacity: 0; pointer-events: none; transition: opacity 0.12s; }
+.chat-row:hover .chat-actions, .chat-row:focus-within .chat-actions { opacity: 1; pointer-events: auto; }
+.chat-act { width: 30px; height: 30px; display: grid; place-items: center; border: 0; border-radius: 50%; background: transparent; color: var(--gray-500); cursor: pointer; }
+.chat-act:hover { background: var(--gray-200); color: var(--gray-800); }
+.chat-act:focus-visible { outline: 2px solid var(--primary); outline-offset: 1px; opacity: 1; }
+@media (hover: none) { .chat-actions { display: none; } }
+
+.chat-fwd { display: flex; align-items: center; gap: 4px; font-size: 11.5px; font-style: italic; opacity: 0.8; margin-bottom: 4px; }
+.chat-fwd svg { width: 13px; height: 13px; }
+.chat-quote { display: grid; gap: 1px; width: 100%; text-align: left; margin: 0 0 6px; padding: 6px 9px; border: 0; border-left: 3px solid var(--primary);
+  border-radius: 6px; background: var(--gray-100); color: var(--gray-800); font: inherit; font-size: 12.5px; cursor: pointer; }
+.chat-bubble.sent .chat-quote { background: rgba(255, 255, 255, 0.16); border-left-color: #fff; color: #fff; }
+.chat-quote:hover { filter: brightness(0.97); }
+.chat-quote:focus-visible { outline: 2px solid currentColor; outline-offset: 1px; }
+.chat-quote-who { font-weight: 700; font-size: 12px; }
+.chat-quote-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; opacity: 0.9; }
+.chat-quote.is-deleted .chat-quote-text, .chat-quote.is-missing .chat-quote-text { font-style: italic; }
+.chat-row.is-flash .chat-bubble { animation: chatFlash 1.4s ease; }
+@keyframes chatFlash { 0%, 100% { box-shadow: 0 0 0 0 transparent; } 20%, 60% { box-shadow: 0 0 0 4px var(--ring); } }
+
+.chat-reply-bar { flex: 0 0 auto; display: flex; align-items: center; gap: 8px; padding: 8px 12px 8px 16px; border-top: 1px solid var(--gray-200); background: var(--surface-alt); }
+.chat-reply-bar[hidden] { display: none; }
+.chat-reply-quote { flex: 1; min-width: 0; display: grid; gap: 1px; padding: 4px 10px; border-left: 3px solid var(--primary); font-size: 12.5px; color: var(--gray-700); }
+
+.chat-menu { position: fixed; z-index: 2000; min-width: 180px; padding: 4px; background: var(--surface); border: 1px solid var(--gray-200);
+  border-radius: 10px; box-shadow: var(--shadow-lg); animation: fadeIn 0.12s ease both; }
+.chat-menu-item { display: flex; align-items: center; gap: 10px; width: 100%; padding: 9px 12px; border: 0; border-radius: 6px; background: transparent;
+  color: var(--gray-800); font: inherit; font-size: 13.5px; text-align: left; cursor: pointer; }
+.chat-menu-item:hover, .chat-menu-item:focus-visible { background: var(--gray-100); outline: none; }
+.chat-menu-item.is-danger { color: var(--danger); }
+
+.chat-fwd-dialog { display: grid; gap: 12px; }
+.chat-fwd-preview { padding: 10px 12px; border-left: 3px solid var(--primary); background: var(--gray-50); border-radius: 6px; font-size: 13px; color: var(--gray-700); overflow-wrap: anywhere; max-height: 90px; overflow: auto; }
+.chat-fwd-list { display: grid; gap: 2px; max-height: min(46vh, 360px); overflow-y: auto; border: 1px solid var(--gray-200); border-radius: 8px; padding: 4px; }
+.chat-fwd-item { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border-radius: 6px; cursor: pointer; }
+.chat-fwd-item[hidden] { display: none; }
+.chat-fwd-item:hover { background: var(--gray-100); }
+.chat-fwd-item input { width: 18px; height: 18px; accent-color: var(--primary); }
+.chat-fwd-name { display: grid; font-size: 13.5px; }
+.chat-fwd-name small { color: var(--gray-500); font-size: 11.5px; }
+.chat-fwd-foot { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.chat-fwd-foot .muted { flex: 1; }
+
+@media (prefers-reduced-motion: reduce) {
+  .chat-row .chat-bubble, .chat-actions { transition: none; }
+  .chat-row.is-flash .chat-bubble { animation: none; box-shadow: 0 0 0 3px var(--ring); }
+  .chat-menu { animation: none; }
+}
+@media (hover: none) { .chat-row .chat-bubble { -webkit-touch-callout: none; } }
+.chat-quote-text .mf-wrap { overflow: hidden; padding: 0; }

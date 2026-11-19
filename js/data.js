@@ -3074,13 +3074,40 @@
       });
       return [...partners];
     },
-    addMessage: (msg) => {
-      const list = JSON.parse(localStorage.getItem('lms_messages') || '[]');
-      if (!msg.id) msg.id = uid('msg');
-      msg.createdAt = Date.now();
-      list.push(msg);
+    getMessage: (id) => DB.getMessages().find(m => m.id === id) || null,
+    /**
+     * Kirim pesan. opts: { replyTo: pesanAsal, forwardedFrom: namaPengirimAsli }.
+     * Balasan menyimpan replyToId + cuplikan (dipakai bila pesan asal tidak lagi tersedia).
+     */
+    addMessage: (msg, opts) => {
+      const o = opts || {};
+      const text = String(msg.text == null ? '' : msg.text).slice(0, 2000);
+      if (!text.trim()) return null;
+      const rec = { id: msg.id || uid('msg'), senderId: msg.senderId, receiverId: msg.receiverId, text, createdAt: Date.now() };
+      if (o.replyTo && o.replyTo.id) {
+        rec.replyToId = o.replyTo.id;
+        rec.replyTo = { senderId: o.replyTo.senderId || '', text: o.replyTo.deleted ? '' : String(o.replyTo.text || '').slice(0, 200) };
+      }
+      if (o.forwardedFrom != null) {
+        rec.forwarded = true;
+        rec.forwardedFrom = String(o.forwardedFrom || '').replace(/[<>]/g, '').slice(0, 80).trim();
+      }
+      const list = DB.getMessages();
+      list.push(rec);
       localStorage.setItem('lms_messages', JSON.stringify(list));
-      return msg;
+      return rec;
+    },
+    /** Hapus pesan milik sendiri (hapus lunak: isi dikosongkan, penanda tetap ada). */
+    deleteMessage: (id, byUserId) => {
+      const list = DB.getMessages();
+      const m = list.find(x => x.id === id);
+      if (!m || m.senderId !== byUserId || m.deleted) return false;
+      ['replyToId', 'replyTo', 'forwarded', 'forwardedFrom'].forEach(f => { delete m[f]; });
+      m.text = '';
+      m.deleted = true;
+      m.deletedAt = Date.now();
+      localStorage.setItem('lms_messages', JSON.stringify(list));
+      return true;
     },
 
     /* ===== Riwayat aktivitas (audit ringan, maks. 1000 entri terbaru) =====

@@ -921,7 +921,7 @@
                   <div class="avatar" style="width:32px;height:32px;font-size:12px;">${UI.initials(c.name)}</div>
                   <div style="flex:1;min-width:0;">
                     <div style="font-size:13px;font-weight:500;">${UI.esc(c.name)}</div>
-                    <div class="muted small" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${lastMsg ? UI.esc(lastMsg.text.slice(0, 30)) : '<i>Belum ada pesan</i>'}</div>
+                    <div class="muted small" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${lastMsg ? UI.esc(previewText(lastMsg, 30)) : '<i>Belum ada pesan</i>'}</div>
                   </div>
                   <span class="badge badge-gray" style="font-size:9px;">${c.role}</span>
                 </div>`;
@@ -996,11 +996,48 @@
       return conv.length > 0 ? conv[conv.length - 1] : null;
     }
 
+    /* ---------- Ikon (SVG, mengikuti warna teks) ---------- */
+    const ICON = {
+      reply: '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 14 4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11"/></svg>',
+      forward: '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m15 14 5-5-5-5"/><path d="M20 9H9.5a5.5 5.5 0 0 0 0 11H13"/></svg>',
+      trash: '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M19 6l-1 14H6L5 6"/></svg>',
+      copy: '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg>',
+      more: '<svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor" aria-hidden="true"><circle cx="5" cy="12" r="1.8"/><circle cx="12" cy="12" r="1.8"/><circle cx="19" cy="12" r="1.8"/></svg>',
+      close: '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg>'
+    };
+    const reducedMotion = () => !!(global.matchMedia && global.matchMedia('(prefers-reduced-motion: reduce)').matches);
+    let replyTarget = null;          // pesan yang sedang dibalas
+
+    const nameOf = (id) => (id === user.id ? 'Anda' : ((DB.getUser(id) || {}).name || 'Pengguna'));
+    /** Teks pratinjau satu baris (daftar kontak, kutipan). */
+    function previewText(m, max) {
+      if (!m) return '';
+      if (m.deleted) return 'Pesan telah dihapus';
+      const t = String(m.text || '').replace(/\s+/g, ' ').trim();
+      return t.length > max ? t.slice(0, max - 1) + '…' : t;
+    }
+    /** Teks kutipan satu baris; rumus tetap dirender. */
+    const quoteText = (t) => (global.RichText ? RichText.renderMathInText(t) : UI.esc(t));
+    /** Isi pesan: rumus ($...$) dirender, tautan http(s) bisa diklik, sisanya di-escape. */
+    function chatTextHtml(text) {
+      const s = String(text || '');
+      const re = /\bhttps?:\/\/[^\s<>"']+[^\s<>"'.,;:!?)\]]/gi;
+      let out = '', last = 0, m;
+      const plain = (t) => (global.RichText ? RichText.renderMathInText(t) : UI.esc(t));
+      while ((m = re.exec(s))) {
+        out += plain(s.slice(last, m.index));
+        out += `<a href="${UI.esc(m[0])}" target="_blank" rel="noopener noreferrer nofollow">${UI.esc(m[0])}</a>`;
+        last = m.index + m[0].length;
+      }
+      return out + plain(s.slice(last));
+    }
+
     function renderConversation() {
       const chatMain = document.getElementById('chatMain');
       const partner = DB.getUser(activeChatUserId);
       if (!partner) return;
       const messages = DB.getConversation(user.id, activeChatUserId);
+      replyTarget = null;
 
       chatMain.innerHTML = `
         <div class="chat-header">
@@ -1011,7 +1048,8 @@
             <div class="muted small">${UI.esc(partner.role)} ${partner.subject ? '• ' + UI.esc(partner.subject) : ''}</div>
           </div>
         </div>
-        <div class="chat-messages" id="chatMessages">${messagesHtml(messages)}</div>
+        <div class="chat-messages" id="chatMessages" aria-label="Riwayat pesan">${messagesHtml(messages)}</div>
+        <div class="chat-reply-bar" id="chatReplyBar" hidden></div>
         <form class="chat-input-box" id="chatForm">
           <button type="button" class="chat-fx-btn" id="chatFx" title="Sisipkan rumus" aria-label="Sisipkan rumus">
             <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 5H7l6 7-6 7h11"/></svg>
@@ -1025,16 +1063,16 @@
         renderLayout();
       });
 
-      // Scroll to bottom
       const msgBox = document.getElementById('chatMessages');
       msgBox.scrollTop = msgBox.scrollHeight;
+      bindMessageEvents(msgBox);
 
-      // Send
       const send = () => {
         const input = document.getElementById('chatInput');
         const text = input.value.trim();
         if (!text) return;
-        DB.addMessage({ senderId: user.id, receiverId: activeChatUserId, text });
+        const sent = DB.addMessage({ senderId: user.id, receiverId: activeChatUserId, text }, { replyTo: replyTarget });
+        if (!sent) { UI.toast('Pesan tidak dapat dikirim.', 'error'); return; }
         input.value = '';
         renderConversation();
         const again = document.getElementById('chatInput');
@@ -1057,6 +1095,9 @@
         });
       });
       const input = document.getElementById('chatInput');
+      input.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape' && replyTarget) { e.preventDefault(); setReply(null); }
+      });
       // Fokus otomatis hanya di layar lebar agar keyboard ponsel tidak langsung muncul.
       if (global.innerWidth > 860) input.focus({ preventScroll: true });
     }
@@ -1067,13 +1108,338 @@
       return `${p(d.getHours())}:${p(d.getMinutes())}`;
     }
 
+    /** Kutipan pesan yang dibalas. Utamakan pesan asli (anti cuplikan palsu); cuplikan hanya cadangan. */
+    function quoteHtml(m, byId) {
+      if (!m.replyToId) return '';
+      const orig = byId.get(m.replyToId);
+      let who, text, cls = '';
+      if (orig) {
+        who = nameOf(orig.senderId);
+        text = previewText(orig, 120);
+        if (orig.deleted) cls = ' is-deleted';
+      } else {
+        const snap = m.replyTo || {};
+        who = snap.senderId ? nameOf(snap.senderId) : 'Pesan';
+        text = snap.text ? previewText({ text: snap.text }, 120) : 'Pesan asli tidak tersedia';
+        cls = ' is-missing';
+      }
+      return `<button type="button" class="chat-quote${cls}" data-jump="${UI.esc(m.replyToId)}" aria-label="Lihat pesan yang dibalas dari ${UI.esc(who)}">
+          <span class="chat-quote-who">${UI.esc(who)}</span>
+          <span class="chat-quote-text">${quoteText(text)}</span>
+        </button>`;
+    }
+
     function messagesHtml(messages) {
-      return messages.length === 0 ? '<div class="muted small" style="text-align:center;padding:20px;">Belum ada pesan. Kirim pesan pertama!</div>' :
-        messages.map(m => `
-          <div class="chat-bubble ${m.senderId === user.id ? 'sent' : 'received'}">
-            <div class="chat-text">${global.RichText ? RichText.renderMathInText(m.text) : UI.esc(m.text)}</div>
-            <div class="chat-time">${formatChatTime(m.createdAt)}</div>
-          </div>`).join('');
+      if (messages.length === 0) return '<div class="chat-empty">Belum ada pesan. Kirim pesan pertama.</div>';
+      const byId = new Map(messages.map(m => [m.id, m]));
+      return messages.map(m => {
+        const mine = m.senderId === user.id;
+        const side = mine ? 'sent' : 'received';
+        const time = formatChatTime(m.createdAt);
+        if (m.deleted) {
+          return `<div class="chat-row ${side}" data-mid="${UI.esc(m.id)}">
+            <div class="chat-bubble ${side} is-deleted" tabindex="0" data-mid="${UI.esc(m.id)}">
+              <div class="chat-text">${mine ? 'Anda menghapus pesan ini' : 'Pesan ini telah dihapus'}</div>
+              <div class="chat-time">${time}</div>
+            </div></div>`;
+        }
+        const fwd = m.forwarded
+          ? `<div class="chat-fwd">${ICON.forward}<span>Diteruskan${m.forwardedFrom ? ' dari ' + UI.esc(m.forwardedFrom) : ''}</span></div>` : '';
+        return `<div class="chat-row ${side}" data-mid="${UI.esc(m.id)}">
+          <span class="chat-swipe-ind" aria-hidden="true">${ICON.reply}</span>
+          <div class="chat-bubble ${side}" tabindex="0" data-mid="${UI.esc(m.id)}"
+               aria-label="Pesan dari ${UI.esc(nameOf(m.senderId))}, pukul ${time}. Tekan Enter untuk menu.">
+            ${fwd}${quoteHtml(m, byId)}
+            <div class="chat-text">${chatTextHtml(m.text)}</div>
+            <div class="chat-time">${time}</div>
+          </div>
+          <div class="chat-actions">
+            <button type="button" class="chat-act" data-act="reply" title="Balas" aria-label="Balas">${ICON.reply}</button>
+            <button type="button" class="chat-act" data-act="forward" title="Teruskan" aria-label="Teruskan">${ICON.forward}</button>
+            <button type="button" class="chat-act" data-act="menu" title="Lainnya" aria-label="Aksi lainnya" aria-haspopup="menu">${ICON.more}</button>
+          </div>
+        </div>`;
+      }).join('');
+    }
+
+    const findMsg = (id) => DB.getConversation(user.id, activeChatUserId).find(m => m.id === id) || null;
+
+    /* ---------- Balas ---------- */
+    function setReply(m) {
+      replyTarget = m && !m.deleted ? m : null;
+      const bar = document.getElementById('chatReplyBar');
+      if (!bar) return;
+      if (!replyTarget) { bar.hidden = true; bar.innerHTML = ''; return; }
+      bar.innerHTML = `
+        <div class="chat-reply-quote">
+          <span class="chat-quote-who">Membalas ${UI.esc(nameOf(replyTarget.senderId))}</span>
+          <span class="chat-quote-text">${quoteText(previewText(replyTarget, 140))}</span>
+        </div>
+        <button type="button" class="chat-act" id="chatReplyCancel" title="Batal membalas" aria-label="Batal membalas">${ICON.close}</button>`;
+      bar.hidden = false;
+      bar.querySelector('#chatReplyCancel').addEventListener('click', () => setReply(null));
+      const input = document.getElementById('chatInput');
+      if (input) input.focus({ preventScroll: true });
+    }
+
+    /* ---------- Lompat ke pesan asal ---------- */
+    function jumpTo(id) {
+      const box = document.getElementById('chatMessages');
+      const row = box && box.querySelector(`.chat-row[data-mid="${CSS.escape(id)}"]`);
+      if (!row) { UI.toast('Pesan asal tidak lagi tersedia.', 'info'); return; }
+      row.scrollIntoView({ block: 'center', behavior: reducedMotion() ? 'auto' : 'smooth' });
+      row.classList.remove('is-flash');
+      void row.offsetWidth;
+      row.classList.add('is-flash');
+      setTimeout(() => row.classList.remove('is-flash'), 1600);
+      const b = row.querySelector('.chat-bubble');
+      if (b) b.focus({ preventScroll: true });
+    }
+
+    /* ---------- Hapus ---------- */
+    function deleteMsg(m) {
+      if (!m || m.senderId !== user.id || m.deleted) return;
+      if (!UI.confirmDialog('Hapus pesan ini? Isi pesan akan hilang untuk Anda dan penerima.')) return;
+      if (!DB.deleteMessage(m.id, user.id)) { UI.toast('Pesan tidak dapat dihapus.', 'error'); return; }
+      if (replyTarget && replyTarget.id === m.id) setReply(null);
+      refreshMessages(true);
+      UI.toast('Pesan dihapus.', 'success');
+    }
+
+    function copyMsg(m) {
+      const t = String((m && m.text) || '');
+      const done = () => UI.toast('Teks pesan disalin.', 'success');
+      const fail = () => UI.toast('Gagal menyalin. Tekan lama pada teks untuk menyalin manual.', 'error');
+      if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(t).then(done, fail);
+      else fail();
+    }
+
+    /* ---------- Teruskan ---------- */
+    function openForward(m) {
+      if (!m || m.deleted) return;
+      const origin = m.forwarded ? (m.forwardedFrom || '') : (m.senderId === user.id ? (user.name || '') : nameOf(m.senderId));
+      const list = contacts.slice().sort((a, b) => a.name.localeCompare(b.name));
+      UI.modal.open('Teruskan pesan', `
+        <div class="chat-fwd-dialog">
+          <div class="chat-fwd-preview">${UI.esc(previewText(m, 200))}</div>
+          <label class="sr-only" for="fwdSearch">Cari kontak</label>
+          <input type="search" id="fwdSearch" class="input" placeholder="Cari nama kontak…" autocomplete="off" />
+          <div class="chat-fwd-list" id="fwdList" role="group" aria-label="Pilih tujuan">
+            ${list.map(c => `
+              <label class="chat-fwd-item" data-name="${UI.esc(c.name.toLowerCase())}">
+                <input type="checkbox" value="${UI.esc(c.id)}" />
+                <span class="avatar" style="width:30px;height:30px;font-size:11px;">${UI.initials(c.name)}</span>
+                <span class="chat-fwd-name">${UI.esc(c.name)}<small>${UI.esc(c.role)}</small></span>
+              </label>`).join('')}
+            <div class="chat-empty" id="fwdEmpty" hidden>Tidak ada kontak yang cocok.</div>
+          </div>
+          <div class="chat-fwd-foot">
+            <span class="muted small" id="fwdCount">Belum ada tujuan dipilih</span>
+            <button type="button" class="btn btn-secondary" id="fwdCancel">Batal</button>
+            <button type="button" class="btn btn-primary" id="fwdSend" disabled>Teruskan</button>
+          </div>
+        </div>`);
+      const body = document.getElementById('modalBody');
+      const q = body.querySelector('#fwdSearch');
+      const sendBtn = body.querySelector('#fwdSend');
+      const picked = () => [...body.querySelectorAll('#fwdList input:checked')].map(i => i.value);
+      const sync = () => {
+        const n = picked().length;
+        sendBtn.disabled = n === 0;
+        body.querySelector('#fwdCount').textContent = n ? n + ' tujuan dipilih' : 'Belum ada tujuan dipilih';
+      };
+      body.querySelector('#fwdList').addEventListener('change', sync);
+      q.addEventListener('input', () => {
+        const v = q.value.trim().toLowerCase();
+        let shown = 0;
+        body.querySelectorAll('.chat-fwd-item').forEach(el => {
+          const hit = !v || el.dataset.name.includes(v);
+          el.hidden = !hit;
+          if (hit) shown++;
+        });
+        body.querySelector('#fwdEmpty').hidden = shown > 0;
+      });
+      body.querySelector('#fwdCancel').addEventListener('click', () => UI.modal.close());
+      sendBtn.addEventListener('click', () => {
+        const ids = picked();
+        let ok = 0;
+        ids.forEach(rid => { if (DB.addMessage({ senderId: user.id, receiverId: rid, text: m.text }, { forwardedFrom: origin })) ok++; });
+        UI.modal.close();
+        UI.toast(ok ? `Pesan diteruskan ke ${ok} kontak.` : 'Pesan gagal diteruskan.', ok ? 'success' : 'error');
+        if (ids.includes(activeChatUserId)) refreshMessages(true);
+        refreshPreviews();
+      });
+    }
+
+    /* ---------- Menu konteks ---------- */
+    function closeMenu() {
+      const old = document.getElementById('chatMenu');
+      if (old) old.remove();
+    }
+    function openMenu(m, x, y, anchorEl) {
+      closeMenu();
+      if (!m) return;
+      const mine = m.senderId === user.id;
+      const items = m.deleted ? [] : [
+        ['reply', ICON.reply, 'Balas'], ['forward', ICON.forward, 'Teruskan'], ['copy', ICON.copy, 'Salin teks']
+      ];
+      if (mine && !m.deleted) items.push(['delete', ICON.trash, 'Hapus pesan']);
+      if (!items.length) return;
+      const menu = document.createElement('div');
+      menu.id = 'chatMenu';
+      menu.className = 'chat-menu';
+      menu.setAttribute('role', 'menu');
+      menu.innerHTML = items.map(([a, ic, label]) =>
+        `<button type="button" role="menuitem" class="chat-menu-item${a === 'delete' ? ' is-danger' : ''}" data-menu="${a}">${ic}<span>${label}</span></button>`).join('');
+      document.body.appendChild(menu);
+      const w = menu.offsetWidth, h = menu.offsetHeight;
+      const vw = global.innerWidth, vh = global.innerHeight;
+      menu.style.left = Math.max(8, Math.min(x, vw - w - 8)) + 'px';
+      menu.style.top = Math.max(8, Math.min(y, vh - h - 8)) + 'px';
+      const btns = [...menu.querySelectorAll('button')];
+      btns[0].focus();
+      const done = () => { closeMenu(); document.removeEventListener('pointerdown', outside, true); if (anchorEl && anchorEl.isConnected) anchorEl.focus({ preventScroll: true }); };
+      const outside = (e) => { if (!menu.contains(e.target)) { closeMenu(); document.removeEventListener('pointerdown', outside, true); } };
+      setTimeout(() => document.addEventListener('pointerdown', outside, true), 0);
+      menu.addEventListener('keydown', (e) => {
+        const i = btns.indexOf(document.activeElement);
+        if (e.key === 'ArrowDown') { e.preventDefault(); btns[(i + 1) % btns.length].focus(); }
+        else if (e.key === 'ArrowUp') { e.preventDefault(); btns[(i - 1 + btns.length) % btns.length].focus(); }
+        else if (e.key === 'Escape' || e.key === 'Tab') { e.preventDefault(); done(); }
+      });
+      menu.addEventListener('click', (e) => {
+        const b = e.target.closest('[data-menu]');
+        if (!b) return;
+        const act = b.dataset.menu;
+        done();
+        runAction(act, m);
+      });
+    }
+    function runAction(act, m) {
+      if (act === 'reply') setReply(m);
+      else if (act === 'forward') openForward(m);
+      else if (act === 'copy') copyMsg(m);
+      else if (act === 'delete') deleteMsg(m);
+    }
+
+    /* ---------- Delegasi peristiwa (daftar pesan diganti utuh saat sinkron) ---------- */
+    function bindMessageEvents(box) {
+      box.addEventListener('click', (e) => {
+        const q = e.target.closest('.chat-quote');
+        if (q) { jumpTo(q.dataset.jump); return; }
+        const act = e.target.closest('.chat-act');
+        if (act) {
+          const m = findMsg(act.closest('.chat-row').dataset.mid);
+          if (act.dataset.act === 'menu') {
+            const r = act.getBoundingClientRect();
+            openMenu(m, r.left, r.bottom + 4, act);
+          } else runAction(act.dataset.act, m);
+        }
+      });
+      box.addEventListener('contextmenu', (e) => {
+        const b = e.target.closest('.chat-bubble');
+        if (!b || e.target.closest('a')) return;
+        e.preventDefault();
+        openMenu(findMsg(b.dataset.mid), e.clientX, e.clientY, b);
+      });
+      box.addEventListener('keydown', (e) => {
+        const b = e.target.closest && e.target.closest('.chat-bubble');
+        if (!b || e.target !== b) return;
+        if (e.key === 'Enter' || e.key === 'ContextMenu' || (e.shiftKey && e.key === 'F10')) {
+          e.preventDefault();
+          const r = b.getBoundingClientRect();
+          openMenu(findMsg(b.dataset.mid), r.left + 12, r.bottom + 4, b);
+        }
+      });
+
+      /* Geser kanan untuk membalas (Pointer Events). touch-action: pan-y pada
+       * gelembung membuat gulir vertikal tetap milik peramban; geseran baru
+       * "dikunci" sebagai balasan bila gerak horizontal dominan setelah 8px. */
+      const THRESH = 64, MAX = 96, LOCK = 8;
+      let g = null;
+      let suppressClickUntil = 0;
+      box.addEventListener('click', (e) => {
+        if (Date.now() < suppressClickUntil) { e.preventDefault(); e.stopPropagation(); }
+      }, true);
+      const reset = (row, bubble) => {
+        if (!row) return;
+        bubble.style.transition = reducedMotion() ? 'none' : '';
+        bubble.style.transform = '';
+        row.style.removeProperty('--swipe');
+        row.classList.remove('is-swiping', 'is-armed');
+      };
+      box.addEventListener('pointerdown', (e) => {
+        if (e.pointerType === 'mouse' && e.button !== 0) return;
+        const bubble = e.target.closest('.chat-bubble');
+        if (!bubble || bubble.classList.contains('is-deleted')) return;
+        g = { id: e.pointerId, x: e.clientX, y: e.clientY, bubble, row: bubble.closest('.chat-row'), mode: null, dx: 0, armed: false,
+              timer: e.pointerType !== 'mouse' ? setTimeout(() => {   // tekan lama (ponsel) = menu
+                if (g && !g.mode) {
+                  g.mode = 'menu';
+                  if (navigator.vibrate) try { navigator.vibrate(12); } catch (err) { /* abaikan */ }
+                  openMenu(findMsg(bubble.dataset.mid), g.x, g.y, bubble);
+                }
+              }, 500) : 0 };
+      });
+      box.addEventListener('pointermove', (e) => {
+        if (!g || e.pointerId !== g.id || g.mode === 'menu' || g.mode === 'scroll') return;
+        const dx = e.clientX - g.x, dy = e.clientY - g.y;
+        if (!g.mode) {
+          if (Math.abs(dx) < LOCK && Math.abs(dy) < LOCK) return;
+          clearTimeout(g.timer);
+          if (dx > 0 && Math.abs(dx) > Math.abs(dy) * 1.3) {
+            g.mode = 'swipe';
+            g.row.classList.add('is-swiping');
+            try { g.bubble.setPointerCapture(e.pointerId); } catch (err) { /* abaikan */ }
+          } else { g.mode = 'scroll'; return; }
+        }
+        g.dx = Math.max(0, Math.min(MAX, dx));
+        const pull = g.dx < THRESH ? g.dx : THRESH + (g.dx - THRESH) * 0.35;   // terasa "tertahan" setelah ambang
+        g.bubble.style.transition = 'none';
+        g.bubble.style.transform = `translateX(${pull}px)`;
+        g.row.style.setProperty('--swipe', Math.min(1, g.dx / THRESH).toFixed(3));
+        const armed = g.dx >= THRESH;
+        if (armed !== g.armed) {
+          g.armed = armed;
+          g.row.classList.toggle('is-armed', armed);
+          if (armed && navigator.vibrate) try { navigator.vibrate(10); } catch (err) { /* abaikan */ }
+        }
+      });
+      const end = (e) => {
+        if (!g || e.pointerId !== g.id) return;
+        clearTimeout(g.timer);
+        const s = g;
+        g = null;
+        if (s.mode === 'menu') suppressClickUntil = Date.now() + 400;
+        if (s.mode !== 'swipe') return;
+        suppressClickUntil = Date.now() + 400;   // geser di atas kutipan/tautan tidak ikut "mengklik"
+        reset(s.row, s.bubble);
+        if (s.armed && e.type === 'pointerup') setReply(findMsg(s.bubble.dataset.mid));
+      };
+      box.addEventListener('pointerup', end);
+      box.addEventListener('pointercancel', end);
+      // Klik setelah geser tidak boleh memicu aksi lain
+      box.addEventListener('scroll', () => { if (g && !g.mode) { clearTimeout(g.timer); g.mode = 'scroll'; } }, { passive: true });
+    }
+
+    function refreshPreviews() {
+      container.querySelectorAll('.chat-contact[data-uid]').forEach(el => {
+        const last = getLastMessage(user.id, el.dataset.uid);
+        const prev = el.querySelector('.muted.small');
+        if (prev) prev.innerHTML = last ? UI.esc(previewText(last, 30)) : '<i>Belum ada pesan</i>';
+      });
+    }
+    function refreshMessages(toBottom) {
+      const box = document.getElementById('chatMessages');
+      if (!activeChatUserId || !box) return;
+      const nearBottom = toBottom || box.scrollHeight - box.scrollTop - box.clientHeight < 80;
+      box.innerHTML = messagesHtml(DB.getConversation(user.id, activeChatUserId));
+      if (nearBottom) box.scrollTop = box.scrollHeight;
+      // Pesan yang sedang dibalas dihapus di perangkat lain → batalkan balasan
+      if (replyTarget) {
+        const cur = findMsg(replyTarget.id);
+        if (!cur || cur.deleted) setReply(null);
+      }
     }
 
     /* Mode server: pesan dari perangkat lain langsung tampil tanpa mengganggu
@@ -1085,18 +1451,11 @@
       if (!document.getElementById('chatLayout')) {
         global.removeEventListener('lms:remote-change', global.__chatLive);
         global.__chatLive = null;
+        closeMenu();
         return;
       }
-      container.querySelectorAll('.chat-contact[data-uid]').forEach(el => {
-        const last = getLastMessage(user.id, el.dataset.uid);
-        const prev = el.querySelector('.muted.small');
-        if (prev) prev.innerHTML = last ? UI.esc(last.text.slice(0, 30)) : '<i>Belum ada pesan</i>';
-      });
-      const box = document.getElementById('chatMessages');
-      if (!activeChatUserId || !box) return;
-      const nearBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 80;
-      box.innerHTML = messagesHtml(DB.getConversation(user.id, activeChatUserId));
-      if (nearBottom) box.scrollTop = box.scrollHeight;
+      refreshPreviews();
+      refreshMessages(false);
     };
     global.addEventListener('lms:remote-change', global.__chatLive);
   }
