@@ -2,6 +2,7 @@
 /* =====================================================================
  * Satu-satunya Vercel Function LMS Rubela: /api/rubela
  *   GET  /api/rubela?action=health          → status server & database
+ *   GET  /api/rubela?action=news[&id=…]     → berita terbit untuk halaman publik
  *   POST /api/rubela {action: ...}          → login, quiz, register, logout,
  *        verify, sync, blob_put, blob_get, blob_del, ai, ai_models, agent,
  *        push_key, push_sub, push_test (notifikasi perangkat / Web Push)
@@ -10,7 +11,11 @@
 const store = require('./_lib/store');
 const h = require('./_lib/handlers');
 
-const PUBLIC = { health: h.health };
+/* Aksi tanpa login. cache = Cache-Control respons (berita boleh di-cache CDN sebentar). */
+const PUBLIC = {
+  health: { fn: h.health, cache: 'no-store' },
+  news: { fn: h.publicNews, cache: 'public, max-age=30, s-maxage=60, stale-while-revalidate=300' }
+};
 const ACTIONS = {
   login: h.login, quiz: h.quizAnswer, register: h.register, logout: h.logout, verify: h.verify,
   sync: h.sync, blob_put: h.blobPut, blob_get: h.blobGet, blob_del: h.blobDel, ai: h.aiProxy, ai_models: h.aiModels, agent: h.agentProxy,
@@ -34,10 +39,10 @@ async function readBody(req) {
   return text ? JSON.parse(text) : {};
 }
 
-function send(res, status, obj) {
+function send(res, status, obj, cache) {
   res.statusCode = status;
   res.setHeader('Content-Type', 'application/json; charset=utf-8');
-  res.setHeader('Cache-Control', 'no-store');
+  res.setHeader('Cache-Control', cache || 'no-store');
   res.setHeader('X-Content-Type-Options', 'nosniff');
   res.end(JSON.stringify(obj));
 }
@@ -73,7 +78,11 @@ module.exports = async function handler(req, res) {
     }
     const action = String(body.action || q.action || 'health');
     const db = store.getDb();
-    if (PUBLIC[action]) return send(res, 200, await PUBLIC[action](db, req, body));
+    if (PUBLIC[action]) {
+      const out = await PUBLIC[action].fn(db, req, Object.assign({}, q, body));
+      // Hanya respons GET yang berhasil boleh di-cache.
+      return send(res, 200, out, req.method === 'GET' && out && out.ok ? PUBLIC[action].cache : 'no-store');
+    }
     const fn = ACTIONS[action];
     if (!fn) return send(res, 404, { ok: false, error: 'Aksi tidak dikenal.' });
     if (req.method !== 'POST') return send(res, 405, { ok: false, error: 'Gunakan POST.' });

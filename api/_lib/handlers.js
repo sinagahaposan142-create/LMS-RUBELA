@@ -913,6 +913,64 @@ async function sendPushTo(db, req, jobs, cfg, now, opts) {
   return { sent, failed, devices: new Set(subs.map(sb => sb.endpoint)).size };
 }
 
+/* ============================ BERITA PUBLIK ============================
+ * GET /api/rubela?action=news            → daftar berita terbit (tanpa isi)
+ *     &cat=…&q=…&limit=…&offset=…
+ * GET /api/rubela?action=news&id=<slug|id> → satu berita lengkap + 3 terkait
+ * Tanpa login; hanya berita berstatus terbit yang waktunya sudah tiba.
+ * Respons boleh di-cache CDN sebentar (lihat api/rubela.js). */
+const NEWS_PUB = "json_extract(v, '$.status') = 'published' AND CAST(json_extract(v, '$.publishAt') AS INTEGER) <= ?";
+const NEWS_COLS = `id, json_extract(v, '$.title') AS title, json_extract(v, '$.slug') AS slug, json_extract(v, '$.excerpt') AS excerpt,
+  json_extract(v, '$.category') AS category, json_extract(v, '$.thumb') AS thumb, json_extract(v, '$.coverAlt') AS coverAlt,
+  CAST(json_extract(v, '$.publishAt') AS INTEGER) AS publishAt, json_extract(v, '$.pinned') AS pinned,
+  json_extract(v, '$.readMin') AS readMin, json_extract(v, '$.authorName') AS authorName`;
+function newsCard(r) {
+  return {
+    id: r.id, slug: r.slug || r.id, title: r.title || '', excerpt: r.excerpt || '', category: r.category || '',
+    thumb: typeof r.thumb === 'string' && /^data:image\//.test(r.thumb) ? r.thumb : '', coverAlt: r.coverAlt || '',
+    publishAt: Number(r.publishAt) || 0, pinned: r.pinned === 1 || r.pinned === true, readMin: Number(r.readMin) || 1, authorName: r.authorName || ''
+  };
+}
+async function publicNews(db, req, q) {
+  if (!db) return { ok: false, configured: false, items: [] };
+  await store.ensureReady(db);
+  const now = Date.now();
+  const id = str(q.id, 200).trim();
+  if (id) {
+    const rows = await db.query(`SELECT id, v FROM kv WHERE k = 'lms_news' AND v IS NOT NULL AND (id = ? OR json_extract(v, '$.slug') = ?) AND ${NEWS_PUB} LIMIT 1`, [id, id, now]);
+    if (!rows.length) return { ok: false, notFound: true, error: 'Berita tidak ditemukan atau belum diterbitkan.' };
+    const n = parse(rows[0].v) || {};
+    const related = await db.query(`SELECT ${NEWS_COLS} FROM kv WHERE k = 'lms_news' AND v IS NOT NULL AND ${NEWS_PUB} AND id <> ?
+      ORDER BY CASE WHEN json_extract(v, '$.category') = ? THEN 0 ELSE 1 END, publishAt DESC LIMIT 3`, [now, rows[0].id, n.category || '']);
+    const item = Object.assign(newsCard(Object.assign({ id: rows[0].id }, n)), {
+      content: typeof n.content === 'string' ? n.content : '',
+      cover: typeof n.cover === 'string' && /^data:image\//.test(n.cover) ? n.cover : '',
+      updatedAt: Number(n.updatedAt) || 0
+    });
+    return { ok: true, item, related: related.map(newsCard) };
+  }
+  const cat = str(q.cat, 40).trim();
+  const term = str(q.q, 80).trim().toLowerCase().replace(/[\\%_]/g, (m) => '\\' + m);
+  const limit = Math.min(24, Math.max(1, int(q.limit, 12)));
+  const offset = Math.min(10000, Math.max(0, int(q.offset, 0)));
+  let where = `k = 'lms_news' AND v IS NOT NULL AND ${NEWS_PUB}`;
+  const args = [now];
+  if (cat) { where += " AND json_extract(v, '$.category') = ?"; args.push(cat); }
+  if (term) {
+    where += " AND (lower(json_extract(v, '$.title')) LIKE ? ESCAPE '\\' OR lower(json_extract(v, '$.excerpt')) LIKE ? ESCAPE '\\')";
+    args.push('%' + term + '%', '%' + term + '%');
+  }
+  const [items, count, cats] = await db.run([
+    { sql: `SELECT ${NEWS_COLS} FROM kv WHERE ${where} ORDER BY CASE WHEN json_extract(v, '$.pinned') = 1 THEN 0 ELSE 1 END, publishAt DESC LIMIT ? OFFSET ?`, args: args.concat([limit, offset]) },
+    { sql: `SELECT COUNT(*) AS n FROM kv WHERE ${where}`, args },
+    { sql: `SELECT json_extract(v, '$.category') AS c, COUNT(*) AS n FROM kv WHERE k = 'lms_news' AND v IS NOT NULL AND ${NEWS_PUB} GROUP BY c ORDER BY n DESC`, args: [now] }
+  ]);
+  return {
+    ok: true, items: items.map(newsCard), total: Number(count[0] && count[0].n) || 0, offset, limit,
+    categories: cats.filter(r => r.c).map(r => ({ name: r.c, count: Number(r.n) || 0 }))
+  };
+}
+
 /* ============================ BLOB ============================ */
 const BLOB_CHUNK_MAX = 1100000;   // karakter base64 per bagian (~800 KB data)
 
@@ -1187,7 +1245,7 @@ async function agentProxy(db, req, body) {
 }
 
 module.exports = {
-  HttpError, health, login, quizAnswer, register, logout, verify, sync,
+  HttpError, health, publicNews, login, quizAnswer, register, logout, verify, sync,
   blobPut, blobGet, blobDel, aiProxy, aiModels, agentProxy, pushKey, pushSubscribe, pushTest,
   _internals: { normalizeChanges, mergeChange, viewSig, publicUser, pruneAiChats }
 };

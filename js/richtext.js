@@ -500,7 +500,7 @@
     TABLE: 1, THEAD: 1, TBODY: 1, TFOOT: 1, TR: 1, TH: 1, TD: 1, CAPTION: 1, COLGROUP: 1, COL: 1,
     IMG: 1, AUDIO: 1, VIDEO: 1, SOURCE: 1, FIGURE: 1, FIGCAPTION: 1,
     A: 1, CODE: 1, PRE: 1, BLOCKQUOTE: 1, HR: 1,
-    H3: 1, H4: 1, H5: 1, H6: 1, SMALL: 1, MARK: 1, ABBR: 1
+    H2: 1, H3: 1, H4: 1, H5: 1, H6: 1, SMALL: 1, MARK: 1, ABBR: 1
   };
   const ALLOWED_ATTRS = {
     href: 1, src: 1, alt: 1, title: 1, colspan: 1, rowspan: 1, span: 1,

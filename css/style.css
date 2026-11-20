@@ -6055,3 +6055,38 @@ html[data-theme="dark"] .hp-err { color: var(--danger); }
   background: var(--surface); color: var(--gray-900); font: inherit; font-size: 13.5px; min-height: 40px;
 }
 .rm-panel input:focus, .rm-def-grid input:focus, .rm-def-grid select:focus { outline: none; border-color: var(--primary); box-shadow: 0 0 0 3px var(--ring); }
+
+/* =========================================================================
+   LEMBAR DATA (js/sheet.js) & tabel editor
+   ========================================================================= */
+.qe-dialog.is-wide { width: min(980px, calc(100vw - 20px)); }
+.sh { display: grid; gap: 10px; min-width: 0; }
+.sh-bar { display: flex; gap: 8px; align-items: center; }
+.sh-addr { flex: none; min-width: 48px; padding: 7px 8px; border: 1px solid var(--gray-300); border-radius: var(--radius-sm); background: var(--surface-alt); font: 600 12.5px/1 'Consolas', 'SF Mono', monospace; text-align: center; color: var(--gray-700); }
+.sh-fx { flex: 1; min-width: 0; padding: 8px 10px; border: 1px solid var(--gray-300); border-radius: var(--radius-sm); background: var(--surface); color: var(--gray-900); font: 13.5px/1.3 'Consolas', 'SF Mono', monospace; }
+.sh-fx:focus { outline: none; border-color: var(--primary); box-shadow: 0 0 0 3px var(--ring); }
+.sh-grid-wrap { overflow: auto; max-height: 46vh; border: 1px solid var(--gray-300); border-radius: var(--radius-sm); background: var(--surface); }
+.sh-grid { border-collapse: separate; border-spacing: 0; font-size: 13px; min-width: 100%; }
+.sh-grid th { position: sticky; top: 0; z-index: 1; background: var(--gray-100); color: var(--gray-500); font-weight: 600; font-size: 11.5px; padding: 4px 6px; border-right: 1px solid var(--gray-200); border-bottom: 1px solid var(--gray-300); text-align: center; }
+.sh-grid tbody th { position: sticky; left: 0; z-index: 1; top: auto; min-width: 34px; border-bottom: 1px solid var(--gray-200); }
+.sh-grid .sh-corner { left: 0; z-index: 2; }
+.sh-grid td { padding: 0; border-right: 1px solid var(--gray-200); border-bottom: 1px solid var(--gray-200); min-width: 110px; }
+.sh-grid td input { width: 100%; min-width: 110px; border: 0; padding: 7px 8px; background: transparent; color: var(--gray-900); font: inherit; outline: none; }
+.sh-grid td.is-head input { font-weight: 700; }
+.sh-grid td.is-fx input { color: var(--primary-dark); }
+.sh-grid td.is-err input { color: var(--danger); }
+.sh-grid td.is-sel { box-shadow: inset 0 0 0 2px var(--primary); }
+.sh-tools { display: grid; gap: 8px; }
+.sh-btns, .sh-opts { display: flex; flex-wrap: wrap; gap: 6px 12px; align-items: center; }
+.sh-btns { gap: 6px; }
+.sh-file { position: relative; overflow: hidden; cursor: pointer; }
+.sh-file input { position: absolute; inset: 0; opacity: 0; cursor: pointer; }
+.sh-help > summary { cursor: pointer; font-size: 12.5px; font-weight: 600; color: var(--gray-700); }
+.sh-help p { margin: 6px 0 0; }
+.sh-prev-head { margin-bottom: -4px; }
+.sh-prev { max-height: 26vh; overflow: auto; padding: 10px; border: 1px dashed var(--gray-300); border-radius: var(--radius-sm); background: var(--surface-alt); }
+.sh-err { padding: 7px 10px; border-radius: var(--radius-sm); background: var(--warning-bg); color: var(--gray-800); }
+.sh-err[hidden] { display: none; }
+.sh-foot { display: flex; justify-content: flex-end; gap: 8px; }
+.rt-content h2 { font-size: 1.35em; line-height: 1.3; margin: 1.2em 0 0.5em; color: var(--gray-900); }
+.rt-content table td[colspan], .rt-content table th[colspan] { text-align: center; }

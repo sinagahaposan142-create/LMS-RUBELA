@@ -10,7 +10,8 @@ const catalog = require('../../js/sync-catalog.js');
 
 const ROLES = ['admin', 'guru', 'siswa', 'orangtua'];
 const ADMIN_ONLY = new Set(['lms_payments', 'lms_expenses', 'lms_salaries', 'lms_motivations', 'lms_security_questions',
-  'lms_class_options', 'lms_batches', 'lms_reading_texts', 'lms_verses', 'lms_hub_courses', 'lms_music_tracks', 'lms_streak_grants']);
+  'lms_class_options', 'lms_batches', 'lms_reading_texts', 'lms_verses', 'lms_hub_courses', 'lms_music_tracks', 'lms_streak_grants',
+  'lms_news']);
 const STAFF_ONLY = new Set(['lms_courses', 'lms_materials', 'lms_modules', 'lms_recordings', 'lms_assignments', 'lms_questions',
   'lms_cbts', 'lms_attendance', 'lms_class_plans', 'lms_whiteboards', 'lms_whiteboard_boards', 'lms_events', 'lms_announcements',
   'lms_game_questions', 'lms_topics']);
@@ -125,6 +126,29 @@ function checkHubPayment(ctx, op, before, after) {
   });
 }
 
+/* ============================ BERITA ============================ */
+const NEWS_IMG = /^data:image\/(jpeg|png|webp);base64,[A-Za-z0-9+/=]+$/;
+/** Validasi berita (admin pun wajib lolos). Konten disanitasi di peramban saat simpan & tampil. */
+function newsProblem(n) {
+  const title = typeof n.title === 'string' ? n.title.trim() : '';
+  if (title.length < 3 || title.length > 160) return 'Judul berita 3–160 karakter.';
+  if (typeof n.slug !== 'string' || !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(n.slug) || n.slug.length > 100) return 'Alamat (slug) berita tidak valid.';
+  if (!['draft', 'published'].includes(n.status)) return 'Status berita tidak valid.';
+  if (!Number.isFinite(Number(n.publishAt))) return 'Waktu terbit tidak valid.';
+  if (n.excerpt != null && (typeof n.excerpt !== 'string' || n.excerpt.length > 320)) return 'Ringkasan maksimal 320 karakter.';
+  if (n.category != null && (typeof n.category !== 'string' || n.category.length > 40)) return 'Kategori maksimal 40 karakter.';
+  if (n.coverAlt != null && (typeof n.coverAlt !== 'string' || n.coverAlt.length > 160)) return 'Keterangan gambar maksimal 160 karakter.';
+  if (n.authorName != null && (typeof n.authorName !== 'string' || n.authorName.length > 80)) return 'Nama penulis maksimal 80 karakter.';
+  if (typeof n.content !== 'string' || n.content.length > 2400000) return 'Isi berita terlalu besar. Kurangi atau perkecil gambar di dalam isi.';
+  // Lapis kedua: tolak penanda skrip di dalam tag (sanitasi utama berjalan di peramban).
+  if (/<\s*(script|iframe|object|embed|style)\b/i.test(n.content) || /<[^>]*\son[a-z]+\s*=/i.test(n.content) ||
+      /(href|src)\s*=\s*["']?\s*(javascript|vbscript):/i.test(n.content)) return 'Isi berita berisi kode yang tidak diizinkan.';
+  for (const [f, max] of [['cover', 450000], ['thumb', 90000]]) {
+    if (n[f] != null && n[f] !== '' && (typeof n[f] !== 'string' || n[f].length > max || !NEWS_IMG.test(n[f]))) return 'Gambar sampul tidak valid atau terlalu besar.';
+  }
+  return null;
+}
+
 /* ============================ REMEDIAL ============================ */
 const REMEDIAL_GRACE_MS = 10 * 60 * 1000;      // toleransi selisih jam perangkat
 /** Percobaan baru pada ujian remedial: hanya peserta terpilih, di dalam jadwal, sistem aktif. */
@@ -212,6 +236,11 @@ function present(ctx, k, id, rec) {
       return rec.userId === me ? rec : undefined;
     case 'lms_messages':
       return (rec.senderId === me || rec.receiverId === me) ? rec : undefined;
+    case 'lms_news':
+      // Hanya admin yang menyinkronkan berita (termasuk draf & terjadwal). Peran lain membaca
+      // berita terbit lewat GET ?action=news, sehingga berita terjadwal tetap muncul tepat waktu
+      // dan gambar sampul tidak memenuhi penyimpanan perangkat siswa.
+      return ctx.isAdmin ? rec : undefined;
     case 'lms_hub_payments':
       if (ctx.isAdmin || rec.studentId === me) return rec;
       return ctx.role === 'orangtua' && ctx.childIds.includes(rec.studentId) ? rec : undefined;
@@ -339,6 +368,10 @@ function checkWrite(ctx, k, id, before, after) {
   if (k === 'lms_hub_payments') return checkHubPayment(ctx, op, before, after);
   if (k === 'lms_hub_courses' && after) {
     const prob = hubCourseAccessProblem(after);
+    if (prob) return deny(prob);
+  }
+  if (k === 'lms_news' && after) {
+    const prob = newsProblem(after);
     if (prob) return deny(prob);
   }
   // Materi & Sub Materi: bentuk data dibatasi (semua peran staf, termasuk admin).

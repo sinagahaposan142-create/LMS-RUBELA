@@ -47,6 +47,7 @@
     lms_batches: { type: RECORDS },
     lms_feedbacks: { type: RECORDS },
     lms_announcements: { type: RECORDS },
+    lms_news: { type: RECORDS },                           // Berita publik (js/news-admin.js, berita.html)
     lms_messages: { type: RECORDS, target: ['senderId', 'receiverId'] },
     lms_birthday_wishes: { type: RECORDS },
     lms_birthday_rewards: { type: RECORDS },

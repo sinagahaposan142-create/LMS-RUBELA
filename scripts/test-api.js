@@ -4,7 +4,7 @@
  * + /api/rubela asli, lewat HTTP sungguhan.
  *   node scripts/test-api.js
  * Mencakup: kebijakan berkas (QRIS, bukti transfer), validasi gambar,
- * pesan chat, video pembahasan, pembayaran Course Mandiri, dan remedial ujian.
+ * pesan chat, video pembahasan, pembayaran Course Mandiri, remedial ujian, dan berita publik.
  * Butuh Node.js >= 22.5.
  * ===================================================================*/
 const http = require('http');
@@ -23,7 +23,7 @@ async function main() {
   process.env.TURSO_AUTH_TOKEN = 'test-token';
   delete process.env.ADMIN_PASSWORD;
   const api = require('../api/rubela.js');
-  const server = http.createServer((req, res) => { req.query = {}; api(req, res); });
+  const server = http.createServer((req, res) => api(req, res));      // query string diurai api/rubela.js
   await new Promise(r => server.listen(0, '127.0.0.1', r));
   const URL_API = 'http://127.0.0.1:' + server.address().port + '/api/rubela';
 
@@ -225,6 +225,49 @@ async function main() {
   r = await push(admin, [{ k: 'lms_settings', id: 'remedialEnabled', v: true }]);
   r = await push(s1, [att('at_two_s1', 'rm_two', 'u_s1')]);
   check('setelah diaktifkan kembali, percobaan diterima', r.rejected.length === 0, r.rejected);
+
+  /* ---------- Berita ---------- */
+  console.log('\n[Berita]');
+  const NOW = Date.now();
+  const news = (id, extra) => ({ k: 'lms_news', id, v: Object.assign({ id, title: 'Berita ' + id, slug: 'berita-' + id, status: 'published',
+    publishAt: NOW - 60000, content: '<p>Isi berita yang cukup panjang untuk diterbitkan.</p>', excerpt: 'Ringkas', category: 'Pengumuman',
+    pinned: false, readMin: 1, authorName: 'Admin', cover: '', thumb: '' }, extra || {}) });
+  r = await push(admin, [news('n1'), news('n2', { category: 'Prestasi', pinned: true }), news('n3', { status: 'draft' }), news('n4', { publishAt: NOW + 86400000 })]);
+  check('admin menyimpan berita (terbit, draf, terjadwal)', r.rejected.length === 0, r.rejected);
+  r = await push(guru, [news('n5')]);
+  check('guru tidak boleh menulis berita', r.rejected.length === 1, r.rejected);
+  r = await push(admin, [news('bad1', { content: '<p>x</p><img src=x onerror=alert(1)>' })]);
+  check('isi berita berisi skrip ditolak', r.rejected.length === 1 && /tidak diizinkan/.test(r.rejected[0].reason), r.rejected);
+  r = await push(admin, [news('bad2', { slug: 'Bukan Slug!' })]);
+  check('alamat (slug) tidak valid ditolak', r.rejected.length === 1 && /slug/.test(r.rejected[0].reason), r.rejected);
+  r = await push(admin, [news('bad3', { cover: 'data:text/html;base64,PHNjcmlwdD4=' })]);
+  check('sampul yang bukan gambar ditolak', r.rejected.length === 1 && /Gambar sampul/.test(r.rejected[0].reason), r.rejected);
+  const sp = await pull(s1);
+  check('berita tidak disinkronkan ke perangkat siswa', !sp.lms_news, Object.keys(sp.lms_news || {}));
+  const ap = await pull(admin);
+  check('admin menerima semua berita termasuk draf & terjadwal', !!(ap.lms_news && ap.lms_news.n3 && ap.lms_news.n4));
+  const getNews = async (qs) => {
+    const res = await fetch(URL_API + '?action=news' + qs);
+    return { status: res.status, cache: res.headers.get('cache-control') || '', data: await res.json() };
+  };
+  let g = await getNews('');
+  check('publik: daftar hanya berisi berita terbit', g.data.ok && g.data.total === 2 && g.data.items.map(x => x.id).sort().join() === 'n1,n2', g.data);
+  check('publik: berita utama di urutan pertama', g.data.items && g.data.items[0].id === 'n2', g.data.items);
+  check('publik: daftar tidak memuat isi lengkap', (g.data.items || []).every(x => x.content === undefined));
+  check('publik: daftar boleh di-cache CDN', /s-maxage=60/.test(g.cache), g.cache);
+  g = await getNews('&cat=Prestasi');
+  check('publik: filter kategori', g.data.total === 1 && g.data.items[0].id === 'n2', g.data);
+  g = await getNews('&q=' + encodeURIComponent('N1'));
+  check('publik: pencarian judul (tanpa beda huruf besar/kecil)', g.data.total === 1 && g.data.items[0].id === 'n1', g.data);
+  g = await getNews('&id=berita-n1');
+  check('publik: artikel lewat slug + berita terkait', g.data.ok && g.data.item.content.includes('Isi berita') && g.data.related.length === 1, g.data);
+  g = await getNews('&id=n3');
+  check('publik: draf tidak dapat dibuka & tidak di-cache', g.data.ok === false && g.data.notFound === true && /no-store/.test(g.cache), g);
+  g = await getNews('&id=berita-n4');
+  check('publik: berita terjadwal belum dapat dibuka', g.data.notFound === true, g.data);
+  r = await push(admin, [news('n4', { publishAt: Date.now() - 1000 })]);
+  g = await getNews('&id=berita-n4');
+  check('publik: berita tampil begitu waktu terbitnya tercapai', g.data.ok === true, g.data);
 
   const failed = results.filter(x => !x.ok);
   console.log(`\n${results.length - failed.length}/${results.length} lulus`);

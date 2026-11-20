@@ -56,7 +56,7 @@
     'lms_learning_log', 'lms_streak_grants', 'lms_reading_texts', 'lms_verses',
     'lms_hub_courses', 'lms_hub_progress', 'lms_hub_payments', 'lms_capsule_vaults', 'lms_capsules',
     'lms_music_tracks', 'lms_ai_chats', 'lms_game_questions', 'lms_game_battles', 'lms_game_scores',
-    'lms_topics'
+    'lms_topics', 'lms_news'
   ];
 
   /* ===== Hari & jadwal ===== */
@@ -2753,6 +2753,69 @@
     deleteAnnouncement: (id) => {
       const list = JSON.parse(localStorage.getItem('lms_announcements') || '[]').filter(a => a.id !== id);
       localStorage.setItem('lms_announcements', JSON.stringify(list));
+    },
+
+    /* ===== Berita publik (halaman depan & berita.html; dikelola admin) =====
+     * status: 'draft' | 'published'. Terbit dengan publishAt di masa depan = terjadwal. */
+    NEWS_CATEGORIES: ['Pengumuman', 'Info UTBK & SNBT', 'Prestasi', 'Kegiatan', 'Tips Belajar', 'Beasiswa'],
+    getNews: () => load('lms_news', []),
+    getNewsItem: (idOrSlug) => load('lms_news', []).find(n => n.id === idOrSlug || n.slug === idOrSlug) || null,
+    newsState: (n, at) => (!n || n.status !== 'published' ? 'draft' : (Number(n.publishAt) > (at || Date.now()) ? 'scheduled' : 'published')),
+    /** Berita terbit, terbaru dulu; berita utama (pinned) di atas. */
+    getPublishedNews: () => load('lms_news', []).filter(n => DB.newsState(n) === 'published')
+      .sort((a, b) => (b.pinned ? 1 : 0) - (a.pinned ? 1 : 0) || b.publishAt - a.publishAt),
+    newsSlug: (title, exceptId) => {
+      const base = String(title || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+        .replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 80).replace(/-+$/, '') || 'berita';
+      const taken = new Set(load('lms_news', []).filter(n => n.id !== exceptId).map(n => n.slug));
+      let slug = base, i = 2;
+      while (taken.has(slug)) slug = `${base}-${i++}`.slice(0, 100);
+      return slug;
+    },
+    /** Simpan berita (admin). content harus sudah disanitasi (RichText.sanitize). */
+    saveNews: (rec, actor) => {
+      if (!actor || actor.role !== 'admin') throw new Error('Berita hanya dapat dikelola admin.');
+      const title = String(rec.title || '').replace(/\s+/g, ' ').trim();
+      if (title.length < 3 || title.length > 160) throw new Error('Judul berita 3–160 karakter.');
+      const content = String(rec.content || '');
+      if (content.length > 2400000) throw new Error('Isi berita terlalu besar. Kurangi atau perkecil gambar di dalam isi.');
+      const img = (v, max) => (!v ? '' : (typeof v === 'string' && v.length <= max && /^data:image\/(jpeg|png|webp);base64,[A-Za-z0-9+/=]+$/.test(v) ? v : null));
+      const cover = img(rec.cover, 450000), thumb = img(rec.thumb, 90000);
+      if (cover === null || thumb === null) throw new Error('Gambar sampul tidak valid atau terlalu besar. Unggah ulang gambarnya.');
+      const plain = content.replace(/<[^>]*>/g, ' ').replace(/&nbsp;/g, ' ').replace(/&[a-z]+;/g, ' ').replace(/\s+/g, ' ').trim();
+      if (rec.status === 'published' && plain.length < 20) throw new Error('Isi berita terlalu pendek untuk diterbitkan.');
+      const list = load('lms_news', []);
+      const i = rec.id ? list.findIndex(n => n.id === rec.id) : -1;
+      const id = i >= 0 ? list[i].id : (rec.id || uid('news'));
+      let slug = String(rec.slug || '').toLowerCase().replace(/[^a-z0-9-]+/g, '-').replace(/-+/g, '-').slice(0, 100).replace(/^-+|-+$/g, '');
+      if (!slug || list.some(n => n.id !== id && n.slug === slug)) slug = DB.newsSlug(slug || title, id);
+      const now = Date.now();
+      const status = rec.status === 'published' ? 'published' : 'draft';
+      const words = plain ? plain.split(' ').length : 0;
+      const clean = {
+        id, title, slug, status, content,
+        excerpt: (String(rec.excerpt || '').replace(/\s+/g, ' ').trim() || (plain.length > 220 ? plain.slice(0, 217).replace(/\s+\S*$/, '') + '…' : plain)).slice(0, 320),
+        category: String(rec.category || '').replace(/[<>]/g, '').trim().slice(0, 40),
+        cover, thumb, coverAlt: String(rec.coverAlt || '').replace(/[<>]/g, '').trim().slice(0, 160),
+        pinned: !!rec.pinned,
+        publishAt: status === 'published' ? (Number(rec.publishAt) || now) : (Number(rec.publishAt) || 0),
+        readMin: Math.max(1, Math.round(words / 200)),
+        authorId: i >= 0 ? (list[i].authorId || actor.id) : actor.id,
+        authorName: String(i >= 0 ? (list[i].authorName || actor.name || 'Admin') : (actor.name || 'Admin')).slice(0, 80),
+        createdAt: i >= 0 ? (list[i].createdAt || now) : now,
+        updatedAt: now, updatedBy: actor.id
+      };
+      if (clean.pinned) list.forEach(n => { if (n.id !== id && n.pinned) n.pinned = false; });   // satu berita utama
+      if (i >= 0) list[i] = clean; else list.push(clean);
+      save('lms_news', list);
+      DB.logActivity('news.save', `${status === 'published' ? 'Menerbitkan' : 'Menyimpan draf'} berita "${title}"`, id);
+      return clean;
+    },
+    deleteNews: (id, actor) => {
+      if (!actor || actor.role !== 'admin') throw new Error('Berita hanya dapat dikelola admin.');
+      const n = DB.getNewsItem(id);
+      save('lms_news', load('lms_news', []).filter(x => x.id !== id));
+      if (n) DB.logActivity('news.delete', `Menghapus berita "${n.title}"`, id);
     },
 
     /* ===== Academic Batches (Tahun Akademik) ===== */

@@ -40,6 +40,7 @@
         { key: 'ayat-admin', label: 'Ayat Harian', icon: '📖', group: 'Motivasi & Gamifikasi' },
         { key: 'mesin-waktu-admin', label: 'Mesin Waktu', icon: '⏳', group: 'Motivasi & Gamifikasi' },
         { key: 'pengumuman', label: 'Pengumuman', icon: '📢', group: 'Komunikasi' },
+        { key: 'berita', label: 'Berita', icon: '📰', group: 'Komunikasi' },
         { key: 'kalender', label: 'Kalender', icon: '📅', group: 'Komunikasi' },
         { key: 'chat', label: 'Chat', icon: '💭', group: 'Komunikasi' },
         { key: 'feedback', label: 'Kritik & Saran', icon: '💬', group: 'Komunikasi' },
@@ -72,6 +73,7 @@
         { key: 'ai-asisten', label: 'Asisten AI', icon: '💬', group: 'Siswa & Laporan' },
         { key: 'ai-analytics', label: 'AI Analytics', icon: '🤖', group: 'Siswa & Laporan' },
         { key: 'pengumuman', label: 'Pengumuman', icon: '📢', group: 'Komunikasi' },
+        { key: 'berita', label: 'Berita', icon: '📰', group: 'Komunikasi' },
         { key: 'kalender', label: 'Kalender', icon: '📅', group: 'Komunikasi' },
         { key: 'chat', label: 'Chat', icon: '💭', group: 'Komunikasi' },
         { key: 'birthday', label: 'Ulang Tahun', icon: '🎂', group: 'Komunikasi' },
@@ -102,6 +104,7 @@
         { key: 'ai-tools', label: 'AI Tools', icon: '🤖', group: 'Ruang Pribadi' },
         { key: 'birthday', label: 'Ulang Tahun', icon: '🎂', group: 'Ruang Pribadi' },
         { key: 'pengumuman', label: 'Pengumuman', icon: '📢', group: 'Komunikasi' },
+        { key: 'berita', label: 'Berita', icon: '📰', group: 'Komunikasi' },
         { key: 'chat', label: 'Chat', icon: '💭', group: 'Komunikasi' },
         { key: 'feedback', label: 'Kritik & Saran', icon: '💬', group: 'Komunikasi' },
         { key: 'keuangan', label: 'Pembayaran', icon: '💰', group: 'Akun' },
@@ -120,6 +123,7 @@
         { key: 'anak-streak', label: 'Streak Anak', icon: '🔥', group: 'Pantau Anak' },
         { key: 'birthday', label: 'Ulang Tahun Anak', icon: '🎂', group: 'Pantau Anak' },
         { key: 'pengumuman', label: 'Pengumuman', icon: '📢', group: 'Komunikasi' },
+        { key: 'berita', label: 'Berita', icon: '📰', group: 'Komunikasi' },
         { key: 'kalender', label: 'Kalender', icon: '📅', group: 'Komunikasi' },
         { key: 'chat', label: 'Chat Guru', icon: '💭', group: 'Komunikasi' },
         { key: 'feedback', label: 'Kritik & Saran', icon: '💬', group: 'Komunikasi' },
@@ -290,7 +294,9 @@
     /* Halaman lintas peran yang dirender langsung oleh shell. */
     const COMMON = {
       birthday: (c) => Birthday.renderWall(c, user),
-      notifikasi: (c) => renderNotifHistory(c)
+      notifikasi: (c) => renderNotifHistory(c),
+      // Berita situs: admin mengelola, peran lain membaca (sama dengan halaman depan).
+      berita: (c) => (user.role === 'admin' ? NewsAdmin.render(c, user) : NewsPublic.mountDashboard(c, user))
     };
 
     /* ================= Routing ================= */

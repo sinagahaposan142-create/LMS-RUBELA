@@ -145,12 +145,16 @@
    */
   function restoreRange() {
     if (!activeEditable) return false;
+    // Simpan dulu: focus() memicu listener 'focus' yang menyimpan ulang seleksi, dan bila fokus
+    // sebelumnya ada di input dialog, peramban menaruh kursor di AWAL editor.
+    const keep = savedRange;
     activeEditable.focus({ preventScroll: true });
     const sel = global.getSelection();
     if (!sel) return false;
-    if (savedRange && activeEditable.contains(savedRange.commonAncestorContainer)) {
+    if (keep && activeEditable.contains(keep.commonAncestorContainer)) {
       sel.removeAllRanges();
-      sel.addRange(savedRange);
+      sel.addRange(keep);
+      savedRange = keep;
       return true;
     }
     // Belum pernah menaruh kursor: letakkan di akhir isi editor
@@ -391,8 +395,170 @@
       p.innerHTML = '<br>';
       table.parentNode.replaceChild(p, table);
       placeCaretIn(p);
+    } else if (op === 'mergeRight' || op === 'mergeDown' || op === 'split') {
+      if (!mergeOp(table, cell, op)) return;
+    } else if (op === 'sortAsc' || op === 'sortDesc') {
+      if (!sortTable(table, cell, op === 'sortDesc')) return;
     }
     notifyChange();
+  }
+
+  /** Peta grid tabel: grid[baris][kolom] = sel (memperhitungkan colspan/rowspan). */
+  function tableGrid(table) {
+    const grid = [];
+    Array.prototype.forEach.call(table.rows, (tr, r) => {
+      grid[r] = grid[r] || [];
+      let c = 0;
+      Array.prototype.forEach.call(tr.cells, (cell) => {
+        while (grid[r][c]) c++;
+        const cs = Math.max(1, cell.colSpan || 1), rs = Math.max(1, cell.rowSpan || 1);
+        for (let i = 0; i < rs; i++) for (let j = 0; j < cs; j++) { grid[r + i] = grid[r + i] || []; grid[r + i][c + j] = cell; }
+        c += cs;
+      });
+    });
+    return grid;
+  }
+  function cellPos(grid, cell) {
+    for (let r = 0; r < grid.length; r++) {
+      const c = (grid[r] || []).indexOf(cell);
+      if (c >= 0) return [r, c];
+    }
+    return null;
+  }
+  const isBlankCell = (el) => !(el.textContent || '').replace(/\u00a0/g, ' ').trim() && !el.querySelector('img, .mathfmt, .katex');
+
+  /** Gabung sel ke kanan/bawah, atau pisahkan sel gabungan. */
+  function mergeOp(table, cell, op) {
+    const grid = tableGrid(table);
+    const pos = cellPos(grid, cell);
+    if (!pos) return false;
+    const [r, c] = pos;
+    const cs = Math.max(1, cell.colSpan || 1), rs = Math.max(1, cell.rowSpan || 1);
+    const absorb = (nb) => {
+      if (!isBlankCell(nb)) { if (!isBlankCell(cell)) cell.appendChild(document.createElement('br')); while (nb.firstChild) cell.appendChild(nb.firstChild); }
+      nb.remove();
+    };
+    if (op === 'mergeRight') {
+      const nb = grid[r][c + cs];
+      const p2 = nb && cellPos(grid, nb);
+      if (!nb || nb === cell || !p2 || p2[0] !== r || p2[1] !== c + cs || Math.max(1, nb.rowSpan || 1) !== rs) {
+        toast('Tidak ada sel di kanan yang sejajar untuk digabung.', 'info'); return false;
+      }
+      cell.colSpan = cs + Math.max(1, nb.colSpan || 1);
+      absorb(nb);
+    } else if (op === 'mergeDown') {
+      const nb = grid[r + rs] && grid[r + rs][c];
+      const p2 = nb && cellPos(grid, nb);
+      if (!nb || nb === cell || !p2 || p2[0] !== r + rs || p2[1] !== c || Math.max(1, nb.colSpan || 1) !== cs) {
+        toast('Tidak ada sel di bawah yang sejajar untuk digabung.', 'info'); return false;
+      }
+      cell.rowSpan = rs + Math.max(1, nb.rowSpan || 1);
+      absorb(nb);
+    } else {
+      if (cs === 1 && rs === 1) { toast('Sel ini tidak digabung.', 'info'); return false; }
+      const startCol = new Map();
+      grid.forEach((row, rr) => (row || []).forEach((el, cc) => { if (el && !startCol.has(el)) startCol.set(el, [rr, cc]); }));
+      for (let rr = r; rr < r + rs; rr++) {
+        const tr = table.rows[rr];
+        if (!tr) continue;
+        const tag = (tr.cells[0] && tr.cells[0].tagName === 'TH') ? 'th' : 'td';
+        for (let cc = c; cc < c + cs; cc++) {
+          if (rr === r && cc === c) continue;
+          const ref = Array.prototype.find.call(tr.cells, el => el !== cell && startCol.has(el) && startCol.get(el)[1] > cc);
+          const fresh = document.createElement(tag);
+          fresh.innerHTML = '&nbsp;';
+          tr.insertBefore(fresh, ref || null);
+        }
+      }
+      cell.colSpan = 1;
+      cell.rowSpan = 1;
+      cell.removeAttribute('colspan');
+      cell.removeAttribute('rowspan');
+    }
+    placeCaretIn(cell);
+    return true;
+  }
+
+  /** Urutkan baris (tanpa baris judul) berdasarkan kolom tempat kursor. */
+  function sortTable(table, cell, desc) {
+    const grid = tableGrid(table);
+    const pos = cellPos(grid, cell);
+    if (!pos) return false;
+    const col = pos[1];
+    const rows = Array.prototype.slice.call(table.rows);
+    const hasHead = rows[0] && rows[0].cells[0] && rows[0].cells[0].tagName === 'TH';
+    const body = rows.slice(hasHead ? 1 : 0);
+    if (body.length < 2) { toast('Butuh minimal dua baris data untuk diurutkan.', 'info'); return false; }
+    if (body.some(tr => Array.prototype.some.call(tr.cells, el => (el.rowSpan || 1) > 1))) {
+      toast('Tabel dengan sel gabung ke bawah tidak dapat diurutkan. Pisahkan selnya terlebih dahulu.', 'info'); return false;
+    }
+    const num = (s) => (global.Sheet ? Sheet.parseNum(s) : (s.trim() !== '' && Number.isFinite(Number(s)) ? Number(s) : null));
+    const keyOf = (tr) => {
+      const r = rows.indexOf(tr);
+      const el = grid[r] && grid[r][col];
+      return el ? (el.textContent || '').replace(/\u00a0/g, ' ').trim() : '';
+    };
+    const sorted = body.map((tr, i) => ({ tr, i, k: keyOf(tr) })).sort((a, b) => {
+      const x = num(a.k), y = num(b.k);
+      let d;
+      if (a.k === '' || b.k === '') d = (a.k === '') - (b.k === '');      // sel kosong selalu di bawah
+      else if (x != null && y != null) d = desc ? y - x : x - y;
+      else d = desc ? b.k.localeCompare(a.k, 'id', { numeric: true }) : a.k.localeCompare(b.k, 'id', { numeric: true });
+      return d || a.i - b.i;
+    });
+    const parent = body[0].parentNode;
+    sorted.forEach(x => parent.appendChild(x.tr));
+    toast(`Diurutkan ${desc ? 'menurun' : 'menaik'} berdasarkan kolom ${col + 1}.`, 'success');
+    return true;
+  }
+
+  /** Lembar Data ala Excel (js/sheet.js): sisipkan tabel baru atau sunting tabel di kursor. */
+  /** Impor .docx (js/office.js) ke posisi kursor; hasilnya disanitasi seperti tempelan. */
+  function importWord() {
+    if (!global.Office || !Office.supported()) {
+      toast('Browser ini belum bisa membuka dokumen Word. Perbarui browser, atau salin-tempel isinya dari Word.', 'error');
+      return;
+    }
+    const host = activeEditable;
+    if (!host) { toast('Klik dulu area teks yang ingin diisi.', 'info'); return; }
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = '.docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+    input.addEventListener('change', async () => {
+      const f = input.files && input.files[0];
+      if (!f) return;
+      if (!/\.docx$/i.test(f.name)) { toast('Pilih berkas .docx. Dokumen .doc lama: buka di Word lalu simpan sebagai .docx.', 'error'); return; }
+      toast('Membaca dokumen Word…', 'info');
+      try {
+        const res = await Office.docxToHtml(f, { image: (blob) => compressImage(blob) });
+        activeEditable = host;
+        insertHtml(RichText.sanitize(res.html) + '<p><br></p>');
+        if (res.warnings.length) toast('Dokumen diimpor. ' + res.warnings.join(' '), 'info');
+        else toast('Isi dokumen Word disisipkan.', 'success');
+      } catch (e) { toast(e.message || 'Dokumen tidak dapat dibaca.', 'error'); }
+    });
+    input.click();
+  }
+
+  function openSheetDialog() {
+    if (!global.Sheet) { toast('Lembar Data belum termuat. Muat ulang halaman.', 'error'); return; }
+    const table = currentTable();
+    const host = activeEditable;
+    Sheet.open({
+      anchor: editorAnchor(),
+      table,
+      onInsert: (html) => insertHtml(html),
+      onReplace: (html) => {
+        if (!table || !table.isConnected) { insertHtml(html + '<p><br></p>'); return; }
+        const tmp = document.createElement('div');
+        tmp.innerHTML = html;
+        const fresh = tmp.firstElementChild;
+        table.replaceWith(fresh);
+        activeEditable = host;
+        placeCaretIn(fresh.rows[0] && fresh.rows[0].cells[0]);
+        notifyChange();
+      }
+    });
   }
 
   /* =====================================================================
@@ -434,7 +600,10 @@
           const h = Math.round(img.height * scale);
           const canvas = document.createElement('canvas');
           canvas.width = w; canvas.height = h;
-          canvas.getContext('2d').drawImage(img, 0, 0, w, h);
+          const ctx = canvas.getContext('2d');
+          ctx.fillStyle = '#ffffff';                 // JPEG tanpa alfa: latar transparan jadi putih, bukan hitam
+          ctx.fillRect(0, 0, w, h);
+          ctx.drawImage(img, 0, 0, w, h);
           let quality = 0.88;
           let out = canvas.toDataURL('image/jpeg', quality);
           while (out.length > IMG_MAX_BYTES * 1.37 && quality > 0.4) {
@@ -556,6 +725,7 @@
 
         <div class="rte-group rte-pop-wrap">
           ${ins('table', '▦ Tabel', 'Sisipkan tabel')}
+          ${ins('sheet', '⊞ Lembar Data', 'Tabel ala Excel: rumus SUM/AVERAGE, tempel & impor dari Excel/CSV')}
           <button type="button" class="rte-btn" data-pop="tbl" title="Sunting tabel">▦⋯</button>
           <div class="rte-pop rte-pop-wide" data-pop-for="tbl">
             <div class="rte-pop-title">Sunting tabel di posisi kursor</div>
@@ -567,12 +737,19 @@
               <button type="button" class="btn btn-sm btn-danger" data-tbl="rowDelete">✕ Hapus baris</button>
               <button type="button" class="btn btn-sm btn-danger" data-tbl="colDelete">✕ Hapus kolom</button>
               <button type="button" class="btn btn-sm btn-secondary" data-tbl="toggleHead">⇅ Baris judul</button>
+              <button type="button" class="btn btn-sm btn-secondary" data-tbl="mergeRight">⇥ Gabung ke kanan</button>
+              <button type="button" class="btn btn-sm btn-secondary" data-tbl="mergeDown">⤓ Gabung ke bawah</button>
+              <button type="button" class="btn btn-sm btn-secondary" data-tbl="split">✂ Pisahkan sel</button>
+              <button type="button" class="btn btn-sm btn-secondary" data-tbl="sortAsc">↑ Urutkan A–Z / 0–9</button>
+              <button type="button" class="btn btn-sm btn-secondary" data-tbl="sortDesc">↓ Urutkan Z–A / 9–0</button>
+              <button type="button" class="btn btn-sm btn-secondary" data-tbl="sheet">⊞ Sunting sebagai lembar</button>
               <button type="button" class="btn btn-sm btn-danger" data-tbl="delete">🗑 Hapus tabel</button>
             </div>
           </div>
         </div>
 
         <div class="rte-group">
+          ${o.word ? ins('word', 'W Impor Word', 'Sisipkan isi dokumen Word (.docx): judul, daftar, tabel, tautan, dan gambar') : ''}
           ${ins('image', '🖼 Gambar', 'Sisipkan gambar')}
           ${o.noAudio ? '' : ins('audio', '🔊 Audio', 'Sisipkan audio')}
           ${ins('link', '🔗 Tautan', 'Sisipkan tautan')}
@@ -1230,6 +1407,8 @@
           case 'formula': openFormulaDialog(); break;
           case 'palette': openPaletteDialog(); break;
           case 'table': openTableDialog(); break;
+          case 'sheet': openSheetDialog(); break;
+          case 'word': importWord(); break;
           case 'image': openImageDialog(); break;
           case 'audio': openAudioDialog(); break;
           case 'link': openLinkDialog(); break;
@@ -1288,7 +1467,10 @@
       }));
       bar.querySelectorAll('[data-tbl]').forEach(b => b.addEventListener('click', () => {
         useTarget();
-        tableOp(b.dataset.tbl);
+        if (b.dataset.tbl === 'sheet') {
+          if (!currentTable()) toast('Letakkan kursor di dalam tabel terlebih dahulu.', 'info');
+          else { markAnchor({ btn: b, bar, editor: targetEl || activeEditable }); openSheetDialog(); }
+        } else tableOp(b.dataset.tbl);
         bar.querySelectorAll('.rte-pop').forEach(p => p.classList.remove('is-open'));
       }));
     });
