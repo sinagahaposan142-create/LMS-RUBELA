@@ -248,7 +248,8 @@
       kalender: 'Kalender', attendance: 'Presensi', absensi: 'Presensi',
       'jadwal-kelas': 'Jadwal Kelas', 'jadwal-siswa': 'Jadwal Kelas',
       'ai-tools': 'AI Tools', 'ai-analytics': 'AI Analytics', online: 'Status Online',
-      'game-battle': 'Game Battle', 'game-admin': 'Kelola Game Battle', lainnya: 'Halaman lain'
+      'game-battle': 'Game Battle', 'game-admin': 'Kelola Game Battle', berita: 'Berita',
+      'kalkulator-utbk': 'Kalkulator UTBK', 'kalender-seleksi': 'Kalender Seleksi', 'data-ptn': 'Data PTN', lainnya: 'Halaman lain'
     };
     return labels[key] || String(key || '-').replace(/-/g, ' ');
   }

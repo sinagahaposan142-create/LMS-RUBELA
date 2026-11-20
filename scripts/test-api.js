@@ -4,7 +4,8 @@
  * + /api/rubela asli, lewat HTTP sungguhan.
  *   node scripts/test-api.js
  * Mencakup: kebijakan berkas (QRIS, bukti transfer), validasi gambar,
- * pesan chat, video pembahasan, pembayaran Course Mandiri, remedial ujian, dan berita publik.
+ * pesan chat, video pembahasan, pembayaran Course Mandiri, remedial ujian, berita publik, dan Tools (data PTN,
+ * jadwal seleksi, rencana UTBK).
  * Butuh Node.js >= 22.5.
  * ===================================================================*/
 const http = require('http');
@@ -268,6 +269,46 @@ async function main() {
   r = await push(admin, [news('n4', { publishAt: Date.now() - 1000 })]);
   g = await getNews('&id=berita-n4');
   check('publik: berita tampil begitu waktu terbitnya tercapai', g.data.ok === true, g.data);
+
+  /* ---------- Tools: data PTN, jadwal seleksi, rencana UTBK ---------- */
+  console.log('\n[Tools]');
+  const major = (id, extra) => ({ k: 'lms_ptn_majors', id, v: Object.assign({ id, campusId: 'pc1', facultyId: 'pf1', name: 'Ilmu Komputer', level: 'S1', year: 2025,
+    capacity: 120, applicants: 4200, avgScore: 712.4, minScore: 680, subtests: { PU: 720, PK: 760 }, source: 'Uji', notes: '' }, extra || {}) });
+  r = await push(admin, [
+    { k: 'lms_ptn_campuses', id: 'pc1', v: { id: 'pc1', name: 'Universitas Uji', short: 'UU', city: 'Depok', province: 'Jawa Barat', type: 'PTN', website: 'https://uji.ac.id' } },
+    { k: 'lms_ptn_faculties', id: 'pf1', v: { id: 'pf1', campusId: 'pc1', name: 'Fakultas Ilmu Komputer' } },
+    major('pm1'),
+    { k: 'lms_admission_events', id: 'ae1', v: { id: 'ae1', track: 'SNBT', campusId: null, campusName: '', title: 'Pendaftaran UTBK', startDate: '2027-03-20', endDate: '2027-04-05', link: 'https://snpmb.id', notes: '', important: true } }
+  ]);
+  check('admin menyimpan kampus, fakultas, jurusan, jadwal', r.rejected.length === 0, r.rejected);
+  r = await push(guru, [major('pm_guru')]);
+  check('guru tidak boleh mengubah data PTN', r.rejected.length === 1, r.rejected);
+  r = await push(admin, [major('pm_bad', { avgScore: 1500 })]);
+  check('skor jurusan di luar 0–1000 ditolak (admin pun)', r.rejected.length === 1 && /0–1000/.test(r.rejected[0].reason), r.rejected);
+  r = await push(admin, [major('pm_bad2', { subtests: { XYZ: 500 } })]);
+  check('kode subtest tidak dikenal ditolak', r.rejected.length === 1, r.rejected);
+  r = await push(admin, [{ k: 'lms_admission_events', id: 'ae_bad', v: { id: 'ae_bad', track: 'SNBT', title: 'Terbalik', startDate: '2027-04-05', endDate: '2027-03-01' } }]);
+  check('jadwal dengan tanggal selesai sebelum mulai ditolak', r.rejected.length === 1 && /Tanggal/.test(r.rejected[0].reason), r.rejected);
+  r = await push(admin, [{ k: 'lms_admission_events', id: 'ae_bad2', v: { id: 'ae_bad2', track: 'SNBT', title: 'Tautan', startDate: '2027-04-05', endDate: '2027-04-05', link: 'javascript:alert(1)' } }]);
+  check('tautan jadwal selain http(s) ditolak', r.rejected.length === 1, r.rejected);
+  const planOf = (uid, extra) => ({ k: 'lms_utbk_plans', id: uid, v: Object.assign({ userId: uid, scores: { PU: 650, PK: 700 }, choices: ['pm1'], reminders: ['ae1'], notified: {} }, extra || {}) });
+  r = await push(s1, [planOf('u_s1')]);
+  check('siswa menyimpan rencana UTBK miliknya', r.rejected.length === 0, r.rejected);
+  r = await push(s1, [planOf('u_s2')]);
+  check('siswa tidak boleh menulis rencana siswa lain', r.rejected.length === 1, r.rejected);
+  r = await push(s1, [planOf('u_s1', { choices: ['a', 'b', 'c', 'd', 'e'] })]);
+  check('lebih dari 4 pilihan jurusan ditolak', r.rejected.length === 1, r.rejected);
+  r = await push(s1, [planOf('u_s1', { scores: { PU: 1200 } })]);
+  check('skor rencana di luar 0–1000 ditolak', r.rejected.length === 1, r.rejected);
+  const p2 = await pull(s2);
+  check('siswa lain tidak menerima rencana UTBK milik orang lain', !(p2.lms_utbk_plans && p2.lms_utbk_plans.u_s1));
+  check('siswa menerima data jurusan & jadwal seleksi', !!(p2.lms_ptn_majors && p2.lms_ptn_majors.pm1 && p2.lms_admission_events && p2.lms_admission_events.ae1));
+  const p1 = await pull(s1);
+  check('pemilik menerima rencananya sendiri', !!(p1.lms_utbk_plans && p1.lms_utbk_plans.u_s1 && p1.lms_utbk_plans.u_s1.choices[0] === 'pm1'));
+  const pa = await pull(admin);
+  check('admin menerima rencana semua pengguna', !!(pa.lms_utbk_plans && pa.lms_utbk_plans.u_s1));
+  r = await push(admin, [planOf('u_s1', { choices: [] })]);
+  check('admin dapat merapikan rencana (jurusan terhapus)', r.rejected.length === 0, r.rejected);
 
   const failed = results.filter(x => !x.ok);
   console.log(`\n${results.length - failed.length}/${results.length} lulus`);

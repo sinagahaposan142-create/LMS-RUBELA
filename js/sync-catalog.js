@@ -48,6 +48,11 @@
     lms_feedbacks: { type: RECORDS },
     lms_announcements: { type: RECORDS },
     lms_news: { type: RECORDS },                           // Berita publik (js/news-admin.js, berita.html)
+    lms_ptn_campuses: { type: RECORDS },                   // Tools: kampus, fakultas, jurusan (js/ptn.js, diisi admin)
+    lms_ptn_faculties: { type: RECORDS },
+    lms_ptn_majors: { type: RECORDS },
+    lms_admission_events: { type: RECORDS },               // Tools: kalender SNBP/SNBT/Mandiri (diisi admin)
+    lms_utbk_plans: { type: RECORDS, idField: 'userId', quiet: true },   // skor, pilihan jurusan & pengingat milik pengguna
     lms_messages: { type: RECORDS, target: ['senderId', 'receiverId'] },
     lms_birthday_wishes: { type: RECORDS },
     lms_birthday_rewards: { type: RECORDS },

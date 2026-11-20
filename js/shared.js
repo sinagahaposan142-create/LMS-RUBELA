@@ -300,6 +300,7 @@
           ${dayPlans.length > 2 ? `<div class="cal-event muted">+${dayPlans.length - 2} kelas</div>` : ''}
           ${dayEvents.slice(0, 2).map(ev => `<div class="cal-event" style="background:${ev.color || 'var(--primary-light)'};" title="${UI.esc(ev.title)}">${UI.esc(ev.title.length > 12 ? ev.title.slice(0, 12) + '...' : ev.title)}</div>`).join('')}
           ${dayEvents.length > 2 ? `<div class="cal-event muted">+${dayEvents.length - 2} acara</div>` : ''}
+          ${global.AdmissionCal ? AdmissionCal.calendarChips(dateStr) : ''}
         </div>`;
       }
 
@@ -375,6 +376,12 @@
       // Nav
       document.getElementById('calPrev').addEventListener('click', () => { viewMonth--; if (viewMonth < 0) { viewMonth = 11; viewYear--; } render(); });
       document.getElementById('calNext').addEventListener('click', () => { viewMonth++; if (viewMonth > 11) { viewMonth = 0; viewYear++; } render(); });
+
+      // Penanda jadwal seleksi (SNBP/SNBT/Mandiri) membuka Kalender Seleksi.
+      container.querySelectorAll('[data-adm-chip]').forEach(chip => {
+        chip.addEventListener('click', () => Dashboard.navigate('kalender-seleksi'));
+        chip.addEventListener('dblclick', (e) => e.stopPropagation());
+      });
 
       // Click date to add event
       if (canEdit) {

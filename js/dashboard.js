@@ -31,6 +31,9 @@
         { key: 'rekap', label: 'Rekapan', icon: '📈', group: 'Akademik' },
         { key: 'batch', label: 'Tahun Akademik', icon: '🎓', group: 'Akademik' },
         { key: 'alumni', label: 'Alumni', icon: '🏛️', group: 'Akademik' },
+        { key: 'kalkulator-utbk', label: 'Kalkulator UTBK', icon: '🧮', group: 'Tools' },
+        { key: 'kalender-seleksi', label: 'Kalender Seleksi', icon: '📆', group: 'Tools' },
+        { key: 'data-ptn', label: 'Data PTN', icon: '🏫', group: 'Tools' },
         { key: 'streak-admin', label: 'Streak & Gamifikasi', icon: '🔥', group: 'Motivasi & Gamifikasi' },
         { key: 'arena-admin', label: 'Arena Belajar', icon: '🎮', group: 'Motivasi & Gamifikasi' },
         { key: 'game-admin', label: 'Game Battle', icon: '⚔️', group: 'Motivasi & Gamifikasi' },
@@ -66,6 +69,8 @@
         { key: 'bank-soal', label: 'Bank Soal', icon: '📝', group: 'Mengajar' },
         { key: 'cbt', label: 'CBT / Ujian', icon: '🖥️', group: 'Mengajar' },
         { key: 'grading', label: 'Penilaian Tugas', icon: '✅', group: 'Mengajar' },
+        { key: 'kalkulator-utbk', label: 'Kalkulator UTBK', icon: '🧮', group: 'Tools' },
+        { key: 'kalender-seleksi', label: 'Kalender Seleksi', icon: '📆', group: 'Tools' },
         { key: 'rekap', label: 'Rekapan Kelas', icon: '📈', group: 'Siswa & Laporan' },
         { key: 'streak-siswa', label: 'Streak Siswa', icon: '🔥', group: 'Siswa & Laporan' },
         { key: 'game-admin', label: 'Game Battle', icon: '⚔️', group: 'Siswa & Laporan' },
@@ -92,6 +97,8 @@
         { key: 'assignments', label: 'Tugas', icon: '📝', group: 'Belajar' },
         { key: 'cbt', label: 'CBT / Ujian', icon: '🖥️', group: 'Belajar' },
         { key: 'grades', label: 'Nilai', icon: '🏆', group: 'Belajar' },
+        { key: 'kalkulator-utbk', label: 'Kalkulator UTBK', icon: '🧮', group: 'Tools' },
+        { key: 'kalender-seleksi', label: 'Kalender Seleksi', icon: '📆', group: 'Tools' },
         { key: 'streak', label: 'Streak Belajar', icon: '🔥', group: 'Gamifikasi' },
         { key: 'arena', label: 'Arena Belajar', icon: '🎮', group: 'Gamifikasi' },
         { key: 'game-battle', label: 'Game Battle', icon: '⚔️', group: 'Gamifikasi' },
@@ -122,6 +129,8 @@
         { key: 'anak-perkembangan', label: 'Perkembangan', icon: '📈', group: 'Pantau Anak' },
         { key: 'anak-streak', label: 'Streak Anak', icon: '🔥', group: 'Pantau Anak' },
         { key: 'birthday', label: 'Ulang Tahun Anak', icon: '🎂', group: 'Pantau Anak' },
+        { key: 'kalkulator-utbk', label: 'Kalkulator UTBK', icon: '🧮', group: 'Tools' },
+        { key: 'kalender-seleksi', label: 'Kalender Seleksi', icon: '📆', group: 'Tools' },
         { key: 'pengumuman', label: 'Pengumuman', icon: '📢', group: 'Komunikasi' },
         { key: 'berita', label: 'Berita', icon: '📰', group: 'Komunikasi' },
         { key: 'kalender', label: 'Kalender', icon: '📅', group: 'Komunikasi' },
@@ -296,7 +305,11 @@
       birthday: (c) => Birthday.renderWall(c, user),
       notifikasi: (c) => renderNotifHistory(c),
       // Berita situs: admin mengelola, peran lain membaca (sama dengan halaman depan).
-      berita: (c) => (user.role === 'admin' ? NewsAdmin.render(c, user) : NewsPublic.mountDashboard(c, user))
+      berita: (c) => (user.role === 'admin' ? NewsAdmin.render(c, user) : NewsPublic.mountDashboard(c, user)),
+      // Tools seleksi masuk kampus (js/ptn.js): kalkulator & kalender untuk semua peran, data PTN khusus admin.
+      'kalkulator-utbk': (c) => UtbkCalc.render(c, user),
+      'kalender-seleksi': (c) => AdmissionCal.render(c, user),
+      'data-ptn': (c) => PtnAdmin.render(c, user)
     };
 
     /* ================= Routing ================= */
@@ -392,7 +405,7 @@
     /* ================= Pembaruan dari perangkat lain (mode server) =================
      * Halaman ringkasan diperbarui otomatis; halaman lain menampilkan tombol
      * "Muat ulang" agar isian/tab yang sedang dibuka tidak tiba-tiba berubah. */
-    const AUTO_REFRESH = new Set(['overview', 'notifikasi', 'pengumuman', 'kalender', 'online', 'hub-pay']);
+    const AUTO_REFRESH = new Set(['overview', 'notifikasi', 'pengumuman', 'kalender', 'online', 'hub-pay', 'kalender-seleksi']);
     const SELF_LIVE = new Set(['chat', 'game-battle', 'game-admin']);
     let lastInputAt = 0;
     let liveTimer = null;
@@ -716,6 +729,10 @@
     const streakTick = () => { if (window.StreakAPI) { try { StreakAPI.tick(user); } catch (e) { console.warn('[LMS] streak', e); } } };
     streakTick();
     setInterval(streakTick, 5 * 60 * 1000);
+    // Kalender Seleksi: pengingat H-3 sebelum mulai & H-1 sebelum ditutup untuk jadwal yang diikuti.
+    const admissionTick = () => { if (window.AdmissionCal) { try { if (AdmissionCal.tick(user)) renderBell(); } catch (e) { console.warn('[LMS] pengingat seleksi', e); } } };
+    admissionTick();
+    setInterval(admissionTick, 30 * 60 * 1000);
     if (user.role === 'siswa') { try { DB.notifyReadyCapsules(user.id); } catch (e) { console.warn('[LMS] mesin waktu', e); } }
     // Course Mandiri: keluarkan otomatis peserta yang tidak aktif (admin: semua; mentee: miliknya).
     if ((user.role === 'admin' || user.role === 'siswa') && window.CourseHub && CourseHub.sweep) CourseHub.sweep(user);

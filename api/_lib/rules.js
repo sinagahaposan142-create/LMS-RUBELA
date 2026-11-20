@@ -11,7 +11,7 @@ const catalog = require('../../js/sync-catalog.js');
 const ROLES = ['admin', 'guru', 'siswa', 'orangtua'];
 const ADMIN_ONLY = new Set(['lms_payments', 'lms_expenses', 'lms_salaries', 'lms_motivations', 'lms_security_questions',
   'lms_class_options', 'lms_batches', 'lms_reading_texts', 'lms_verses', 'lms_hub_courses', 'lms_music_tracks', 'lms_streak_grants',
-  'lms_news']);
+  'lms_news', 'lms_ptn_campuses', 'lms_ptn_faculties', 'lms_ptn_majors', 'lms_admission_events']);
 const STAFF_ONLY = new Set(['lms_courses', 'lms_materials', 'lms_modules', 'lms_recordings', 'lms_assignments', 'lms_questions',
   'lms_cbts', 'lms_attendance', 'lms_class_plans', 'lms_whiteboards', 'lms_whiteboard_boards', 'lms_events', 'lms_announcements',
   'lms_game_questions', 'lms_topics']);
@@ -149,6 +149,44 @@ function newsProblem(n) {
   return null;
 }
 
+/* ============================ TOOLS (data PTN & jadwal seleksi) ============================ */
+const UTBK_CODES = ['PU', 'PPU', 'PBM', 'PK', 'LBIND', 'LBING', 'PM'];
+const TRACKS = ['SNBP', 'SNBT', 'MANDIRI', 'LAINNYA'];
+const YMD = /^\d{4}-\d{2}-\d{2}$/;
+const strOk = (v, max, min) => typeof v === 'string' && v.length <= max && v.trim().length >= (min || 0);
+const optStr = (v, max) => v == null || v === '' || strOk(v, max);
+const optNum = (v, lo, hi) => v == null || (typeof v === 'number' && Number.isFinite(v) && v >= lo && v <= hi);
+const optUrl = (v) => v == null || v === '' || (typeof v === 'string' && v.length <= 300 && /^https?:\/\/[^\s<>"']+$/i.test(v));
+const scoreMap = (o) => o == null || (typeof o === 'object' && !Array.isArray(o) &&
+  Object.keys(o).every(k => UTBK_CODES.includes(k) && optNum(o[k], 0, 1000)));
+/** Bentuk data Tools (berlaku untuk semua peran, termasuk admin). */
+function toolsProblem(k, id, r, me) {
+  switch (k) {
+    case 'lms_ptn_campuses':
+      if (!strOk(r.name, 120, 2) || !optStr(r.short, 20) || !optStr(r.city, 60) || !optStr(r.province, 60) || !optStr(r.type, 40)) return 'Data kampus tidak valid.';
+      return optUrl(r.website) ? null : 'Situs kampus tidak valid.';
+    case 'lms_ptn_faculties':
+      return strOk(r.name, 120, 2) && strOk(r.campusId, 200, 1) ? null : 'Data fakultas tidak valid.';
+    case 'lms_ptn_majors':
+      if (!strOk(r.name, 120, 2) || !strOk(r.campusId, 200, 1) || !(r.facultyId == null || strOk(r.facultyId, 200, 1))) return 'Data jurusan tidak valid.';
+      if (!optNum(r.year, 2000, 2100) || !optNum(r.capacity, 0, 100000) || !optNum(r.applicants, 0, 10000000)) return 'Angka daya tampung/peminat/tahun tidak valid.';
+      if (!optNum(r.avgScore, 0, 1000) || !optNum(r.minScore, 0, 1000) || !scoreMap(r.subtests)) return 'Skor jurusan harus 0–1000.';
+      return optStr(r.source, 200) && optStr(r.notes, 500) ? null : 'Sumber/catatan terlalu panjang.';
+    case 'lms_admission_events':
+      if (!TRACKS.includes(r.track) || !strOk(r.title, 160, 3)) return 'Jalur atau judul jadwal tidak valid.';
+      if (!YMD.test(r.startDate || '') || !YMD.test(r.endDate || '') || r.endDate < r.startDate) return 'Tanggal jadwal tidak valid.';
+      return optUrl(r.link) && optStr(r.notes, 600) && optStr(r.campusName, 120) ? null : 'Tautan atau catatan jadwal tidak valid.';
+    case 'lms_utbk_plans': {
+      if (r.userId !== id || (me && r.userId !== me)) return 'Rencana UTBK milik pengguna lain.';
+      const ids = (a, n) => a == null || (Array.isArray(a) && a.length <= n && a.every(x => strOk(x, 200, 1)));
+      if (!scoreMap(r.scores) || !ids(r.choices, 4) || !ids(r.reminders, 100)) return 'Isi rencana UTBK tidak valid.';
+      return r.notified == null || (typeof r.notified === 'object' && Object.keys(r.notified).length <= 100) ? null : 'Isi rencana UTBK tidak valid.';
+    }
+    default:
+      return null;
+  }
+}
+
 /* ============================ REMEDIAL ============================ */
 const REMEDIAL_GRACE_MS = 10 * 60 * 1000;      // toleransi selisih jam perangkat
 /** Percobaan baru pada ujian remedial: hanya peserta terpilih, di dalam jadwal, sistem aktif. */
@@ -251,6 +289,8 @@ function present(ctx, k, id, rec) {
       return lockedCourse(rec);
     case 'lms_ai_chats':
       return rec.userId === me ? rec : undefined;      // riwayat chat AI hanya untuk pemiliknya
+    case 'lms_utbk_plans':
+      return ctx.isAdmin || rec.userId === me ? rec : undefined;
     case 'lms_users': {
       if (ctx.isAdmin || rec.id === me || rec.salaryRate == null) return rec;
       const out = Object.assign({}, rec);
@@ -374,6 +414,11 @@ function checkWrite(ctx, k, id, before, after) {
     const prob = newsProblem(after);
     if (prob) return deny(prob);
   }
+  if (after && /^lms_(ptn_|admission_events$|utbk_plans$)/.test(k)) {
+    // Admin boleh merapikan rencana pengguna lain (mis. jurusan terhapus), pemilik hanya miliknya.
+    const prob = toolsProblem(k, id, after, ctx.isAdmin ? null : me);
+    if (prob) return deny(prob);
+  }
   // Materi & Sub Materi: bentuk data dibatasi (semua peran staf, termasuk admin).
   if (k === 'lms_topics' && after) {
     const name = typeof after.name === 'string' ? after.name.replace(/[<>]/g, '').replace(/\s+/g, ' ').trim() : '';
@@ -465,6 +510,8 @@ function checkWrite(ctx, k, id, before, after) {
       return deny('Skor game hanya dicatat oleh pemainnya.');
     case 'lms_game_battles':
       return checkBattle(ctx, op, before, after);
+    case 'lms_utbk_plans':
+      return (before == null || before.userId === me) && (after == null || after.userId === me) ? allow(after) : deny('Rencana UTBK milik pengguna lain.');
     default:
       return deny('Perubahan tidak diizinkan.');
   }

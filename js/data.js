@@ -56,7 +56,7 @@
     'lms_learning_log', 'lms_streak_grants', 'lms_reading_texts', 'lms_verses',
     'lms_hub_courses', 'lms_hub_progress', 'lms_hub_payments', 'lms_capsule_vaults', 'lms_capsules',
     'lms_music_tracks', 'lms_ai_chats', 'lms_game_questions', 'lms_game_battles', 'lms_game_scores',
-    'lms_topics', 'lms_news'
+    'lms_topics', 'lms_news', 'lms_ptn_campuses', 'lms_ptn_faculties', 'lms_ptn_majors', 'lms_admission_events', 'lms_utbk_plans'
   ];
 
   /* ===== Hari & jadwal ===== */
@@ -1857,6 +1857,8 @@
       }
       // Riwayat chat AI milik akun ini
       if (load(AI_CHAT_KEY, []).some(t => t && t.userId === id)) save(AI_CHAT_KEY, load(AI_CHAT_KEY, []).filter(t => !t || t.userId !== id));
+      // Skor, pilihan jurusan, dan pengingat Tools milik akun ini
+      if (load('lms_utbk_plans', []).some(p => p && p.userId === id)) save('lms_utbk_plans', load('lms_utbk_plans', []).filter(p => !p || p.userId !== id));
       // Messages + notifications belonging to the removed account
       setAll(KEYS.notifications, getAll(KEYS.notifications).filter(n => n.userId !== id));
       save('lms_birthday_wishes', DB.getBirthdayWishes().filter(w => w.authorId !== id));
