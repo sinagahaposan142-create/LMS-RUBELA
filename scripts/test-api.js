@@ -5,7 +5,7 @@
  *   node scripts/test-api.js
  * Mencakup: kebijakan berkas (QRIS, bukti transfer), validasi gambar,
  * pesan chat, video pembahasan, pembayaran Course Mandiri, remedial ujian, berita publik, dan Tools (data PTN,
- * jadwal seleksi, rencana UTBK).
+ * jadwal seleksi, rencana UTBK), dan Grup Belajar.
  * Butuh Node.js >= 22.5.
  * ===================================================================*/
 const http = require('http');
@@ -309,6 +309,69 @@ async function main() {
   check('admin menerima rencana semua pengguna', !!(pa.lms_utbk_plans && pa.lms_utbk_plans.u_s1));
   r = await push(admin, [planOf('u_s1', { choices: [] })]);
   check('admin dapat merapikan rencana (jurusan terhapus)', r.rejected.length === 0, r.rejected);
+
+  /* ---------- Grup Belajar ---------- */
+  console.log('\n[Grup Belajar]');
+  const T2 = Date.now();
+  const gpost = (id, author, extra) => ({ k: 'lms_group_posts', id, v: Object.assign({ id, groupId: 'grp1', authorId: author, kind: 'message', text: 'Halo semua', title: '',
+    content: '', threadId: null, quiz: null, pinned: false, deleted: false, createdAt: T2 }, extra || {}) });
+  const quizQ = [{ id: 'q1', questionType: 'Pilihan Ganda', text: '1+1?', options: ['1', '2'], correctIndex: 1 }];
+  r = await push(admin, [{ k: 'lms_groups', id: 'grp1', v: { id: 'grp1', name: 'Grup PK 12', description: '', color: '#0d9488', memberIds: ['u_s1'], tutorIds: ['u_g1'], archived: false, createdBy: 'u_admin' } }]);
+  check('admin membuat grup', r.rejected.length === 0, r.rejected);
+  r = await push(guru, [{ k: 'lms_groups', id: 'grp_g', v: { id: 'grp_g', name: 'Grup tutor', memberIds: [], tutorIds: ['u_g1'] } }]);
+  check('tutor tidak boleh membuat grup', r.rejected.length === 1, r.rejected);
+  r = await push(s1, [gpost('m1', 'u_s1')]);
+  check('anggota mengirim pesan', r.rejected.length === 0, r.rejected);
+  r = await push(s2, [gpost('m2', 'u_s2')]);
+  check('bukan anggota tidak boleh mengirim pesan', r.rejected.length === 1 && /bukan anggota/.test(r.rejected[0].reason), r.rejected);
+  r = await push(s1, [gpost('m3', 'u_s1', { kind: 'quiz', title: 'Kuis', quiz: { questions: quizQ, dueAt: null } })]);
+  check('anggota tidak boleh mengirim kuis', r.rejected.length === 1 && /Hanya admin atau tutor/.test(r.rejected[0].reason), r.rejected);
+  r = await push(s1, [gpost('m4', 'u_g1')]);
+  check('anggota tidak boleh menyamar sebagai penulis lain', r.rejected.length === 1, r.rejected);
+  r = await push(guru, [gpost('qz1', 'u_g1', { kind: 'quiz', title: 'Kuis PK', text: '', quiz: { questions: quizQ, dueAt: T2 + 86400000 } }),
+    gpost('qzOld', 'u_g1', { kind: 'quiz', title: 'Kuis lewat', text: '', quiz: { questions: quizQ, dueAt: T2 - 3600000 } }),
+    gpost('ds1', 'u_g1', { kind: 'discussion', title: 'Bahas soal no 5', text: '', content: '<p>Bagaimana caranya?</p>' })]);
+  check('tutor grup mengirim kuis & bahan diskusi', r.rejected.length === 0, r.rejected);
+  r = await push(guru, [gpost('bad', 'u_g1', { kind: 'material', title: 'Materi', text: '', content: '<img src=x onerror=alert(1)>' })]);
+  check('materi berisi skrip ditolak', r.rejected.length === 1 && /tidak diizinkan/.test(r.rejected[0].reason), r.rejected);
+  r = await push(s1, [gpost('rp1', 'u_s1', { threadId: 'ds1', text: 'Pakai rumus luas' })]);
+  check('anggota membalas diskusi', r.rejected.length === 0, r.rejected);
+  r = await push(s1, [gpost('m1', 'u_s1', { pinned: true, text: 'Halo semua (disunting)' })]);
+  check('anggota menyunting pesannya, tetapi tidak dapat menyematkan', r.rejected.length === 0 && r.applied[0].v.pinned === false && /disunting/.test(r.applied[0].v.text), r.applied);
+  r = await push(guru, [gpost('m1', 'u_s1', { text: 'diubah tutor', pinned: true })]);
+  check('tutor hanya dapat menyematkan pesan anggota (isi tidak berubah)', r.rejected.length === 0 && r.applied[0].v.pinned === true && /disunting/.test(r.applied[0].v.text), r.applied);
+  r = await push(guru, [gpost('m1', 'u_s1', { deleted: true, text: '' , pinned: true })]);
+  check('tutor dapat menghapus pesan anggota (isi dikosongkan)', r.rejected.length === 0 && r.applied[0].v.deleted === true && r.applied[0].v.text === '', r.applied);
+  r = await push(s1, [gpost('m1', 'u_s1', { text: 'pulihkan', deleted: false })]);
+  check('pesan terhapus tidak dapat dipulihkan', r.rejected.length === 1, r.rejected);
+  const ans = (postId, uid, extra) => ({ k: 'lms_group_answers', id: postId + ':' + uid, v: Object.assign({ id: postId + ':' + uid, postId, groupId: 'grp1', userId: uid, answers: { q1: 1 }, score: { correct: 1, total: 1 }, submittedAt: Date.now() }, extra || {}) });
+  r = await push(s1, [ans('qz1', 'u_s1')]);
+  check('anggota mengirim jawaban kuis', r.rejected.length === 0, r.rejected);
+  r = await push(s1, [ans('qz1', 'u_s1', { answers: { q1: 0 }, score: { correct: 0, total: 1 } })]);
+  check('jawaban yang sudah dikirim terkunci', r.rejected.length === 1 && /sudah dikirim/.test(r.rejected[0].reason), r.rejected);
+  r = await push(s1, [ans('qzOld', 'u_s1')]);
+  check('kuis yang lewat batas waktu ditolak', r.rejected.length === 1 && /Batas waktu/.test(r.rejected[0].reason), r.rejected);
+  r = await push(s2, [ans('qz1', 'u_s2')]);
+  check('bukan anggota tidak dapat mengerjakan kuis', r.rejected.length === 1, r.rejected);
+  r = await push(s1, [ans('ds1', 'u_s1')]);
+  check('jawaban untuk kiriman yang bukan kuis ditolak', r.rejected.length === 1, r.rejected);
+  const pS2 = await pull(s2);
+  check('bukan anggota tidak menerima grup, kiriman, dan jawaban', !(pS2.lms_groups && pS2.lms_groups.grp1) && !pS2.lms_group_posts && !pS2.lms_group_answers, Object.keys(pS2.lms_group_posts || {}));
+  const pS1 = await pull(s1);
+  check('anggota menerima grup & kiriman', !!(pS1.lms_groups && pS1.lms_groups.grp1 && pS1.lms_group_posts && pS1.lms_group_posts.qz1 && pS1.lms_group_posts.rp1));
+  const pG = await pull(guru);
+  check('tutor grup melihat jawaban anggota', !!(pG.lms_group_answers && pG.lms_group_answers['qz1:u_s1']));
+  r = await push(guru, [{ k: 'lms_group_answers', id: 'qz1:u_s1', op: 'del' }]);
+  check('tutor dapat mengatur ulang jawaban (anggota boleh mengerjakan lagi)', r.rejected.length === 0, r.rejected);
+  r = await push(admin, [{ k: 'lms_groups', id: 'grp1', v: { id: 'grp1', name: 'Grup PK 12', color: '#0d9488', memberIds: [], tutorIds: ['u_g1'], archived: false, createdBy: 'u_admin' } }]);
+  const sync1 = await call('sync', { cursor: 0, full: true }, s1);
+  const tomb = (sync1.data.records || []).find(x => x.k === 'lms_groups' && x.id === 'grp1');
+  check('anggota yang dikeluarkan menerima penanda hapus grup', tomb && tomb.v === null, tomb);
+  r = await push(s1, [gpost('m9', 'u_s1', { text: 'masih bisa?' })]);
+  check('anggota yang dikeluarkan tidak dapat mengirim lagi', r.rejected.length === 1, r.rejected);
+  r = await push(admin, [{ k: 'lms_groups', id: 'grp1', v: { id: 'grp1', name: 'Grup PK 12', color: '#0d9488', memberIds: ['u_s1'], tutorIds: ['u_g1'], archived: true, createdBy: 'u_admin' } }]);
+  r = await push(s1, [gpost('m10', 'u_s1', { text: 'diarsipkan?' })]);
+  check('grup yang diarsipkan menolak kiriman baru', r.rejected.length === 1 && /diarsipkan/.test(r.rejected[0].reason), r.rejected);
 
   const failed = results.filter(x => !x.ok);
   console.log(`\n${results.length - failed.length}/${results.length} lulus`);

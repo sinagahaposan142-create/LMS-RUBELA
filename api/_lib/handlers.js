@@ -404,6 +404,43 @@ async function teacherStudents(db, teacherId) {
   return new Set(enroll.filter(e => courses.has(e.courseId)).map(e => e.studentId));
 }
 
+/* ---------- Grup Belajar: rujukan ringkas untuk aturan & nudge ---------- */
+const GROUP_KEYS = new Set(['lms_groups', 'lms_group_posts', 'lms_group_answers']);
+const GROUP_REF_SQL = "SELECT id, json_extract(v, '$.memberIds') AS m, json_extract(v, '$.tutorIds') AS t, json_extract(v, '$.archived') AS a, json_extract(v, '$.createdBy') AS c FROM kv WHERE k = 'lms_groups' AND v IS NOT NULL";
+const GROUP_POST_COLS = "json_extract(v, '$.groupId') AS g, json_extract(v, '$.kind') AS kd, json_extract(v, '$.deleted') AS d, json_extract(v, '$.quiz.dueAt') AS due";
+const jsonIds = (raw) => { try { const a = typeof raw === 'string' ? JSON.parse(raw) : raw; return Array.isArray(a) ? a.map(String) : []; } catch (e) { return []; } };
+function groupRef(r) {
+  return { id: r.id, memberIds: jsonIds(r.m), tutorIds: jsonIds(r.t), archived: r.a === 1 || r.a === true || r.a === 'true', createdBy: r.c || null };
+}
+function groupPostRef(r) {
+  return { groupId: r.g, kind: r.kd, deleted: r.d === 1 || r.d === true || r.d === 'true', dueAt: r.due == null ? null : Number(r.due) || null };
+}
+/** Penerima sinyal realtime untuk perubahan grup: anggota, tutor, dan pembuat grup. Rujukan ikut diperbarui. */
+function groupNudge(ctx, k, id, value, before, targets) {
+  const refs = ctx.refs || {};
+  const add = (g) => { if (!g) return; (g.memberIds || []).concat(g.tutorIds || [], g.createdBy ? [g.createdBy] : []).forEach(u => { if (typeof u === 'string') targets.add(u); }); };
+  if (k === 'lms_groups') {
+    add(before); add(value);
+    if (refs.groups) {
+      if (value) refs.groups.set(id, { id, memberIds: (value.memberIds || []).map(String), tutorIds: (value.tutorIds || []).map(String), archived: !!value.archived, createdBy: value.createdBy || null });
+      else refs.groups.delete(id);
+      ctx.groupAccess = rules.groupAccessFrom([...refs.groups.values()], ctx.id);
+    }
+    return;
+  }
+  const rec = value || before;
+  const g = refs.groups && refs.groups.get(rec.groupId);
+  if (k === 'lms_group_posts') {
+    add(g);
+    if (refs.groupPosts && value) refs.groupPosts.set(id, { groupId: value.groupId, kind: value.kind, deleted: !!value.deleted, dueAt: value.quiz && value.quiz.dueAt ? Number(value.quiz.dueAt) : null });
+    return;
+  }
+  // Jawaban kuis: hanya saat dikirim/diatur ulang (bukan draf), ke tutor & pembuat grup serta pemiliknya.
+  if (value && !value.submittedAt) return;
+  if (g) (g.tutorIds || []).concat(g.createdBy ? [g.createdBy] : []).forEach(u => targets.add(u));
+  if (typeof rec.userId === 'string') targets.add(rec.userId);
+}
+
 /** Pilih baris pull sampai batas ukuran lalu ambil nilainya. */
 async function fetchPull(db, ctx, metaRows, cursor, full, snap) {
   if (!metaRows.length) return { records: [], cursor, more: false };
@@ -420,6 +457,10 @@ async function fetchPull(db, ctx, metaRows, cursor, full, snap) {
     : await db.query('SELECT k, id, v, ver, seq FROM kv WHERE ver > ? AND ver <= ? AND (v IS NOT NULL OR ver > ?) ORDER BY ver', [cursor, cut, floor]);
   if (ctx.role === 'guru' && !ctx.teacherStudents && rows.some(r => r.k === 'lms_payments')) {
     ctx.teacherStudents = await teacherStudents(db, ctx.id);
+  }
+  if (!ctx.isAdmin && !ctx.groupAccess && rows.some(r => r.k === 'lms_group_posts' || r.k === 'lms_group_answers')) {
+    const groups = await db.query(GROUP_REF_SQL);
+    ctx.groupAccess = rules.groupAccessFrom(groups.map(groupRef), ctx.id);
   }
   if (!ctx.isAdmin && !ctx.paidCourses && rows.some(r => r.k === 'lms_hub_courses')) {
     const paid = await db.query("SELECT json_extract(v, '$.courseId') AS c FROM kv WHERE k = 'lms_hub_payments' AND v IS NOT NULL AND json_extract(v, '$.studentId') = ? AND json_extract(v, '$.status') = 'approved'", [ctx.id]);
@@ -587,6 +628,17 @@ async function applyChanges(db, req, tokenHash, changes, now, afterStmts) {
     });
     extra.push("SELECT v FROM kv WHERE k = 'lms_settings' AND id = 'remedialEnabled'");
   }
+  // Rujukan Grup Belajar: semua grup (kecil) + kuis yang dijawab (aturan keanggotaan & batas waktu).
+  let idxGroupRefs = -1;
+  const touchesGroups = byKey.has('lms_groups') || byKey.has('lms_group_posts') || byKey.has('lms_group_answers');
+  if (touchesGroups) {
+    idxGroupRefs = head.length + reads.length + extra.length;
+    extra.push(GROUP_REF_SQL);
+    const quizIds = [...new Set((byKey.get('lms_group_answers') || []).map(id => String(id).split(':')[0]).filter(Boolean))].slice(0, 200);
+    extra.push(quizIds.length
+      ? { sql: `SELECT id, ${GROUP_POST_COLS} FROM kv WHERE k = 'lms_group_posts' AND v IS NOT NULL AND id IN (${quizIds.map(() => '?').join(',')})`, args: quizIds }
+      : "SELECT id FROM kv WHERE 0");
+  }
   const { tx, rows } = await db.begin(head.concat(reads, extra));
   try {
     const user = userFromSessionRows(rows[2], now);
@@ -608,6 +660,14 @@ async function applyChanges(db, req, tokenHash, changes, now, afterStmts) {
       });
       const sw = (rows[idxCbtRefs + 1] || [])[0];
       ctx.refs = Object.assign(ctx.refs || {}, { cbts, remedialEnabled: !(sw && parse(sw.v) === false), now });
+    }
+    if (idxGroupRefs >= 0) {
+      const groups = new Map();
+      (rows[idxGroupRefs] || []).forEach(r => groups.set(r.id, groupRef(r)));
+      const groupPosts = new Map();
+      (rows[idxGroupRefs + 1] || []).forEach(r => groupPosts.set(r.id, groupPostRef(r)));
+      ctx.refs = Object.assign(ctx.refs || {}, { groups, groupPosts });
+      ctx.groupAccess = rules.groupAccessFrom([...groups.values()], ctx.id);
     }
     let ver = Number(rows[1][0] && rows[1][0].v) || 0;
     const current = new Map();
@@ -698,7 +758,8 @@ async function applyChanges(db, req, tokenHash, changes, now, afterStmts) {
         continue;
       }
       const newVer = (value != null && before != null && rules.same(value, before)) ? cur.ver : put(c.k, c.id, value, cur ? cur.seq : 0);
-      noteNudge(c.k, value, before);
+      if (GROUP_KEYS.has(c.k)) groupNudge(ctx, c.k, c.id, value, before, targets);
+      else noteNudge(c.k, value, before);
       if (c.k === 'lms_hub_payments') {
         // Akses berubah → naikkan versi course agar perangkat siswa menarik ulang (isi terbuka/tertutup).
         const was = before && before.status === 'approved', now2 = value && value.status === 'approved';

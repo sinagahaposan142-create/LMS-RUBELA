@@ -234,6 +234,20 @@
     document.getElementById('backToCbt').addEventListener('click', () => Dashboard.navigate('cbt'));
   }
 
+  /** Teks pesan (Chat & Grup Belajar): rumus $…$ dirender, tautan http(s) aktif, sisanya di-escape. */
+  function chatTextHtml(text) {
+    const s = String(text || '');
+    const re = /\bhttps?:\/\/[^\s<>"']+[^\s<>"'.,;:!?)\]]/gi;
+    let out = '', last = 0, m;
+    const plain = (t) => (global.RichText ? RichText.renderMathInText(t) : UI.esc(t));
+    while ((m = re.exec(s))) {
+      out += plain(s.slice(last, m.index));
+      out += `<a href="${UI.esc(m[0])}" target="_blank" rel="noopener noreferrer nofollow">${UI.esc(m[0])}</a>`;
+      last = m.index + m[0].length;
+    }
+    return out + plain(s.slice(last));
+  }
+
   /* ===== Calendar Renderer ===== */
   function renderCalendar(container, user) {
     const canEdit = user.role === 'admin' || user.role === 'guru';
@@ -1021,19 +1035,6 @@
     /** Teks kutipan satu baris; rumus tetap dirender. */
     const quoteText = (t) => (global.RichText ? RichText.renderMathInText(t) : UI.esc(t));
     /** Isi pesan: rumus ($...$) dirender, tautan http(s) bisa diklik, sisanya di-escape. */
-    function chatTextHtml(text) {
-      const s = String(text || '');
-      const re = /\bhttps?:\/\/[^\s<>"']+[^\s<>"'.,;:!?)\]]/gi;
-      let out = '', last = 0, m;
-      const plain = (t) => (global.RichText ? RichText.renderMathInText(t) : UI.esc(t));
-      while ((m = re.exec(s))) {
-        out += plain(s.slice(last, m.index));
-        out += `<a href="${UI.esc(m[0])}" target="_blank" rel="noopener noreferrer nofollow">${UI.esc(m[0])}</a>`;
-        last = m.index + m[0].length;
-      }
-      return out + plain(s.slice(last));
-    }
-
     function renderConversation() {
       const chatMain = document.getElementById('chatMain');
       const partner = DB.getUser(activeChatUserId);
@@ -2679,7 +2680,7 @@
   global.Shared = {
     toEmbedUrl, videoEmbedHtml, startCbt, showCbtResult, renderCalendar, renderFeedback,
     renderAnnouncements, renderTicker, visibleAnnouncementsFor, isAnnouncementVisible, tickerActive,
-    autoLinkText, announcementContentHtml, renderChat, renderAiTools, renderAiAnalytics,
+    autoLinkText, announcementContentHtml, renderChat, chatTextHtml, renderAiTools, renderAiAnalytics,
     // Password kelas
     openCoursePasswordForm, openCoursePasswordGate,
     // Gamifikasi & rekap lintas peran

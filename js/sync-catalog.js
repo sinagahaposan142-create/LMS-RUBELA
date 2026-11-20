@@ -53,6 +53,9 @@
     lms_ptn_majors: { type: RECORDS },
     lms_admission_events: { type: RECORDS },               // Tools: kalender SNBP/SNBT/Mandiri (diisi admin)
     lms_utbk_plans: { type: RECORDS, idField: 'userId', quiet: true },   // skor, pilihan jurusan & pengingat milik pengguna
+    lms_groups: { type: RECORDS },                         // Grup Belajar (js/groups.js); sinyal realtime ke anggota grup saja
+    lms_group_posts: { type: RECORDS },                    // pesan, diskusi, kuis, materi, pengumuman grup
+    lms_group_answers: { type: RECORDS },                  // jawaban kuis grup (id = postId:userId)
     lms_messages: { type: RECORDS, target: ['senderId', 'receiverId'] },
     lms_birthday_wishes: { type: RECORDS },
     lms_birthday_rewards: { type: RECORDS },

@@ -46,6 +46,7 @@
         { key: 'berita', label: 'Berita', icon: '📰', group: 'Komunikasi' },
         { key: 'kalender', label: 'Kalender', icon: '📅', group: 'Komunikasi' },
         { key: 'chat', label: 'Chat', icon: '💭', group: 'Komunikasi' },
+        { key: 'grup', label: 'Grup Belajar', icon: '👥', group: 'Komunikasi' },
         { key: 'feedback', label: 'Kritik & Saran', icon: '💬', group: 'Komunikasi' },
         { key: 'keuangan', label: 'Keuangan', icon: '💰', group: 'Operasional' },
         { key: 'musik', label: 'Musik Latar', icon: '🎵', group: 'Operasional' },
@@ -81,6 +82,7 @@
         { key: 'berita', label: 'Berita', icon: '📰', group: 'Komunikasi' },
         { key: 'kalender', label: 'Kalender', icon: '📅', group: 'Komunikasi' },
         { key: 'chat', label: 'Chat', icon: '💭', group: 'Komunikasi' },
+        { key: 'grup', label: 'Grup Belajar', icon: '👥', group: 'Komunikasi' },
         { key: 'birthday', label: 'Ulang Tahun', icon: '🎂', group: 'Komunikasi' },
         { key: 'feedback', label: 'Kritik & Saran', icon: '💬', group: 'Komunikasi' },
         { key: 'keuangan', label: 'Honor Saya', icon: '💰', group: 'Akun' },
@@ -113,6 +115,7 @@
         { key: 'pengumuman', label: 'Pengumuman', icon: '📢', group: 'Komunikasi' },
         { key: 'berita', label: 'Berita', icon: '📰', group: 'Komunikasi' },
         { key: 'chat', label: 'Chat', icon: '💭', group: 'Komunikasi' },
+        { key: 'grup', label: 'Grup Belajar', icon: '👥', group: 'Komunikasi' },
         { key: 'feedback', label: 'Kritik & Saran', icon: '💬', group: 'Komunikasi' },
         { key: 'keuangan', label: 'Pembayaran', icon: '💰', group: 'Akun' },
         { key: 'profile', label: 'Profil', icon: '👤', group: 'Akun' }
@@ -309,7 +312,8 @@
       // Tools seleksi masuk kampus (js/ptn.js): kalkulator & kalender untuk semua peran, data PTN khusus admin.
       'kalkulator-utbk': (c) => UtbkCalc.render(c, user),
       'kalender-seleksi': (c) => AdmissionCal.render(c, user),
-      'data-ptn': (c) => PtnAdmin.render(c, user)
+      'data-ptn': (c) => PtnAdmin.render(c, user),
+      grup: (c) => Groups.render(c, user)
     };
 
     /* ================= Routing ================= */
@@ -406,7 +410,7 @@
      * Halaman ringkasan diperbarui otomatis; halaman lain menampilkan tombol
      * "Muat ulang" agar isian/tab yang sedang dibuka tidak tiba-tiba berubah. */
     const AUTO_REFRESH = new Set(['overview', 'notifikasi', 'pengumuman', 'kalender', 'online', 'hub-pay', 'kalender-seleksi']);
-    const SELF_LIVE = new Set(['chat', 'game-battle', 'game-admin']);
+    const SELF_LIVE = new Set(['chat', 'game-battle', 'game-admin', 'grup']);
     let lastInputAt = 0;
     let liveTimer = null;
     let lastLiveAt = 0;

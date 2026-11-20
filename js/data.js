@@ -56,7 +56,8 @@
     'lms_learning_log', 'lms_streak_grants', 'lms_reading_texts', 'lms_verses',
     'lms_hub_courses', 'lms_hub_progress', 'lms_hub_payments', 'lms_capsule_vaults', 'lms_capsules',
     'lms_music_tracks', 'lms_ai_chats', 'lms_game_questions', 'lms_game_battles', 'lms_game_scores',
-    'lms_topics', 'lms_news', 'lms_ptn_campuses', 'lms_ptn_faculties', 'lms_ptn_majors', 'lms_admission_events', 'lms_utbk_plans'
+    'lms_topics', 'lms_news', 'lms_ptn_campuses', 'lms_ptn_faculties', 'lms_ptn_majors', 'lms_admission_events', 'lms_utbk_plans',
+    'lms_groups', 'lms_group_posts', 'lms_group_answers'
   ];
 
   /* ===== Hari & jadwal ===== */
@@ -1857,6 +1858,14 @@
       }
       // Riwayat chat AI milik akun ini
       if (load(AI_CHAT_KEY, []).some(t => t && t.userId === id)) save(AI_CHAT_KEY, load(AI_CHAT_KEY, []).filter(t => !t || t.userId !== id));
+      // Grup Belajar: keluarkan dari keanggotaan, hapus pesan & jawaban kuis akun ini
+      const grs = load('lms_groups', []);
+      if (grs.some(g => (g.memberIds || []).includes(id) || (g.tutorIds || []).includes(id))) {
+        save('lms_groups', grs.map(g => ((g.memberIds || []).includes(id) || (g.tutorIds || []).includes(id)
+          ? Object.assign({}, g, { memberIds: (g.memberIds || []).filter(x => x !== id), tutorIds: (g.tutorIds || []).filter(x => x !== id), updatedAt: Date.now() }) : g)));
+      }
+      if (load('lms_group_posts', []).some(p => p.authorId === id && p.kind === 'message')) save('lms_group_posts', load('lms_group_posts', []).filter(p => !(p.authorId === id && p.kind === 'message')));
+      if (load('lms_group_answers', []).some(a => a.userId === id)) save('lms_group_answers', load('lms_group_answers', []).filter(a => a.userId !== id));
       // Skor, pilihan jurusan, dan pengingat Tools milik akun ini
       if (load('lms_utbk_plans', []).some(p => p && p.userId === id)) save('lms_utbk_plans', load('lms_utbk_plans', []).filter(p => !p || p.userId !== id));
       // Messages + notifications belonging to the removed account

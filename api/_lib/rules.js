@@ -11,7 +11,7 @@ const catalog = require('../../js/sync-catalog.js');
 const ROLES = ['admin', 'guru', 'siswa', 'orangtua'];
 const ADMIN_ONLY = new Set(['lms_payments', 'lms_expenses', 'lms_salaries', 'lms_motivations', 'lms_security_questions',
   'lms_class_options', 'lms_batches', 'lms_reading_texts', 'lms_verses', 'lms_hub_courses', 'lms_music_tracks', 'lms_streak_grants',
-  'lms_news', 'lms_ptn_campuses', 'lms_ptn_faculties', 'lms_ptn_majors', 'lms_admission_events']);
+  'lms_news', 'lms_ptn_campuses', 'lms_ptn_faculties', 'lms_ptn_majors', 'lms_admission_events', 'lms_groups']);
 const STAFF_ONLY = new Set(['lms_courses', 'lms_materials', 'lms_modules', 'lms_recordings', 'lms_assignments', 'lms_questions',
   'lms_cbts', 'lms_attendance', 'lms_class_plans', 'lms_whiteboards', 'lms_whiteboard_boards', 'lms_events', 'lms_announcements',
   'lms_game_questions', 'lms_topics']);
@@ -187,6 +187,112 @@ function toolsProblem(k, id, r, me) {
   }
 }
 
+/* ============================ GRUP BELAJAR ============================
+ * lms_groups        : dikelola admin. Terlihat oleh admin, tutor (tutorIds), dan anggota (memberIds).
+ * lms_group_posts   : anggota hanya mengirim 'message' (termasuk balasan diskusi); admin & tutor grup
+ *                     dapat mengirim semua jenis, menyematkan, dan menghapus (soft delete) kiriman siapa pun.
+ * lms_group_answers : jawaban kuis (id = postId:userId) milik anggota; terkunci setelah dikirim;
+ *                     terlihat oleh pemilik, tutor grup, dan admin.
+ * ctx.groupAccess (Map groupId → 'staff' | 'member') dan ctx.refs.groups / groupPosts diisi handler. */
+const GROUP_KINDS = ['message', 'discussion', 'quiz', 'material', 'announcement'];
+const GROUP_QUIZ_GRACE = 10 * 60 * 1000;
+const idList = (a, max) => Array.isArray(a) && a.length <= max && a.every(x => typeof x === 'string' && x.length > 0 && x.length <= 200);
+function richUnsafe(html) {
+  return /<\s*(script|iframe|object|embed|style)\b/i.test(html) || /<[^>]*\son[a-z]+\s*=/i.test(html) ||
+    /(href|src)\s*=\s*["']?\s*(javascript|vbscript):/i.test(html);
+}
+function groupProblem(g) {
+  const name = typeof g.name === 'string' ? g.name.trim() : '';
+  if (name.length < 2 || name.length > 80) return 'Nama grup 2–80 karakter.';
+  if (g.description != null && (typeof g.description !== 'string' || g.description.length > 500)) return 'Deskripsi grup maksimal 500 karakter.';
+  if (!idList(g.memberIds || [], 1000) || !idList(g.tutorIds || [], 100)) return 'Daftar anggota grup tidak valid.';
+  if (g.color != null && g.color !== '' && !/^#[0-9a-f]{6}$/i.test(g.color)) return 'Warna grup tidak valid.';
+  return null;
+}
+/** Map groupId → 'staff' | 'member' untuk pengguna dari daftar grup [{ id, memberIds, tutorIds }]. */
+function groupAccessFrom(groups, me) {
+  const m = new Map();
+  groups.forEach(g => {
+    if ((g.tutorIds || []).includes(me)) m.set(g.id, 'staff');
+    else if ((g.memberIds || []).includes(me)) m.set(g.id, 'member');
+  });
+  return m;
+}
+function groupRole(ctx, groupId) {
+  if (ctx.isAdmin) return 'staff';
+  return (ctx.groupAccess && ctx.groupAccess.get(groupId)) || null;
+}
+function groupPostShape(p) {
+  if (!GROUP_KINDS.includes(p.kind)) return 'Jenis kiriman grup tidak valid.';
+  if (typeof p.groupId !== 'string' || !p.groupId || typeof p.authorId !== 'string') return 'Kiriman grup tidak valid.';
+  if (typeof p.text !== 'string' || p.text.length > 4000) return 'Pesan maksimal 4.000 karakter.';
+  if (p.title != null && (typeof p.title !== 'string' || p.title.length > 160)) return 'Judul maksimal 160 karakter.';
+  if (p.content != null && (typeof p.content !== 'string' || p.content.length > 1500000)) return 'Isi kiriman terlalu besar. Perkecil gambar di dalamnya.';
+  if (typeof p.content === 'string' && richUnsafe(p.content)) return 'Isi kiriman berisi kode yang tidak diizinkan.';
+  if (p.threadId != null && (p.kind !== 'message' || typeof p.threadId !== 'string' || p.threadId.length > 200)) return 'Balasan diskusi tidak valid.';
+  if (p.deleted) return null;
+  if (p.kind === 'message' && !p.text.trim()) return 'Pesan kosong.';
+  if (p.kind !== 'message' && !(typeof p.title === 'string' && p.title.trim().length >= 2)) return 'Judul kiriman minimal 2 karakter.';
+  if (p.kind === 'quiz') {
+    const q = p.quiz;
+    if (!q || typeof q !== 'object' || !Array.isArray(q.questions) || !q.questions.length || q.questions.length > 40 ||
+        !q.questions.every(x => x && typeof x === 'object' && typeof x.id === 'string' && typeof x.questionType === 'string')) return 'Kuis harus berisi 1–40 soal.';
+    if (q.dueAt != null && !Number.isFinite(Number(q.dueAt))) return 'Batas waktu kuis tidak valid.';
+  } else if (p.quiz != null) return 'Hanya kiriman kuis yang boleh berisi soal.';
+  return null;
+}
+function checkGroupPost(ctx, op, before, after) {
+  const me = ctx.id;
+  const rec = after || before;
+  const role = groupRole(ctx, rec.groupId);
+  if (!role) return deny('Anda bukan anggota grup ini.');
+  if (op === 'delete') return ctx.isAdmin ? allow(null) : deny('Kiriman grup dihapus dengan menandainya, bukan dihapus permanen.');
+  const prob = groupPostShape(after);
+  if (prob) return deny(prob);
+  const g = ctx.refs && ctx.refs.groups ? ctx.refs.groups.get(rec.groupId) : null;
+  if (op === 'create') {
+    if (after.authorId !== me) return deny('Penulis kiriman tidak sesuai.');
+    if (!g && !ctx.isAdmin) return deny('Grup tidak ditemukan.');
+    if (g && g.archived) return deny('Grup ini sudah diarsipkan.');
+    if (role !== 'staff' && after.kind !== 'message') return deny('Hanya admin atau tutor grup yang dapat mengirim soal, bahan diskusi, materi, atau pengumuman.');
+    const out = clone(after);
+    if (role !== 'staff') out.pinned = false;
+    out.deleted = false;
+    return allow(out);
+  }
+  for (const f of ['groupId', 'authorId', 'kind', 'threadId', 'createdAt']) {
+    if (!same(before[f] == null ? null : before[f], after[f] == null ? null : after[f])) return deny('Kiriman grup tidak dapat dipindahkan atau diubah jenisnya.');
+  }
+  if (before.deleted && !after.deleted) return deny('Kiriman yang dihapus tidak dapat dipulihkan.');
+  if (before.authorId === me) {
+    const out = clone(after);
+    if (role !== 'staff') out.pinned = !!before.pinned;
+    if (out.deleted && !before.deleted) Object.assign(out, { text: '', title: '', content: '', quiz: null, deletedBy: me });
+    return allow(out);
+  }
+  if (role !== 'staff') return deny('Kiriman milik anggota lain.');
+  // Moderasi tutor/admin: hanya sematkan & hapus.
+  const out = clone(before);
+  out.pinned = !!after.pinned;
+  if (after.deleted && !before.deleted) Object.assign(out, { deleted: true, text: '', title: '', content: '', quiz: null, deletedBy: me, deletedAt: Number(after.deletedAt) || null });
+  return allow(out);
+}
+function checkGroupAnswer(ctx, op, id, before, after) {
+  const me = ctx.id;
+  const rec = after || before;
+  const post = ctx.refs && ctx.refs.groupPosts ? ctx.refs.groupPosts.get(rec.postId) : null;
+  const role = groupRole(ctx, post ? post.groupId : rec.groupId);
+  if (op === 'delete') return role === 'staff' ? allow(null) : deny('Jawaban kuis hanya dapat diatur ulang admin atau tutor grup.');
+  if (after.userId !== me || id !== after.postId + ':' + me || (before && before.userId !== me)) return deny('Jawaban kuis milik pengguna lain.');
+  if (role !== 'member') return deny('Kuis grup hanya dikerjakan anggota grup.');
+  if (!post || post.kind !== 'quiz' || post.deleted || post.groupId !== after.groupId) return deny('Kuis tidak ditemukan atau sudah dihapus.');
+  if (before && before.submittedAt) return deny('Jawaban kuis sudah dikirim dan tidak dapat diubah.');
+  if (after.answers == null || typeof after.answers !== 'object' || Array.isArray(after.answers) || JSON.stringify(after.answers).length > 200000) return deny('Isi jawaban kuis tidak valid.');
+  // Waktu server (bukan submittedAt kiriman perangkat) yang menentukan batas waktu.
+  if (after.submittedAt && post.dueAt && Date.now() > post.dueAt + GROUP_QUIZ_GRACE) return deny('Batas waktu kuis sudah lewat.');
+  return allow(after);
+}
+
 /* ============================ REMEDIAL ============================ */
 const REMEDIAL_GRACE_MS = 10 * 60 * 1000;      // toleransi selisih jam perangkat
 /** Percobaan baru pada ujian remedial: hanya peserta terpilih, di dalam jadwal, sistem aktif. */
@@ -291,6 +397,14 @@ function present(ctx, k, id, rec) {
       return rec.userId === me ? rec : undefined;      // riwayat chat AI hanya untuk pemiliknya
     case 'lms_utbk_plans':
       return ctx.isAdmin || rec.userId === me ? rec : undefined;
+    case 'lms_groups':
+      // null (bukan undefined): perangkat anggota yang dikeluarkan ikut menghapus grupnya.
+      if (ctx.isAdmin || (rec.memberIds || []).includes(me) || (rec.tutorIds || []).includes(me)) return rec;
+      return null;
+    case 'lms_group_posts':
+      return groupRole(ctx, rec.groupId) ? rec : undefined;
+    case 'lms_group_answers':
+      return ctx.isAdmin || rec.userId === me || groupRole(ctx, rec.groupId) === 'staff' ? rec : undefined;
     case 'lms_users': {
       if (ctx.isAdmin || rec.id === me || rec.salaryRate == null) return rec;
       const out = Object.assign({}, rec);
@@ -405,6 +519,12 @@ function checkWrite(ctx, k, id, before, after) {
   }
   // Pesan divalidasi untuk semua peran (termasuk admin): bentuk, panjang, balasan, terusan.
   if (k === 'lms_messages') return checkMessage(ctx, op, before, after);
+  if (k === 'lms_group_posts') return checkGroupPost(ctx, op, before, after);
+  if (k === 'lms_group_answers') return checkGroupAnswer(ctx, op, id, before, after);
+  if (k === 'lms_groups' && after) {
+    const prob = groupProblem(after);
+    if (prob) return deny(prob);
+  }
   if (k === 'lms_hub_payments') return checkHubPayment(ctx, op, before, after);
   if (k === 'lms_hub_courses' && after) {
     const prob = hubCourseAccessProblem(after);
@@ -613,4 +733,4 @@ function checkUser(ctx, op, before, after) {
   return allow(out);
 }
 
-module.exports = { makeCtx, present, checkWrite, needsTeacherScope, ROLES, same, clone };
+module.exports = { makeCtx, present, checkWrite, needsTeacherScope, ROLES, same, clone, groupAccessFrom };
