@@ -136,6 +136,23 @@
     });
   }
 
+  /* Materi & Sub Materi (js/topics.js) — subtest mengikuti kelas */
+  function topicFieldHtml(course) {
+    if (!global.Topics || !course || !course.subtest) return '';
+    return Topics.pickerHtml('ceTp', { hint: `Mengikuti subtest kelas: ${course.subtest}.` });
+  }
+  function bindTopicField(root, course, user, draft, onDirty) {
+    if (!global.Topics || !course || !course.subtest) return;
+    Topics.bindPicker(root, {
+      user, subtest: course.subtest, value: { topicId: draft.topicId, subtopicId: draft.subtopicId },
+      onChange: (v) => { draft.topicId = v.topicId; draft.subtopicId = v.subtopicId; onDirty(); }
+    });
+  }
+  function topicRef(course, draft) {
+    if (!global.Topics || !course || !course.subtest) return {};
+    return Topics.sanitizeRef(course.subtest, draft.topicId, draft.subtopicId);
+  }
+
   /* =====================================================================
    * 1. MATERI
    * ===================================================================*/
@@ -153,7 +170,9 @@
     const draft = {
       title: editing ? editing.title : '',
       content: editing ? editing.content : '',
-      link: editing ? (editing.link || '') : ''
+      link: editing ? (editing.link || '') : '',
+      topicId: editing ? (editing.topicId || null) : null,
+      subtopicId: editing ? (editing.subtopicId || null) : null
     };
     let dirty = false;
 
@@ -172,6 +191,7 @@
             <input id="ceTitle" name="title" required value="${esc(draft.title)}"
                    placeholder="mis. Barisan & Deret Aritmetika" />
           </div>
+          ${topicFieldHtml(course)}
           ${ownerFieldHtml(user, course, editing)}
         </div>
 
@@ -198,6 +218,7 @@
       </form>`;
 
     const main = wsEl.querySelector('#ceMain');
+    bindTopicField(main, course, user, draft, () => { dirty = true; });
     Editor.attach(main, {
       onInput: (el) => {
         if (el.id === 'ceContent') { draft.content = el.innerHTML; dirty = true; paintPreview(); }
@@ -235,12 +256,12 @@
       if (!title) { UI.toast('Judul materi wajib diisi.', 'error'); return; }
       if (!RichText.plain(draft.content, 400).trim()) { UI.toast('Isi materi masih kosong.', 'error'); return; }
 
-      const base = {
+      const base = Object.assign({
         courseId: course.id,
         title,
         content: RichText.sanitize(draft.content),
         link: form.querySelector('#ceLink').value.trim()
-      };
+      }, topicRef(course, draft));
       let saved;
       if (editing) {
         const patch = DB.stampEditor(base, user);
@@ -275,7 +296,9 @@
       link: editing ? (editing.link || '') : '',
       sections: editing && editing.sections && editing.sections.length
         ? JSON.parse(JSON.stringify(editing.sections))
-        : [{ title: '', content: '' }]
+        : [{ title: '', content: '' }],
+      topicId: editing ? (editing.topicId || null) : null,
+      subtopicId: editing ? (editing.subtopicId || null) : null
     };
     let dirty = false;
     let activeSec = 0;
@@ -305,6 +328,7 @@
               <label for="ceLink">Tautan Modul (opsional)</label>
               <input id="ceLink" name="link" type="url" value="${esc(draft.link)}" placeholder="https://..." />
             </div>
+            ${topicFieldHtml(course)}
             ${ownerFieldHtml(user, course, editing)}
           </div>
 
@@ -340,6 +364,7 @@
         </form>`;
 
       const main = wsEl.querySelector('#ceMain');
+      bindTopicField(main, course, user, draft, () => { dirty = true; });
       Editor.attach(main, {
         onInput: (el) => {
           if (el.id === 'ceSecContent') {
@@ -418,13 +443,13 @@
         .filter(s => s.title || RichText.plain(s.content, 50).trim());
       if (!sections.length) { UI.toast('Isi minimal satu bagian modul.', 'error'); return; }
 
-      const base = {
+      const base = Object.assign({
         courseId: course.id,
         title,
         description: form.querySelector('#ceDesc').value.trim(),
         link: form.querySelector('#ceLink').value.trim(),
         sections
-      };
+      }, topicRef(course, draft));
       let saved;
       if (editing) {
         const patch = DB.stampEditor(base, user);

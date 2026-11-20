@@ -1250,6 +1250,8 @@
             }).join('')}
         </div>
 
+        ${global.Topics ? Topics.masteryCardHtml(cbt, [attempt], { sub: 'Materi yang sudah dan belum kamu kuasai di ujian ini' }) : ''}
+
         <div class="card">
           <div class="card-header">
             ${UI.secHead('📖', 'Pembahasan', 'Jawaban Anda dibandingkan kunci jawaban')}

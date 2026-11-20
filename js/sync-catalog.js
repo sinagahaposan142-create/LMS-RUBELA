@@ -30,6 +30,7 @@
     lms_submissions: { type: RECORDS },
     lms_enrollments: { type: RECORDS },
     lms_questions: { type: RECORDS },
+    lms_topics: { type: RECORDS },                         // Materi & Sub Materi per subtest (js/topics.js)
     lms_cbts: { type: RECORDS },
     lms_cbt_attempts: { type: RECORDS },
     lms_attendance: { type: RECORDS },

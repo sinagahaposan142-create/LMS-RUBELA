@@ -62,6 +62,7 @@
           <span class="qc-chip sub">${st ? st.icon : '📘'} ${UI.esc(st ? st.short : (q.subject || 'Umum'))}</span>
           <span class="qc-chip type">${UI.esc(q.questionType || 'Pilihan Ganda')}</span>
           ${difficultyChip(q.difficulty)}
+          ${global.Topics ? Topics.chipsHtml(q) : ''}
           <span class="qc-chip opt">${UI.esc(answerShapeLabel(q))}</span>
           ${q.points != null && Number(q.points) !== 1 ? `<span class="qc-chip">⭐ ${UI.esc(String(q.points))} poin</span>` : ''}
         </div>
@@ -726,6 +727,21 @@
     }
 
     /** Objek CBT sementara dari draft (untuk pratinjau poin). */
+    /** Ringkasan materi dari soal yang dipilih: "Logika Umum (5) • Silogisme (2) …". */
+    function coverageHtml() {
+      const ids = builtSections().flatMap(s => s.questionIds);
+      if (!ids.length) return '<span class="muted">-</span>';
+      const counts = new Map();
+      let none = 0;
+      ids.forEach(id => {
+        const l = Topics.labelOf(DB.getQuestion(id));
+        if (!l) { none++; return; }
+        counts.set(l.text, (counts.get(l.text) || 0) + 1);
+      });
+      const parts = [...counts.entries()].sort((a, b) => b[1] - a[1]).map(([t, n]) => `<span class="qc-chip tp-chip">${UI.esc(t)} · ${n}</span>`);
+      return `<div class="qc-tags">${parts.join('')}${none ? `<span class="qc-chip opt">${none} soal tanpa materi</span>` : ''}</div>`;
+    }
+
     function draftCbt() {
       const sc = draft.scoring;
       return {
@@ -739,6 +755,7 @@
       const subs = activeSubtests();
       let activeSub = subs[0];
       let fType = '', fDiff = '', fQuery = '';
+      const tf = { topicId: '', subtopicId: '' };     // filter materi / sub materi
 
       panel.innerHTML = `
         <div class="card">
@@ -759,8 +776,15 @@
                   <option value="">Semua Tingkat</option>
                   ${DB.DIFFICULTIES.map(d => `<option value="${d}">${d.charAt(0).toUpperCase() + d.slice(1)}</option>`).join('')}
                 </select>
+                ${global.Topics ? '<span class="qf-topics" id="wzTpBox"></span>' : ''}
                 <button class="btn btn-sm btn-secondary" id="selAll">Pilih Semua</button>
                 <button class="btn btn-sm btn-secondary" id="selNone">Kosongkan</button>
+              </div>
+              <div class="qb-random">
+                <label for="wzRandN">Ambil acak</label>
+                <input type="number" id="wzRandN" min="1" max="200" value="10" />
+                <span class="muted small">soal dari hasil filter yang belum dipilih</span>
+                <button type="button" class="btn btn-sm btn-secondary" id="wzRandGo">Ambil</button>
               </div>
               <div id="qArea"></div>
             </div>
@@ -794,17 +818,33 @@
         }).join('');
         subListEl.querySelectorAll('[data-sub]').forEach(el => el.addEventListener('click', () => {
           activeSub = el.dataset.sub;
+          tf.topicId = ''; tf.subtopicId = '';
           paintSubList();
+          if (global.Topics) paintTopicFilter();
           paintQuestions();
         }));
       }
 
-      function paintQuestions() {
-        const st = DB.subtestByName(activeSub);
+      /** Soal subtest aktif yang lolos semua filter (format, tingkat, materi, kata kunci). */
+      function filtered() {
         let list = DB.getQuestions().filter(q => q.subject === activeSub);
         if (fType) list = list.filter(q => (q.questionType || 'Pilihan Ganda') === fType);
         if (fDiff) list = list.filter(q => (q.difficulty || 'sedang') === fDiff);
-        if (fQuery) list = list.filter(q => q.text.toLowerCase().includes(fQuery));
+        if (global.Topics) list = list.filter(q => Topics.matches(q, tf));
+        if (fQuery) list = list.filter(q => DataSearch.matches(DataSearch.norm(DataSearch.plain(q.text)), fQuery));
+        return list;
+      }
+      function paintTopicFilter() {
+        const box = document.getElementById('wzTpBox');
+        if (!box) return;
+        box.innerHTML = Topics.filterHtml(activeSub, tf, 'wz');
+        box.querySelector('#wzTopic').addEventListener('change', (e) => { tf.topicId = e.target.value; tf.subtopicId = ''; paintTopicFilter(); paintQuestions(); });
+        box.querySelector('#wzSub').addEventListener('change', (e) => { tf.subtopicId = e.target.value; paintQuestions(); });
+      }
+
+      function paintQuestions() {
+        const st = DB.subtestByName(activeSub);
+        const list = filtered();
 
         const sel = new Set(draft.picked[activeSub] || []);
         const dur = draft.durations[activeSub] || (st ? st.defaultMinutes : 20);
@@ -835,7 +875,18 @@
           `• ${(draft.picked[activeSub] || []).length} soal di ${st ? st.short : activeSub}`;
       }
 
-      document.getElementById('qSearch').addEventListener('input', (e) => { fQuery = e.target.value.trim().toLowerCase(); paintQuestions(); });
+      document.getElementById('qSearch').addEventListener('input', (e) => { fQuery = e.target.value.trim(); paintQuestions(); });
+      document.getElementById('wzRandGo').addEventListener('click', () => {
+        const want = Math.max(1, Math.min(200, Math.round(Number(document.getElementById('wzRandN').value) || 0)));
+        const have = new Set(draft.picked[activeSub] || []);
+        const pool = filtered().map(q => q.id).filter(id => !have.has(id));
+        if (!pool.length) { UI.toast('Semua soal pada filter ini sudah dipilih.', 'info'); return; }
+        for (let i = pool.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [pool[i], pool[j]] = [pool[j], pool[i]]; }
+        const take = pool.slice(0, want);
+        draft.picked[activeSub] = [...have, ...take];
+        UI.toast(take.length < want ? `Hanya ${take.length} soal tersedia; semuanya ditambahkan.` : `${take.length} soal acak ditambahkan.`, 'success');
+        paintQuestions(); paintSubList();
+      });
       document.getElementById('fType').addEventListener('change', (e) => { fType = e.target.value; paintQuestions(); });
       document.getElementById('fDiff').addEventListener('change', (e) => { fDiff = e.target.value; paintQuestions(); });
       document.getElementById('selAll').addEventListener('click', () => {
@@ -855,6 +906,7 @@
       });
 
       paintSubList();
+      if (global.Topics) paintTopicFilter();
       paintQuestions();
     }
 
@@ -952,6 +1004,7 @@
                 : '<span class="muted">Tidak dikaitkan ke tutor</span>'}</td></tr>` : ''}
               <tr><th>Metode</th><td>${draft.subtestMode === 'full' ? 'Gabungan 7 Subtest (Full UTBK)'
                 : (draft.subtestMode === 'single' ? 'Per 1 Subtest — ' + UI.esc(draft.selectedSubtest) : 'Custom')}</td></tr>
+              ${global.Topics ? `<tr><th>Cakupan Materi</th><td>${coverageHtml()}</td></tr>` : ''}
               <tr><th>Sistem Penilaian</th><td id="wzScoreDesc">${global.Scoring ? UI.esc(Scoring.describe(draftCbt())) : 'IRT'}</td></tr>
               <tr><th>Jadwal</th><td>${UI.fmtDateTime(draft.startAt)} &nbsp;s.d.&nbsp; ${UI.fmtDateTime(draft.endAt)}</td></tr>
               <tr><th>Keamanan</th><td>
@@ -1154,11 +1207,13 @@
   function openBankBrowser(user, onDone, initialSub) {
     let activeSub = (initialSub && DB.SUBTEST_NAMES.includes(initialSub)) ? initialSub : DB.SUBTESTS[0].name;
     let fType = '', fDiff = '', fQuery = '';
+    const tf = { topicId: '', subtopicId: '' };     // filter materi / sub materi
     let bbPage = 1;
 
     const body = openWorkspace('Soal Tersedia — Bank Soal',
       'Telusuri soal per kategori subtest, format, dan tingkat kesulitan',
-      `<button class="btn btn-secondary btn-sm" id="wsBulkQ">⚡ Buat Massal</button>
+      `${global.Topics ? '<button class="btn btn-secondary btn-sm" id="wsTopics">🗂 Materi & Sub Materi</button>' : ''}
+       <button class="btn btn-secondary btn-sm" id="wsBulkQ">⚡ Buat Massal</button>
        <button class="btn btn-secondary btn-sm" id="wsImportQ">⬆ Impor</button>
        <button class="btn btn-secondary btn-sm" id="wsExportQ">⬇ Ekspor</button>
        <button class="btn btn-primary btn-sm" id="wsAddQ">+ Tambah Soal</button>`);
@@ -1172,6 +1227,8 @@
     document.getElementById('wsImportQ').addEventListener('click', () =>
       BankTools.openImport(user, paintAll, { subtest: activeSub }));
     document.getElementById('wsExportQ').addEventListener('click', () => openExportMenu());
+    const tpBtn = document.getElementById('wsTopics');
+    if (tpBtn) tpBtn.addEventListener('click', () => Topics.openManager(user, () => { if (tf.topicId && !Topics.get(tf.topicId)) { tf.topicId = ''; tf.subtopicId = ''; } paintAll(); }, activeSub));
 
     /** Pilihan ekspor: seluruh bank atau hanya subtest yang sedang dibuka. */
     function openExportMenu() {
@@ -1230,6 +1287,7 @@
                 <option value="">Semua Tingkat</option>
                 ${DB.DIFFICULTIES.map(d => `<option value="${d}" ${fDiff === d ? 'selected' : ''}>${d.charAt(0).toUpperCase() + d.slice(1)}</option>`).join('')}
               </select>
+              ${global.Topics ? '<span class="qf-topics" id="bbTpBox"></span>' : ''}
             </div>
             <div id="bbArea"></div>
           </div>
@@ -1249,7 +1307,16 @@
       });
       document.getElementById('bbType').addEventListener('change', (e) => { fType = e.target.value; bbPage = 1; paintList(); });
       document.getElementById('bbDiff').addEventListener('change', (e) => { fDiff = e.target.value; bbPage = 1; paintList(); });
+      paintTopicFilter();
       if (global.Effects) Effects.enhance(body);
+    }
+
+    function paintTopicFilter() {
+      const box = document.getElementById('bbTpBox');
+      if (!box) return;
+      box.innerHTML = Topics.filterHtml(activeSub, tf, 'bb');
+      box.querySelector('#bbTopic').addEventListener('change', (e) => { tf.topicId = e.target.value; tf.subtopicId = ''; bbPage = 1; paintTopicFilter(); paintList(); });
+      box.querySelector('#bbSub').addEventListener('change', (e) => { tf.subtopicId = e.target.value; bbPage = 1; paintList(); });
     }
 
     function paintSubs() {
@@ -1263,7 +1330,10 @@
         </div>`;
       }).join('');
       document.getElementById('bbSubList').querySelectorAll('[data-sub]').forEach(el =>
-        el.addEventListener('click', () => { activeSub = el.dataset.sub; bbPage = 1; paintSubs(); paintList(); }));
+        el.addEventListener('click', () => {
+          activeSub = el.dataset.sub; bbPage = 1; tf.topicId = ''; tf.subtopicId = '';
+          paintSubs(); paintTopicFilter(); paintList();
+        }));
     }
 
     /** Semua teks yang relevan dari satu soal: isi, opsi, kunci, pembahasan, atribut. */
@@ -1276,6 +1346,7 @@
         (q.pairs || []).map(p => P(p.left) + ' ' + P(p.right)).join(' '),
         (q.orderItems || []).map(P).join(' '),
         q.subject, q.questionType, q.difficulty, q.id,
+        global.Topics && Topics.labelOf(q) ? Topics.labelOf(q).text : '',
         (DB.getUser(q.authorId) || {}).name || ''
       ].join(' '));
     }
@@ -1287,6 +1358,7 @@
       let list = fQuery ? DB.getQuestions() : DB.getQuestions().filter(q => q.subject === activeSub);
       if (fType) list = list.filter(q => (q.questionType || 'Pilihan Ganda') === fType);
       if (fDiff) list = list.filter(q => (q.difficulty || 'sedang') === fDiff);
+      if (global.Topics && tf.topicId) list = list.filter(q => Topics.matches(q, tf));
       if (fQuery) list = list.filter(q => DataSearch.matches(questionHaystack(q), fQuery));
       const totalMatches = list.length;
       const PAGE = 20;
@@ -1301,7 +1373,7 @@
             <div class="muted small">${totalMatches} soal cocok${fQuery ? ' (isi soal, opsi, kunci, pembahasan, atribut)' : ` • kelompok ${UI.esc(st ? st.group : '-')}`}</div></div>
         </div>
         ${list.length === 0
-          ? emptyState(fQuery || fType || fDiff ? 'Tidak ada soal yang cocok dengan pencarian/filter.' : 'Belum ada soal pada kategori ini. Klik "+ Tambah Soal" untuk menambahkan.', '📭')
+          ? emptyState(fQuery || fType || fDiff || tf.topicId ? 'Tidak ada soal yang cocok dengan pencarian/filter.' : 'Belum ada soal pada kategori ini. Klik "+ Tambah Soal" untuk menambahkan.', '📭')
           : `<div class="q-cards">${list.map(q => { const qs = DB.subtestByName(q.subject); return `
               <div class="q-card" style="padding-left:14px;cursor:default;">
                 <div class="qc-text rt-content">${RichText.render(q.text)}</div>
@@ -1309,6 +1381,7 @@
                   <span class="qc-chip sub">${qs ? qs.icon : '📘'} ${UI.esc(qs ? qs.short : (q.subject || '-'))}</span>
                   <span class="qc-chip type">${UI.esc(q.questionType || 'Pilihan Ganda')}</span>
                   ${difficultyChip(q.difficulty)}
+                  ${global.Topics ? Topics.chipsHtml(q) : ''}
                   <span class="qc-chip opt">${UI.esc(answerShapeLabel(q))}</span>
                 </div>
                 <div class="flex-gap mt-2">
@@ -1511,6 +1584,8 @@
           </div>`;
         }).join('')}
       </div>
+
+      ${global.Topics ? Topics.masteryCardHtml(cbt, attempts, { sub: 'Rata-rata seluruh peserta — membantu menentukan materi yang perlu diulang' }) : ''}
 
       <div class="card">
         <div class="card-header">${UI.secHead('📋', 'Rincian Peserta', 'Termasuk catatan pelanggaran selama ujian')}</div>

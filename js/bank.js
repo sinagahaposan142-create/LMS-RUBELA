@@ -10,7 +10,9 @@
  *     dalam jumlah besar, disertai pratinjau dan laporan baris bermasalah.
  *
  * Format kolom (sama untuk ekspor, impor, dan tempel):
- *   Subtest | Format | Tingkat | Pertanyaan | A | B | C | D | E | Kunci | Pembahasan
+ *   Subtest | Format | Tingkat | Materi | Sub Materi | Pertanyaan | A–H | Kolom | Kunci | Pembahasan | Poin
+ * Materi & Sub Materi bersifat opsional; nama yang belum ada dibuat otomatis
+ * saat soal disimpan (js/topics.js).
  * Kunci: huruf (A/B/C…) untuk pilihan ganda, beberapa huruf dipisah koma
  * untuk pilihan lebih dari satu, "Benar"/"Salah" untuk benar-salah, dan teks
  * jawaban untuk isian singkat.
@@ -19,7 +21,7 @@
 
   /* Kolom F–H dipakai bila soal Majemuk berisi lebih dari 5 pernyataan.
    * "Kolom" = nama kolom jawaban Majemuk Kompleks, dipisah | (mis. Benar | Salah | Tidak diketahui). */
-  const COLS = ['Subtest', 'Format', 'Tingkat', 'Pertanyaan', 'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'Kolom', 'Kunci', 'Pembahasan', 'Poin'];
+  const COLS = ['Subtest', 'Format', 'Tingkat', 'Materi', 'Sub Materi', 'Pertanyaan', 'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'Kolom', 'Kunci', 'Pembahasan', 'Poin'];
   const LETTERS = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H'];
 
   function esc(s) { return UI.esc(s); }
@@ -78,6 +80,10 @@
       explanation: explanation ? wrapParagraph(explanation) : '',
       options: []
     };
+    // Materi & Sub Materi: nama disimpan sementara, diubah ke id saat soal disimpan.
+    const tName = String(row.Materi == null ? (d.topic || '') : row.Materi).replace(/\s+/g, ' ').trim().slice(0, 80);
+    const sName = String(row['Sub Materi'] == null ? (row.Materi == null ? (d.subtopic || '') : '') : row['Sub Materi']).replace(/\s+/g, ' ').trim().slice(0, 80);
+    if (tName) { base._topic = tName; if (sName) base._subtopic = sName; }
     // Kolom "Poin" opsional (sistem Poin Manual). Kosong → poin bawaan 1.
     const ptsRaw = row.Poin == null ? '' : String(row.Poin).trim().replace(',', '.');
     if (ptsRaw !== '') {
@@ -192,6 +198,9 @@
     row.Subtest = q.subject || '';
     row.Format = fmt;
     row.Tingkat = q.difficulty || 'sedang';
+    const tl = global.Topics ? Topics.labelOf(q) : null;
+    row.Materi = tl ? tl.topic : '';
+    row['Sub Materi'] = tl ? tl.sub : '';
     row.Pertanyaan = RichText.plain(q.text, 4000);
     const isMx = fmt === 'Majemuk Kompleks' || fmt === 'Benar/Salah Majemuk';
     const src = isMx ? (q.statements || []).map(x => x && x.text) : (q.options || []);
@@ -249,10 +258,10 @@
   /** Unduh berkas contoh agar pengguna tahu format kolomnya. */
   function downloadTemplate() {
     const sample = [
-      { Subtest: 'Pengetahuan Kuantitatif (PK)', Format: 'Pilihan Ganda', Tingkat: 'mudah',
+      { Subtest: 'Pengetahuan Kuantitatif (PK)', Format: 'Pilihan Ganda', Tingkat: 'mudah', Materi: 'Bilangan', 'Sub Materi': 'Operasi bilangan',
         Pertanyaan: 'Hasil dari 12 + 8 adalah ...', A: '18', B: '20', C: '22', D: '24', E: '',
         Kunci: 'B', Pembahasan: '12 + 8 = 20.', Poin: 4 },
-      { Subtest: 'PU', Format: 'Pilihan Lebih dari Satu', Tingkat: 'sedang',
+      { Subtest: 'PU', Format: 'Pilihan Lebih dari Satu', Tingkat: 'sedang', Materi: 'Logika Umum', 'Sub Materi': 'Logika dasar',
         Pertanyaan: 'Manakah bilangan prima?', A: '2', B: '3', C: '4', D: '9', E: '',
         Kunci: 'A, B', Pembahasan: '2 dan 3 adalah bilangan prima.' },
       { Subtest: 'PK', Format: 'Isian Singkat', Tingkat: 'mudah',
@@ -359,10 +368,11 @@
             </div>` : ''}
           ${good.length ? `
             <div class="table-wrap mt-1" style="max-height:220px;overflow:auto;">
-              <table class="table"><thead><tr><th>#</th><th>Subtest</th><th>Format</th><th>Pertanyaan</th><th>Kunci</th></tr></thead>
+              <table class="table"><thead><tr><th>#</th><th>Subtest</th><th>Materi</th><th>Format</th><th>Pertanyaan</th><th>Kunci</th></tr></thead>
               <tbody>${good.slice(0, 40).map((g, i) => `<tr>
                 <td>${i + 1}</td>
                 <td class="muted small">${esc(g.question.subject)}</td>
+                <td class="muted small">${esc(g.question._topic ? g.question._topic + (g.question._subtopic ? ' › ' + g.question._subtopic : '') : '-')}</td>
                 <td class="muted small">${esc(g.question.questionType)}</td>
                 <td>${esc(RichText.plain(g.question.text, 70))}</td>
                 <td>${esc(keyLabel(g.question))}</td>
@@ -376,7 +386,9 @@
         if (!good.length) return;
         let added = 0;
         good.forEach(g => {
-          DB.addQuestion(Object.assign({ authorId: user.id, source: 'impor' }, g.question));
+          const q = global.Topics ? Topics.applyImportNames(g.question, user) : g.question;
+          delete q._topic; delete q._subtopic;
+          DB.addQuestion(Object.assign({ authorId: user.id, source: 'impor' }, q));
           added++;
         });
         close();
@@ -454,6 +466,8 @@
         </div>
       </div>
 
+      ${global.Topics ? `<div id="bkTopicBox">${Topics.pickerHtml('bkTp', { hint: 'Dipakai untuk semua soal, kecuali baris yang menulis kolom Materi sendiri.' })}</div>` : ''}
+
       <div class="subtabs" style="margin-bottom:12px;">
         <button type="button" class="subtab-btn active" data-bmode="baris">📝 Satu Baris Satu Soal</button>
         <button type="button" class="subtab-btn" data-bmode="tabel">📋 Tempel dari Excel</button>
@@ -475,6 +489,17 @@
       let parsed = [];
       let aiRows = [];     // hasil generate AI, menunggu diperiksa
       const panel = back.querySelector('#bkPanel');
+      const tpBox = back.querySelector('#bkTopicBox');
+      const topicPick = tpBox ? Topics.bindPicker(tpBox, { user, subtest: sub, value: {} }) : null;
+      const subSel = back.querySelector('#bkSub');
+      if (topicPick) subSel.addEventListener('change', () => topicPick.setSubtest(subSel.value));
+      /** Nama materi/sub materi terpilih di dialog (dipakai sebagai bawaan baris). */
+      const pickedNames = () => {
+        const v = topicPick ? topicPick.get() : {};
+        const t = v.topicId && Topics.get(v.topicId);
+        const s = v.subtopicId && Topics.get(v.subtopicId);
+        return { topic: t ? t.name : '', subtopic: s ? s.name : '' };
+      };
       const preview = back.querySelector('#bkPreview');
       const okBtn = back.querySelector('[data-ok]');
 
@@ -518,14 +543,15 @@
 
           const genBtn = panel.querySelector('#bkAiGen');
           if (genBtn) genBtn.addEventListener('click', async () => {
-            const topic = panel.querySelector('#bkAiTopic').value.trim();
+            const pn = pickedNames();
+            const topic = panel.querySelector('#bkAiTopic').value.trim() || [pn.topic, pn.subtopic].filter(Boolean).join(' — ');
             const n = Math.max(1, Math.min(20, Number(panel.querySelector('#bkAiCount').value) || 5));
             const fmt = panel.querySelector('#bkAiFormat').value;
             const note = panel.querySelector('#bkAiNote').value.trim();
             const subtest = back.querySelector('#bkSub').value;
             const diff = back.querySelector('#bkDiff').value;
             const out = panel.querySelector('#bkAiOut');
-            if (!topic) { UI.toast('Isi topik soal terlebih dahulu.', 'error'); return; }
+            if (!topic) { UI.toast('Isi topik soal atau pilih materi terlebih dahulu.', 'error'); return; }
 
             genBtn.disabled = true;
             out.innerHTML = AI.loadingHtml(`AI menyusun ${n} soal…`);
@@ -608,10 +634,11 @@ Urutan kolom: Pertanyaan, A, B, C, D, Kunci, Pembahasan (opsional)"></textarea>
             ? linesToRows(back.querySelector('#bkLines').value)
             : pastedToRows(back.querySelector('#bkPaste').value));
 
+        const pn = pickedNames();
         parsed = rows.map((r, i) => {
           r.Subtest = r.Subtest || subject;
           r.Tingkat = r.Tingkat || difficulty;
-          const res = rowToQuestion(r, { subtest: subject });
+          const res = rowToQuestion(r, { subtest: subject, topic: pn.topic, subtopic: pn.subtopic });
           return { line: i + 1, row: r, question: res.question, error: res.error };
         });
 
@@ -624,10 +651,11 @@ Urutan kolom: Pertanyaan, A, B, C, D, Kunci, Pembahasan (opsional)"></textarea>
                <strong>${good.length} soal siap disimpan</strong>${bad.length ? ` • ${bad.length} baris bermasalah` : ''}
              </div>
              <div class="table-wrap" style="max-height:220px;overflow:auto;">
-               <table class="table"><thead><tr><th>#</th><th>Format</th><th>Pertanyaan</th><th>Kunci</th><th>Catatan</th></tr></thead>
+               <table class="table"><thead><tr><th>#</th><th>Format</th><th>Materi</th><th>Pertanyaan</th><th>Kunci</th><th>Catatan</th></tr></thead>
                <tbody>${parsed.slice(0, 50).map(pp => `<tr>
                  <td>${pp.line}</td>
                  <td class="muted small">${esc(pp.question ? pp.question.questionType : '-')}</td>
+                 <td class="muted small">${esc(pp.question && pp.question._topic ? pp.question._topic + (pp.question._subtopic ? ' › ' + pp.question._subtopic : '') : '-')}</td>
                  <td>${esc(String(pp.row.Pertanyaan || '').slice(0, 60))}</td>
                  <td>${esc(pp.question ? keyLabel(pp.question) : '-')}</td>
                  <td class="small" style="color:${pp.error ? 'var(--danger)' : 'var(--success)'};">${esc(pp.error || 'OK')}</td>
@@ -639,10 +667,11 @@ Urutan kolom: Pertanyaan, A, B, C, D, Kunci, Pembahasan (opsional)"></textarea>
       okBtn.addEventListener('click', () => {
         const good = parsed.filter(p => p.question);
         if (!good.length) return;
-        good.forEach(g => DB.addQuestion(Object.assign({
-          authorId: user.id,
-          source: mode === 'ai' ? 'ai' : 'massal'
-        }, g.question)));
+        good.forEach(g => {
+          const q = global.Topics ? Topics.applyImportNames(g.question, user) : g.question;
+          delete q._topic; delete q._subtopic;
+          DB.addQuestion(Object.assign({ authorId: user.id, source: mode === 'ai' ? 'ai' : 'massal' }, q));
+        });
         close();
         UI.toast(`${good.length} soal ditambahkan ke Bank Soal.`, 'success');
         if (typeof onDone === 'function') onDone(good.length);

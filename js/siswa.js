@@ -396,7 +396,7 @@
       container: el.querySelector('#matSearch'),
       items: materials,
       placeholder: 'Cari judul atau isi materi…',
-      fields: m => [m.title, DataSearch.plain(m.content || ''), m.link, (DB.getUser(m.authorId || m.createdBy) || {}).name, UI.fmtDate(m.createdAt)],
+      fields: m => [m.title, DataSearch.plain(m.content || ''), m.link, global.Topics && Topics.labelOf(m) ? Topics.labelOf(m).text : '', (DB.getUser(m.authorId || m.createdBy) || {}).name, UI.fmtDate(m.createdAt)],
       sorts: [
         { key: 'old', label: 'Urutan pertemuan', cmp: (a, b) => (a.createdAt || 0) - (b.createdAt || 0) },
         { key: 'new', label: 'Terbaru', cmp: (a, b) => (b.createdAt || 0) - (a.createdAt || 0) }
@@ -406,6 +406,7 @@
       render: (rows, ctx) => rows.map(m => `
             <div class="list-item">
               <div class="title">${ctx.highlight(m.title)}</div>
+              ${global.Topics ? Topics.chipsHtml(m) : ''}
               <div class="meta">${credit(m, course)} • ${UI.fmtDate(m.createdAt)}</div>
               <div class="content rt-content">${RichText.render(m.content || '')}</div>
               ${m.link ? `<div class="mt-1"><a href="${UI.esc(m.link)}" target="_blank" rel="noopener">Buka tautan →</a></div>` : ''}
@@ -1013,6 +1014,7 @@
           <div class="module-card">
             <div class="module-head">
               <h4>${UI.esc(m.title)}</h4>
+              ${global.Topics ? Topics.chipsHtml(m) : ''}
               <div class="meta">${credit(m, course)} • ${UI.esc(m.description || '')} • ${(m.sections || []).length} bagian</div>
             </div>
             <div class="module-body">
@@ -1169,6 +1171,7 @@
           <div class="module-card">
             <div class="module-head">
               <h4>${ctx.highlight(m.title)}</h4>
+              ${global.Topics ? Topics.chipsHtml(m) : ''}
               <div class="meta">${UI.esc(c ? DB.courseTitle(c) : '-')} • ${credit(m, c)} • ${(m.sections || []).length} bagian</div>
             </div>
             <div class="module-body">

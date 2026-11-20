@@ -732,7 +732,7 @@
     const q = clone(src);
     const out = { id: nid('hq'), sourceId: src.id, questionType: DB.hubQType(src) };
     ['text', 'options', 'correctIndex', 'correctIndices', 'answers', 'numeric', 'numericTolerance', 'shortAnswerPolicy',
-      'statements', 'columns', 'pairs', 'orderItems', 'keywords', 'explanation', 'explanationVideo', 'subject', 'difficulty'].forEach(k => { if (q[k] !== undefined && q[k] !== null) out[k] = q[k]; });
+      'statements', 'columns', 'pairs', 'orderItems', 'keywords', 'explanation', 'explanationVideo', 'subject', 'difficulty', 'topicId', 'subtopicId'].forEach(k => { if (q[k] !== undefined && q[k] !== null) out[k] = q[k]; });
     if (out.questionType === 'Benar/Salah' && !(out.options || []).length) out.options = ['Benar', 'Salah'];
     return out;
   }

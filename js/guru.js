@@ -360,7 +360,7 @@
       items: materials,
       stateKey: 'guru-mat-' + course.id,
       placeholder: 'Cari judul atau isi materi…',
-      fields: m => [m.title, DataSearch.plain(m.content || ''), m.link, (DB.getUser(m.authorId || m.createdBy) || {}).name, UI.fmtDate(m.createdAt)],
+      fields: m => [m.title, DataSearch.plain(m.content || ''), m.link, global.Topics && Topics.labelOf(m) ? Topics.labelOf(m).text : '', (DB.getUser(m.authorId || m.createdBy) || {}).name, UI.fmtDate(m.createdAt)],
       sorts: [
         { key: 'new', label: 'Terbaru', cmp: (a, b) => (b.createdAt || 0) - (a.createdAt || 0) },
         { key: 'title', label: 'Judul A–Z', cmp: (a, b) => a.title.localeCompare(b.title) }
@@ -370,6 +370,7 @@
       render: (rows, ctx) => rows.map(m => `
             <div class="list-item">
               <div class="title">${ctx.highlight(m.title)}</div>
+              ${global.Topics ? Topics.chipsHtml(m) : ''}
               <div class="meta">${credit(m, course)} • Dibuat ${UI.fmtDate(m.createdAt)}${m.updatedAt ? ` • Diubah ${UI.fmtDate(m.updatedAt)}` : ''}</div>
               <div class="content rt-content">${RichText.render(m.content || '')}</div>
               ${m.link ? `<div class="mt-1"><a href="${UI.esc(m.link)}" target="_blank" rel="noopener">Buka tautan →</a></div>` : ''}
@@ -860,6 +861,7 @@
       <div class="module-card">
         <div class="module-head">
           <h4>${UI.esc(m.title)}</h4>
+          ${global.Topics ? Topics.chipsHtml(m) : ''}
           <div class="meta">${credit(m, c)} • ${UI.esc(m.description || '')} • ${(m.sections || []).length} bagian • ${UI.fmtDate(m.createdAt)}</div>
         </div>
         <div class="module-body">

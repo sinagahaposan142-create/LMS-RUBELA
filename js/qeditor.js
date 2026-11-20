@@ -278,8 +278,13 @@
       keywords: [],
       explanation: '',
       explanationVideo: null,
+      topicId: null,
+      subtopicId: null,
       points: 1
     }, existing || {});
+    // Materi & Sub Materi hanya untuk Bank Soal utama (bukan bank verifikasi login).
+    const showTopics = bank === 'questions' && !!global.Topics;
+    let topicPicker = null;
     // Teks kolom link video (bisa sementara tidak valid saat diketik)
     let ytUrl = (draft.explanationVideo && draft.explanationVideo.url) || '';
     // Poin bawaan hanya relevan untuk Bank Soal utama (dipakai sistem Poin Manual CBT).
@@ -360,6 +365,7 @@
               <div class="muted small">Dipakai ujian bersistem Poin Manual; dapat diubah per ujian.</div>
             </div>` : ''}
           </div>
+          ${showTopics ? Topics.pickerHtml('qeTp', { hint: 'Contoh: Penalaran Umum › Logika Umum › Logika dasar. Dipakai untuk memfilter soal dan menyusun ujian per materi.' }) : ''}
           <div class="form-group">
             <label>Format Soal</label>
             <div class="qe-fmt-grid">
@@ -416,8 +422,17 @@
       main.querySelector('#qeSubtest').addEventListener('change', (e) => {
         draft.subject = e.target.value;
         draft.subtest = e.target.value;
+        if (topicPicker) topicPicker.setSubtest(draft.subject);
         renderPreview();
       });
+      if (showTopics) {
+        topicPicker = Topics.bindPicker(main, {
+          user, subtest: draft.subject, value: { topicId: draft.topicId, subtopicId: draft.subtopicId },
+          onChange: (v) => { draft.topicId = v.topicId; draft.subtopicId = v.subtopicId; renderPreview(); }
+        });
+        const v = topicPicker.get();
+        draft.topicId = v.topicId; draft.subtopicId = v.subtopicId;
+      }
       const ptsEl = main.querySelector('#qePoints');
       if (ptsEl) ptsEl.addEventListener('change', () => {
         const v = Number(ptsEl.value);
@@ -735,6 +750,7 @@
             <span class="qc-chip sub">${st ? st.icon : '📘'} ${esc(st ? st.short : draft.subject)}</span>
             <span class="qc-chip type">${esc(draft.questionType)}</span>
             <span class="qc-chip d-${esc(draft.difficulty)}">${esc((draft.difficulty || '').toUpperCase())}</span>
+            ${showTopics ? Topics.chipsHtml(draft) : ''}
           </div>
           <div class="rt-content qe-prev-text">${draft.text ? RichText.render(draft.text) : '<span class="muted">Pertanyaan belum diisi…</span>'}</div>
           <div class="qe-prev-ans">${previewAnswerHtml()}</div>
@@ -860,6 +876,7 @@
           : null,
         options: (draft.options || []).map(o => RichText.sanitize(o))
       };
+      if (showTopics) Object.assign(payload, Topics.sanitizeRef(draft.subject, draft.topicId, draft.subtopicId));
 
       // Simpan kunci sesuai format
       if (f === 'Pilihan Ganda' || f === 'Benar/Salah') {

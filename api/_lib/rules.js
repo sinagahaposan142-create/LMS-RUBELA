@@ -13,7 +13,7 @@ const ADMIN_ONLY = new Set(['lms_payments', 'lms_expenses', 'lms_salaries', 'lms
   'lms_class_options', 'lms_batches', 'lms_reading_texts', 'lms_verses', 'lms_hub_courses', 'lms_music_tracks', 'lms_streak_grants']);
 const STAFF_ONLY = new Set(['lms_courses', 'lms_materials', 'lms_modules', 'lms_recordings', 'lms_assignments', 'lms_questions',
   'lms_cbts', 'lms_attendance', 'lms_class_plans', 'lms_whiteboards', 'lms_whiteboard_boards', 'lms_events', 'lms_announcements',
-  'lms_game_questions']);
+  'lms_game_questions', 'lms_topics']);
 // Tutor tidak boleh mengubah pengaturan global di server (termasuk kunci AI):
 // sebelumnya tutor dapat menimpa/mengosongkan kunci & model Gemini milik admin.
 const GURU_SETTINGS = new Set([]);
@@ -325,6 +325,14 @@ function checkWrite(ctx, k, id, before, after) {
   if (k === 'lms_hub_courses' && after) {
     const prob = hubCourseAccessProblem(after);
     if (prob) return deny(prob);
+  }
+  // Materi & Sub Materi: bentuk data dibatasi (semua peran staf, termasuk admin).
+  if (k === 'lms_topics' && after) {
+    const name = typeof after.name === 'string' ? after.name.replace(/[<>]/g, '').replace(/\s+/g, ' ').trim() : '';
+    if (name.length < 2 || name.length > 80) return deny('Nama materi 2–80 karakter.');
+    if (typeof after.subtest !== 'string' || !after.subtest || after.subtest.length > 120) return deny('Subtest materi tidak valid.');
+    if (after.parentId != null && (typeof after.parentId !== 'string' || after.parentId.length > 200 || after.parentId === id)) return deny('Materi induk tidak valid.');
+    after = Object.assign({}, after, { name, order: Number.isFinite(Number(after.order)) ? Number(after.order) : 0 });
   }
   // Video pembahasan soal: hanya ID YouTube yang valid (semua peran, termasuk admin).
   if (k === 'lms_questions' && after && after.explanationVideo != null) {
