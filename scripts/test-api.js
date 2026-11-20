@@ -4,7 +4,7 @@
  * + /api/rubela asli, lewat HTTP sungguhan.
  *   node scripts/test-api.js
  * Mencakup: kebijakan berkas (QRIS, bukti transfer), validasi gambar,
- * pesan chat, video pembahasan, dan pembayaran Course Mandiri berbayar.
+ * pesan chat, video pembahasan, pembayaran Course Mandiri, dan remedial ujian.
  * Butuh Node.js >= 22.5.
  * ===================================================================*/
 const http = require('http');
@@ -192,6 +192,39 @@ async function main() {
   const inc = await call('sync', { cursor }, s1);
   const upd = (inc.data.records || []).find(x => x.k === 'lms_hub_courses' && x.id === 'hc1');
   check('perubahan akses ikut tersinkron sebagai pembaruan course', upd && upd.v.contentLocked === true, (inc.data.records || []).map(x => x.k));
+
+  /* ---------- Remedial ---------- */
+  console.log('\n[Remedial]');
+  const T = Date.now();
+  const baseCbt = { title: 'Ujian Awal', targetClasses: ['__ALL__'], sections: [{ subtest: 'PU', questionIds: ['q1'], durationMinutes: 10 }], questionIds: ['q1'], startAt: T - 7200000, endAt: T + 7200000 };
+  const remOpen = Object.assign({}, baseCbt, { id: 'rm_open', title: 'Remedial 1', targetClasses: [], remedialOf: 'cb_main', remedialRound: 1, targetStudentIds: ['u_s1'], startAt: T - 3600000, endAt: T + 3600000 });
+  r = await push(admin, [
+    { k: 'lms_cbts', id: 'cb_main', v: Object.assign({ id: 'cb_main' }, baseCbt) },
+    { k: 'lms_cbts', id: 'rm_open', v: remOpen },
+    { k: 'lms_cbts', id: 'rm_future', v: Object.assign({}, remOpen, { id: 'rm_future', startAt: T + 86400000, endAt: T + 2 * 86400000 }) },
+    { k: 'lms_cbts', id: 'rm_past', v: Object.assign({}, remOpen, { id: 'rm_past', startAt: T - 2 * 86400000, endAt: T - 86400000 }) },
+    { k: 'lms_cbts', id: 'rm_two', v: Object.assign({}, remOpen, { id: 'rm_two', remedialRound: 2 }) }
+  ]);
+  check('admin membuat ujian induk & remedial', r.rejected.length === 0, r.rejected);
+  const att = (id, cbtId, sid) => ({ k: 'lms_cbt_attempts', id, v: { id, cbtId, studentId: sid, answers: {}, startedAt: Date.now(), submittedAt: null } });
+  r = await push(s2, [att('at_main_s2', 'cb_main', 'u_s2')]);
+  check('ujian biasa tetap bisa dikerjakan', r.rejected.length === 0, r.rejected);
+  r = await push(s1, [att('at_rm_s1', 'rm_open', 'u_s1')]);
+  check('peserta terdaftar dapat memulai remedial', r.rejected.length === 0, r.rejected);
+  r = await push(s1, [{ k: 'lms_cbt_attempts', id: 'at_rm_s1', v: Object.assign(att('at_rm_s1', 'rm_open', 'u_s1').v, { answers: { q1: 1 }, submittedAt: Date.now() }) }]);
+  check('peserta dapat mengirim jawaban remedial', r.rejected.length === 0, r.rejected);
+  r = await push(s2, [att('at_rm_s2', 'rm_open', 'u_s2')]);
+  check('siswa yang tidak terdaftar ditolak', r.rejected.length === 1 && /tidak terdaftar/.test(r.rejected[0].reason), r.rejected);
+  r = await push(s1, [att('at_fut_s1', 'rm_future', 'u_s1')]);
+  check('remedial yang belum dibuka ditolak', r.rejected.length === 1 && /belum dibuka/.test(r.rejected[0].reason), r.rejected);
+  r = await push(s1, [att('at_past_s1', 'rm_past', 'u_s1')]);
+  check('remedial yang sudah berakhir ditolak', r.rejected.length === 1 && /berakhir/.test(r.rejected[0].reason), r.rejected);
+  r = await push(admin, [{ k: 'lms_settings', id: 'remedialEnabled', v: false }]);
+  r = await push(s1, [att('at_two_s1', 'rm_two', 'u_s1')]);
+  check('saat sistem remedial dimatikan, percobaan baru ditolak', r.rejected.length === 1 && /dimatikan/.test(r.rejected[0].reason), r.rejected);
+  r = await push(admin, [{ k: 'lms_settings', id: 'remedialEnabled', v: true }]);
+  r = await push(s1, [att('at_two_s1', 'rm_two', 'u_s1')]);
+  check('setelah diaktifkan kembali, percobaan diterima', r.rejected.length === 0, r.rejected);
 
   const failed = results.filter(x => !x.ok);
   console.log(`\n${results.length - failed.length}/${results.length} lulus`);

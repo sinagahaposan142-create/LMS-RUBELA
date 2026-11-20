@@ -125,6 +125,21 @@ function checkHubPayment(ctx, op, before, after) {
   });
 }
 
+/* ============================ REMEDIAL ============================ */
+const REMEDIAL_GRACE_MS = 10 * 60 * 1000;      // toleransi selisih jam perangkat
+/** Percobaan baru pada ujian remedial: hanya peserta terpilih, di dalam jadwal, sistem aktif. */
+function remedialAttemptProblem(ctx, after) {
+  const refs = ctx.refs || {};
+  const cbt = refs.cbts && refs.cbts.get(after.cbtId);
+  if (!cbt || !cbt.remedialOf) return null;
+  if (refs.remedialEnabled === false) return 'Sistem remedial sedang dimatikan admin.';
+  if (!cbt.targetStudentIds.includes(ctx.id)) return 'Kamu tidak terdaftar sebagai peserta remedial ini.';
+  const now = refs.now || Date.now();
+  if (cbt.startAt && now < cbt.startAt - REMEDIAL_GRACE_MS) return 'Remedial belum dibuka.';
+  if (cbt.endAt && now > cbt.endAt + REMEDIAL_GRACE_MS) return 'Jadwal remedial sudah berakhir.';
+  return null;
+}
+
 /* ============================ VIDEO PEMBAHASAN ============================ */
 const YT_ID = /^[A-Za-z0-9_-]{11}$/;
 /** { id, url, noSkip } → dinormalisasi; null bila tidak valid. */
@@ -361,6 +376,10 @@ function checkWrite(ctx, k, id, before, after) {
       return deny('Tugas hanya dapat dikumpulkan oleh pemiliknya.');
     case 'lms_cbt_attempts':
       if (ctx.isStaff) return allow(after);
+      if (ctx.role === 'siswa' && op === 'create' && ownsAfter) {
+        const prob = remedialAttemptProblem(ctx, after);
+        if (prob) return deny(prob);
+      }
       if (ctx.role === 'siswa' && op !== 'delete' && ownsBefore && ownsAfter) {
         // Nilai esai (Poin Manual) hanya diisi tutor/admin — peserta tidak dapat mengubahnya.
         const out = clone(after);

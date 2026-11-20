@@ -1414,6 +1414,8 @@
       gameBotEnabled: true,
       gameSource: 'both',              // both = Bank Soal + Soal Game | game = Soal Game saja | bank = Bank Soal saja
       gameDisabled: [],                // id game yang dimatikan admin
+      remedialEnabled: true,           // sistem remedial ujian (js/remedial.js)
+      remedialDefaults: { kkm: 75, kkmIrt: 500, policy: 'cap' },
       examSecurityDefaults: {
         requireCamera: false, requireMic: false, fullscreen: true,
         blockTabSwitch: true, blockCopy: true, blockScreenshot: true,
@@ -2283,8 +2285,10 @@
     addCbt: (c) => add(KEYS.cbts, Object.assign({ createdAt: Date.now(), questionIds: [] }, c)),
     updateCbt: (id, p) => update(KEYS.cbts, id, p),
     deleteCbt: (id) => {
-      setAll(KEYS.cbtAttempts, getAll(KEYS.cbtAttempts).filter(a => a.cbtId !== id));
-      remove(KEYS.cbts, id);
+      // Putaran remedial ikut terhapus bersama ujian induknya.
+      const ids = new Set([id].concat(getAll(KEYS.cbts).filter(c => c.remedialOf === id).map(c => c.id)));
+      setAll(KEYS.cbtAttempts, getAll(KEYS.cbtAttempts).filter(a => !ids.has(a.cbtId)));
+      setAll(KEYS.cbts, getAll(KEYS.cbts).filter(c => !ids.has(c.id)));
     },
     /** Apakah sebuah CBT ditujukan untuk siswa ini?
      * Cocok bila: targetClasses memuat ALL_CLASSES, memuat kelas (tingkat)
@@ -2292,6 +2296,8 @@
      */
     cbtTargetsStudent: (cbt, student) => {
       if (!cbt || !student) return false;
+      // Remedial hanya untuk peserta yang dipilih (bukan per kelas).
+      if (cbt.remedialOf) return Array.isArray(cbt.targetStudentIds) && cbt.targetStudentIds.includes(student.id);
       const tc = Array.isArray(cbt.targetClasses) ? cbt.targetClasses : [];
       if (tc.includes(ALL_CLASSES)) return true;
       if (student.kelas && tc.includes(student.kelas)) return true;
@@ -2315,6 +2321,7 @@
       return getAll(KEYS.cbts).filter(c => DB.cbtTargetsStudent(c, student)).filter(c => {
         if (tried.has(c.id)) return true;
         if (c.active === false) return false;
+        if (c.remedialOf && DB.getSettings().remedialEnabled === false) return false;
         if (staged && !DB.contentOpenForBatch(c, staged)) return false;
         const course = c.courseId ? findById(KEYS.courses, c.courseId) : null;
         return !course || !DB.isEnrolled(course.id, studentId) || DB.contentVisibleToStudent(c, course, studentId);
@@ -2322,6 +2329,7 @@
     },
     /** Daftar kelas (tingkat) tujuan dalam bentuk teks siap tampil. */
     cbtTargetLabel: (cbt) => {
+      if (cbt.remedialOf) return `${(cbt.targetStudentIds || []).length} peserta remedial`;
       const tc = Array.isArray(cbt.targetClasses) ? cbt.targetClasses : [];
       if (tc.includes(ALL_CLASSES)) return 'Semua Kelas';
       if (tc.length === 0) return '-';

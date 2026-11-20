@@ -573,6 +573,20 @@ async function applyChanges(db, req, tokenHash, changes, now, afterStmts) {
       args: [tokenHash]
     });
   }
+  // Rujukan ujian untuk percobaan baru (aturan remedial: peserta, jadwal, sakelar admin).
+  let idxCbtRefs = -1;
+  const attemptCbtIds = [...new Set(changes.filter(c => c.k === 'lms_cbt_attempts' && c.op === 'put' && c.v && typeof c.v.cbtId === 'string')
+    .map(c => c.v.cbtId.slice(0, 200)))].slice(0, 200);
+  if (attemptCbtIds.length) {
+    idxCbtRefs = head.length + reads.length + extra.length;
+    extra.push({
+      sql: `SELECT id, json_extract(v, '$.remedialOf') AS r, json_extract(v, '$.targetStudentIds') AS t,
+              json_extract(v, '$.startAt') AS s, json_extract(v, '$.endAt') AS e
+            FROM kv WHERE k = 'lms_cbts' AND v IS NOT NULL AND id IN (${attemptCbtIds.map(() => '?').join(',')})`,
+      args: attemptCbtIds
+    });
+    extra.push("SELECT v FROM kv WHERE k = 'lms_settings' AND id = 'remedialEnabled'");
+  }
   const { tx, rows } = await db.begin(head.concat(reads, extra));
   try {
     const user = userFromSessionRows(rows[2], now);
@@ -584,6 +598,16 @@ async function applyChanges(db, req, tokenHash, changes, now, afterStmts) {
         accessType: r.t || 'free', price: r.p == null ? null : Number(r.p), active: !(r.a === 0 || r.a === false || r.a === 'false')
       }));
       ctx.refs = { courses, myPayments: (rows[idxRefs + 1] || []).map(r => ({ id: r.id, courseId: r.c, status: r.s })) };
+    }
+    if (idxCbtRefs >= 0) {
+      const cbts = new Map();
+      (rows[idxCbtRefs] || []).forEach(r => {
+        let t = [];
+        try { t = r.t ? JSON.parse(r.t) : []; } catch (e) { t = []; }
+        cbts.set(r.id, { remedialOf: r.r || null, targetStudentIds: Array.isArray(t) ? t.map(String) : [], startAt: Number(r.s) || 0, endAt: Number(r.e) || 0 });
+      });
+      const sw = (rows[idxCbtRefs + 1] || [])[0];
+      ctx.refs = Object.assign(ctx.refs || {}, { cbts, remedialEnabled: !(sw && parse(sw.v) === false), now });
     }
     let ver = Number(rows[1][0] && rows[1][0].v) || 0;
     const current = new Map();

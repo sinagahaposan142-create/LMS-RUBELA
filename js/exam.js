@@ -1224,6 +1224,7 @@
             Ini skala internal LMS 200–800, bukan kalibrasi nasional resmi.
             ${attempt.scoring.manualCount ? `${attempt.scoring.manualCount} soal esai tidak masuk kalibrasi objektif dan tetap menunggu nilai tutor.` : ''}
           </div>` : (attempt.scoring ? '<div class="alert alert-warning small">Ujian ini belum memiliki soal objektif yang dapat dikalibrasi. Nilai menunggu pemeriksaan esai oleh tutor.</div>' : '')}
+          ${global.Remedial ? Remedial.studentNoteHtml(cbt, attempt) : ''}
           <div class="muted small" style="text-align:center;">
             ${UI.esc(cbt.title)} • dikerjakan ${UI.fmtDateTime(attempt.startedAt)} • dikirim ${UI.fmtDateTime(attempt.submittedAt)}
           </div>

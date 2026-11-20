@@ -156,6 +156,8 @@
         </div>
       </div>
 
+      ${global.Remedial ? Remedial.settingsCardHtml(user) : ''}
+
       <div class="card">
         <div class="card-header">
           ${UI.secHead('🖥️', 'Manajemen Ujian CBT', 'Halaman khusus dengan wizard pembuatan ujian, bank soal, dan pemantauan langsung')}
@@ -171,6 +173,7 @@
 
     const reload = () => renderCbtHome(container, user);
     Visibility.bind(container, user, reload);
+    if (global.Remedial) Remedial.bindSettings(container, user, reload);
     const statusOf = (c) => c.endAt < now ? 'done' : (c.startAt <= now ? 'live' : 'upcoming');
     const cbtCourses = [...new Set(cbts.flatMap(c => (c.courseIds && c.courseIds.length) ? c.courseIds : (c.courseId ? [c.courseId] : [])))]
       .map(id => DB.getCourse(id)).filter(Boolean);
@@ -223,10 +226,11 @@
             return `<tr>
               <td>
                 <strong>${ctx.highlight(c.title)}</strong>
+                ${global.Remedial ? Remedial.listLabelHtml(c) : ''}
                 ${c.description ? `<div class="muted small" style="max-width:260px;">${UI.esc(c.description.slice(0, 70))}${c.description.length > 70 ? '…' : ''}</div>` : ''}
                 ${secIcons ? `<div class="small" title="Pengaturan keamanan">${secIcons}</div>` : ''}
               </td>
-              <td><span class="badge ${(c.targetClasses || []).includes(DB.ALL_CLASSES) ? 'badge-success' : 'badge-info'}">${UI.esc(DB.cbtTargetLabel(c))}</span></td>
+              <td><span class="badge ${c.remedialOf ? 'badge-warning' : (c.targetClasses || []).includes(DB.ALL_CLASSES) ? 'badge-success' : 'badge-info'}">${UI.esc(DB.cbtTargetLabel(c))}</span></td>
               <td>${c.subtestMode === 'full' ? '<span class="badge badge-warning">7 Subtest</span>'
                     : (c.subtestMode === 'single' ? '<span class="badge badge-info">1 Subtest</span>' : '<span class="badge badge-gray">Custom</span>')}
                   ${global.Scoring ? `<div class="small" style="margin-top:4px;"><span class="badge ${Scoring.modeOf(c) === 'irt' ? 'badge-gray' : 'badge-success'}" title="${UI.esc(Scoring.describe(c))}">${Scoring.modeOf(c) === 'irt' ? '📈' : '⭐'} ${UI.esc(Scoring.MODES[Scoring.modeOf(c)].short)}</span></div>` : ''}</td>
@@ -255,7 +259,8 @@
         box.querySelectorAll('[data-results]').forEach(b => b.addEventListener('click', () =>
           openResults(b.dataset.results, user, reload)));
         box.querySelectorAll('[data-del-cbt]').forEach(b => b.addEventListener('click', () => {
-          if (!UI.confirmDialog('Hapus ujian ini beserta seluruh hasil pengerjaannya?')) return;
+          const nRem = DB.getCbts().filter(x => x.remedialOf === b.dataset.delCbt).length;
+          if (!UI.confirmDialog('Hapus ujian ini beserta seluruh hasil pengerjaannya?' + (nRem ? `\n${nRem} putaran remedial ujian ini juga ikut terhapus.` : ''))) return;
           DB.deleteCbt(b.dataset.delCbt);
           UI.toast('Ujian dihapus.');
           reload();
@@ -438,7 +443,7 @@
         draft.title = t;
         if (draft.endAt <= draft.startAt) { UI.toast('Waktu selesai harus setelah waktu mulai.', 'error'); return false; }
       }
-      if (i === 1 && draft.targetClasses.length === 0 && draft.courseIds.length === 0) {
+      if (i === 1 && !(editing && editing.remedialOf) && draft.targetClasses.length === 0 && draft.courseIds.length === 0) {
         UI.toast('Pilih minimal satu kelas tujuan (atau "Untuk Semua Kelas").', 'error');
         return false;
       }
@@ -524,6 +529,17 @@
 
     /* ---------- Langkah 2: Kelas tujuan (multi + semua) ---------- */
     function stepTarget(panel) {
+      if (editing && editing.remedialOf) {
+        // Peserta remedial dipilih per siswa dari halaman Hasil ujian induk.
+        const parent = DB.getCbt(editing.remedialOf);
+        const names = (editing.targetStudentIds || []).map(id => (DB.getUser(id) || {}).name).filter(Boolean);
+        panel.innerHTML = `<div class="card">
+          <div class="card-header">${UI.secHead('🔁', 'Peserta Remedial', `Remedial ke-${editing.remedialRound || 1}${parent ? ' untuk ' + parent.title : ''}`)}</div>
+          <p class="muted small">Peserta dan jadwal remedial diatur dari halaman <strong>Hasil</strong> ujian awal → <strong>Kelola remedial</strong>.</p>
+          <div class="qc-tags">${names.map(n => `<span class="qc-chip">${UI.esc(n)}</span>`).join('') || '<span class="muted">Belum ada peserta.</span>'}</div>
+        </div>`;
+        return;
+      }
       const grades = gradeClasses();
       const allOn = draft.targetClasses.includes(DB.ALL_CLASSES);
       panel.innerHTML = `
@@ -1535,6 +1551,7 @@
     const avg = avgRaw == null ? null : (ptsMode ? Math.round(avgRaw * 100) / 100 : Math.round(avgRaw));
     const scaleLbl = ptsMode ? `poin, maks ${fmtN(maxTotal)}` : '200–800';
     const essayQids = sections.flatMap(s => s.questionIds).filter(id => ((DB.getQuestion(id) || {}).questionType || '') === 'Esai');
+    const remCol = !!(global.Remedial && Remedial.hasData(cbt));
     const best = scoredAttempts.length ? Math.max(...scoredAttempts.map(scoreOf)) : null;
     const worst = scoredAttempts.length ? Math.min(...scoredAttempts.map(scoreOf)) : null;
 
@@ -1568,6 +1585,7 @@
         <div class="stat-card accent-warning"><div class="label">Tertinggi (${scaleLbl})</div><div class="value">${best == null ? '-' : fmtN(best)}</div></div>
         <div class="stat-card accent-danger"><div class="label">Terendah (${scaleLbl})</div><div class="value">${worst == null ? '-' : fmtN(worst)}</div></div>
       </div>
+      ${global.Remedial ? Remedial.resultsCardHtml(cbt, user) : ''}
       ${ptsMode ? `<div class="alert alert-info small"><strong>${UI.esc(Scoring.describe(cbt))}.</strong>
         Benar mendapat poin penuh, kosong 0. ${essayQids.length ? `Ujian ini memuat ${essayQids.length} soal esai — beri poinnya lewat tombol <strong>✍️ Nilai Esai</strong> pada tabel peserta.` : ''}
         ${Scoring.modeOf(cbt) === 'both' ? 'Skor IRT 200–800 tetap ditampilkan sebagai pembanding.' : ''}</div>`
@@ -1592,6 +1610,10 @@
         <div id="resSearch"></div>
       </div>`;
     const kelasList = [...new Set(attempts.map(a => (DB.getUser(a.studentId) || {}).kelas).filter(Boolean))];
+    const rmOpen = body.querySelector('[data-rm-open]');
+    if (rmOpen) rmOpen.addEventListener('click', () => Remedial.openPanel(cbt.id, user, () => { if (wsEl) openResults(cbtId, user, onDone); }));
+    const rmParent = body.querySelector('[data-rm-parent]');
+    if (rmParent) rmParent.addEventListener('click', () => openResults(rmParent.dataset.rmParent, user, onDone));
     DataSearch.mount({
       container: body.querySelector('#resSearch'),
       items: attempts,
@@ -1613,7 +1635,7 @@
       render: (rows, ctx) => `<div class="table-wrap"><table class="table">
           <thead><tr><th>Peserta</th><th>Kelas</th><th>Skor</th><th>Benar</th>
             ${sections.map(s => `<th>${UI.esc(DB.subtestByName(s.subtest)?.short || s.subtest)}</th>`).join('')}
-            <th>Pelanggaran</th><th>Selesai</th>${ptsMode && essayQids.length ? '<th>Esai</th>' : ''}</tr></thead>
+            <th>Pelanggaran</th><th>Selesai</th>${ptsMode && essayQids.length ? '<th>Esai</th>' : ''}${remCol ? '<th>Nilai Akhir</th>' : ''}</tr></thead>
           <tbody>${rows.map(a => {
             const s = DB.getUser(a.studentId);
             const vios = (a.violations || []).length;
@@ -1632,6 +1654,7 @@
               <td>${vios ? `<span class="badge badge-warning">${vios}</span>` : '<span class="muted small">0</span>'}</td>
               <td class="small">${UI.fmtDateTime(a.submittedAt)}</td>
               ${ptsMode && essayQids.length ? `<td>${essayCellHtml(a)}</td>` : ''}
+              ${remCol ? `<td>${Remedial.finalCellHtml(cbt, a.studentId)}</td>` : ''}
             </tr>`;
           }).join('')}</tbody>
         </table></div>`,

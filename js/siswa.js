@@ -1095,11 +1095,13 @@
       sec.fullscreen ? '🖥️ Layar penuh' : '', sec.blockTabSwitch ? '🚫 Anti pindah tab' : ''
     ].filter(Boolean);
 
+    const rmHint = global.Remedial ? Remedial.rowHintHtml(c, user.id) : '';
     return `<div class="list-item">
       <div class="flex-between">
         <div class="title">${UI.esc(c.title)}</div>
         ${badge}
       </div>
+      ${rmHint ? `<div class="rm-row-hint">${rmHint}</div>` : ''}
       <div class="meta">
         ${inClass ? `${credit(c, DB.getCourse(c.courseId))} • ` : ''}
         ${c.subtestMode === 'full' ? '<span class="badge badge-warning">Gabungan 7 Subtest</span> ' : ''}

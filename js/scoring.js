@@ -229,15 +229,28 @@
     };
   }
 
+  /**
+   * Peserta yang dinilai (own) dan cohort kalibrasi (calib).
+   * Ujian remedial dikalibrasi bersama peserta ujian induknya agar skor
+   * IRT remedial sebanding dengan ujian awal (cohort remedial kecil).
+   */
+  function cohortOf(cbt) {
+    const own = DB.getCbtAttemptsByCbt(cbt.id).filter(a => a.submittedAt);
+    const parent = cbt.remedialOf ? DB.getCbt(cbt.remedialOf) : null;
+    const base = parent ? DB.getCbtAttemptsByCbt(parent.id).filter(a => a.submittedAt) : [];
+    return { own, calib: base.concat(own), scope: parent ? 'cbt+induk' : 'cbt-lokal' };
+  }
+
   function recomputeCbt(cbtId) {
     const cbt = DB.getCbt(cbtId);
     if (!cbt) return [];
-    const attempts = DB.getCbtAttemptsByCbt(cbtId).filter(a => a.submittedAt);
+    const cohort = cohortOf(cbt);
+    const attempts = cohort.own;
     if (!attempts.length) return [];
-    const calibrated = calibrate(cbt, attempts);
+    const calibrated = calibrate(cbt, cohort.calib);
     const subtests = [...new Set(calibrated.items.map(it => it.subtest))];
-    const signature = scoringSignature(cbt, attempts);
-    const provisional = attempts.length < 30;
+    const signature = scoringSignature(cbt, cohort.calib);
+    const provisional = cohort.calib.length < 30;
     const mode = modeOf(cbt);
     const updated = [];
 
@@ -253,8 +266,8 @@
       const weightedPercent = sumW ? 100 * allRows.reduce((n, r) => n + r.raw * r.weight, 0) / sumW : 0;
       const theta = estimateTheta(allRows);
       const scoring = {
-        version: VERSION, model: MODEL, mode, cohortScope: 'cbt-lokal',
-        cohortN: attempts.length, provisional, cohortSignature: signature,
+        version: VERSION, model: MODEL, mode, cohortScope: cohort.scope,
+        cohortN: cohort.calib.length, provisional, cohortSignature: signature,
         computedAt: Date.now(), rawOutcomes: rawMap,
         rawCorrect, rawTotal, manualCount,
         weightedPercent: Math.round(weightedPercent * 100) / 100,
@@ -273,8 +286,7 @@
     if (!attempt || !attempt.cbtId) return attempt;
     const cbt = DB.getCbt(attempt.cbtId);
     if (!cbt) return attempt;
-    const all = DB.getCbtAttemptsByCbt(attempt.cbtId).filter(a => a.submittedAt);
-    const sig = scoringSignature(cbt, all);
+    const sig = scoringSignature(cbt, cohortOf(cbt).calib);
     if (!attempt.scoring || attempt.scoring.version !== VERSION || attempt.scoring.cohortSignature !== sig) {
       recomputeCbt(attempt.cbtId);
       return DB.getCbtAttempts().find(a => a.id === attempt.id) || attempt;
@@ -364,7 +376,7 @@
 
   global.Scoring = {
     VERSION, MODEL, MODES, MAX_POINTS,
-    outcomes, calibrate, estimateTheta, recomputeCbt,
+    outcomes, calibrate, estimateTheta, recomputeCbt, cohortOf,
     scoringSignature, ensureFresh, scaled, scaledToPercent, scoreHtml,
     modeOf, usesPoints, pointsConfig, defaultPoints, maxPointsMap, computePoints,
     primary, label, describe, fmtNum
