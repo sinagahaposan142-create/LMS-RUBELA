@@ -290,6 +290,21 @@ Hasil audit lengkap 23 poin permintaan beserta buktinya ada di
   **manual** (tidak ada verifikasi otomatis). Isi pelajaran course berbayar dikunci di server sampai disetujui.
 - **Arsitektur penyimpanan**: `docs/ARSITEKTUR-PENYIMPANAN.md`.
 
+### Materi, Remedial, Berita, Tools & Grup Belajar (uji: `docs/UJI-FITUR-RONDE-14.md`)
+- **Materi & Sub Materi** per subtest (mis. PU → Logika umum → Logika Alam sadar umum dasar) di soal, materi kelas,
+  dan modul; filter Bank Soal & wizard CBT, kolom impor/ekspor, analisis penguasaan per materi.
+- **Remedial ujian**: sakelar & nilai bawaan admin, KKM dan kebijakan nilai akhir per ujian, peserta otomatis
+  (di bawah KKM / tidak ikut) atau manual, jadwal per putaran, beberapa putaran. Server menolak peserta di luar daftar/jadwal.
+- **Berita**: tampil di halaman depan dan `berita.html` tanpa login; admin mengelola di menu **Berita** (draf, terbit,
+  jadwal, berita utama, sampul, pratinjau). Editor ala Word & Excel: **Impor Word** (.docx), **Lembar Data** dengan
+  rumus dan impor Excel/CSV (berjalan tanpa internet untuk .xlsx/.csv), gabung/pisah/urutkan sel tabel.
+- **Tools** untuk semua peran: **Kalkulator UTBK** (pilih kampus → fakultas → jurusan, peluang, rata-rata & skor
+  minimum diterima, total skor, selisih per subtest, keketatan, jurusan serupa, analisis AI) dan **Kalender Seleksi**
+  (SNBP, SNBT, Mandiri; pengingat, .ics). Data diisi admin di **Data PTN** (impor/ekspor Excel/CSV). Tidak ada data
+  bawaan, dan peluang adalah perkiraan, bukan prediksi resmi SNPMB.
+- **Grup Belajar**: obrolan grup mentee; admin & tutor grup mengirim kuis dari Bank Soal (dinilai otomatis), bahan
+  diskusi dengan utas balasan, materi, dan pengumuman. Hanya anggota yang menerima data grup.
+
 ### Tema Hari Besar Nasional (detail: `docs/TEMA-HARI-BESAR.md`)
 - Menu admin **Operasional → Tema Hari Besar**: 13 tema yang diaktifkan manual. Tersedia Tahun Baru, Imlek, Nyepi,
   Idulfitri, Hardiknas, Kenaikan Yesus Kristus, Waisak, Iduladha, Hari Lahir Pancasila, Hari Anak Nasional,
@@ -435,7 +450,8 @@ Ubah kapan saja lewat Admin → Semua Kelas → **Atur**, atau Guru → Kelas Sa
 
 ```
 LMS-RUBELA/
-├── index.html           # Halaman login + registrasi
+├── index.html           # Halaman login + registrasi + berita terbaru
+├── berita.html          # Halaman berita publik (daftar & artikel, tanpa login)
 ├── dashboard.html       # Shell dashboard
 ├── api/
 │   ├── rubela.js        # Satu-satunya Vercel Function: login, kuis, registrasi, sync, berkas, proxy AI
@@ -445,7 +461,10 @@ LMS-RUBELA/
 ├── css/
 │   ├── style.css        # Styling lengkap (auth, dashboard, CBT, editor, keuangan, modul, presensi)
 │   ├── responsive.css   # Penyesuaian layout tablet/ponsel + area scroll (chat, sidebar, tabel)
-│   └── design-system.css # Token & komponen inti (dimuat terakhir)
+│   ├── design-system.css # Token & komponen inti
+│   ├── news.css         # Berita: kartu, artikel, pengelola admin
+│   ├── tools.css        # Kalkulator UTBK, Kalender Seleksi, Data PTN
+│   └── groups.css       # Grup Belajar
 └── js/
     ├── sync-config.js   # Konfigurasi publik: alamat API & Supabase Realtime (publishable key)
     ├── sync-catalog.js  # Daftar data yang disinkronkan (dipakai browser & server)
@@ -492,6 +511,17 @@ LMS-RUBELA/
     ├── hub-pay.js       # Course berbayar: checkout manual (rekening/QRIS + bukti), verifikasi admin
     ├── mathpad.js       # Editor rumus LaTeX (toolbar, autocomplete, template, riwayat, MathLive opsional)
     ├── yt-player.js     # Pemutar YouTube lazy (nocookie), mode pembahasan terkunci 1x & cegah loncat maju
+    ├── topics.js        # Materi & Sub Materi per subtest (pengelola, pemilih, filter, penguasaan)
+    ├── remedial.js      # Remedial ujian: pengaturan, peserta, jadwal, nilai akhir
+    ├── office.js        # Pembaca .docx → HTML dan .xlsx → baris tanpa pustaka luar
+    ├── sheet.js         # Lembar Data ala Excel (rumus, tempel & impor) untuk editor
+    ├── news-public.js   # Tampilan berita (halaman depan, berita.html, menu Berita)
+    ├── news-admin.js    # Pengelola berita admin
+    ├── ptn.js           # Data PTN, model peluang, jadwal seleksi, rencana UTBK pengguna
+    ├── ptn-admin.js     # Data PTN admin + impor/ekspor
+    ├── utbk-calc.js     # Kalkulator UTBK + analisis AI
+    ├── admission-cal.js # Kalender Seleksi + pengingat
+    ├── groups.js        # Grup Belajar
     ├── timecapsule.js   # Mesin Waktu + enkripsi F2 & Recovery Key
     ├── music.js         # Musik latar global + pengelola admin
     ├── dashboard.js     # Router role-based + sidebar + pusat notifikasi + tema + drawer mobile
