@@ -2,6 +2,8 @@
  * Manage guru, siswa, courses, view stats, reset data.
  */
 (function (global) {
+  // Isi lingkaran avatar: avatar almamater / foto / inisial (js/avatars.js).
+  const AV = (u) => (global.Avatars ? Avatars.inner(u) : UI.esc(UI.initials(u && u.name)));
   // Kelas yang sedang dibuka di tampilan detail admin (null = daftar)
   let adminCourseId = null;
 
@@ -409,33 +411,50 @@
               <div class="muted small">Opsional. Ulang tahun mentee dirayakan otomatis.</div></div>
             <div class="form-group"><label>Foto Profil</label>
               <div class="photo-field">
-                <span class="photo-prev" data-photo-prev>${editing?.photo ? `<img src="${UI.esc(editing.photo)}" alt="" />` : UI.esc(UI.initials(editing?.name || '?'))}</span>
-                <label class="btn btn-sm btn-secondary" style="cursor:pointer;">Pilih foto
+                <span class="photo-prev" data-photo-prev>${avatarInner(editing)}</span>
+                ${global.Avatars ? '<button type="button" class="btn btn-sm btn-primary" data-avatar-open aria-expanded="false">Pilih avatar</button>' : ''}
+                <label class="btn btn-sm btn-secondary" style="cursor:pointer;">Unggah foto
                   <input type="file" accept="image/png,image/jpeg,image/webp" data-photo-file style="display:none;" /></label>
                 <button type="button" class="btn btn-sm btn-ghost ${editing?.photo ? '' : 'hidden'}" data-photo-del>Hapus</button>
-              </div></div>
+                <div class="avp-host" data-avatar-panel hidden></div>
+              </div>
+              <div class="muted small">Avatar almamater lebih ringan daripada foto karena tidak menyimpan gambar.</div></div>
           </div>`;
   }
-  /** Mengikat input foto; foto dikompres lewat Editor.compressImage. */
+  const avatarInner = (u) => (global.Avatars ? Avatars.inner(u || { name: '?' }) : (u && u.photo ? `<img src="${UI.esc(u.photo)}" alt="" />` : UI.esc(UI.initials(u?.name || '?'))));
+  /**
+   * Mengikat kolom foto profil: avatar almamater (kode pendek, js/avatars.js) atau
+   * foto unggahan yang dikompres ke 320 px lewat Editor.compressImage.
+   */
   function bindPhotoField(form, editing) {
     let value = editing?.photo || '';
     const prev = form.querySelector('[data-photo-prev]');
     const file = form.querySelector('[data-photo-file]');
     const del = form.querySelector('[data-photo-del]');
+    const openBtn = form.querySelector('[data-avatar-open]');
+    const panel = form.querySelector('[data-avatar-panel]');
+    let picker = null;
     const paint = () => {
-      prev.innerHTML = value ? `<img src="${UI.esc(value)}" alt="" />` : UI.esc(UI.initials(editing?.name || '?'));
+      prev.innerHTML = avatarInner(Object.assign({}, editing || {}, { photo: value, name: editing?.name || '?' }));
       del.classList.toggle('hidden', !value);
     };
+    if (openBtn && panel) openBtn.addEventListener('click', () => {
+      const show = panel.hidden;
+      panel.hidden = !show;
+      openBtn.setAttribute('aria-expanded', String(show));
+      openBtn.textContent = show ? 'Tutup pilihan' : 'Pilih avatar';
+      if (show && !picker) picker = Avatars.mountPicker(panel, { value, user: editing, onPick: (code) => { value = code; paint(); } });
+    });
     file.addEventListener('change', async () => {
       const f = file.files[0];
       if (!f) return;
       if (!/^image\/(png|jpe?g|webp)$/i.test(f.type)) { UI.toast('Gunakan gambar PNG, JPG, atau WEBP.', 'error'); return; }
       prev.innerHTML = '<span class="spinner"></span>';
-      try { value = await Editor.compressImage(f); } catch (e) { UI.toast(e.message || 'Gagal membaca gambar.', 'error'); }
+      try { value = await Editor.compressImage(f, { maxW: 320 }); if (picker) picker.set(''); } catch (e) { UI.toast(e.message || 'Gagal membaca gambar.', 'error'); }
       paint();
       file.value = '';
     });
-    del.addEventListener('click', () => { value = ''; paint(); });
+    del.addEventListener('click', () => { value = ''; if (picker) picker.set(''); paint(); });
     return { value: () => value };
   }
   global.ProfileFields = { profileExtraFields, bindPhotoField, validateBirthDate, religionOf };
@@ -2350,12 +2369,14 @@
           <button class="btn btn-danger" id="resetBtn">Reset Semua Data</button>
         </div>
       </div>`}
+      ${global.Avatars ? '<div class="card" id="avatarColorsCard"></div>' : ''}
       <div class="card">
         <div class="card-header"><h3>Tentang</h3></div>
         <p><strong>LMS Rubela</strong> v2.0 — Learning Management System berbasis web dengan fitur lengkap.</p>
         <p class="muted small">Dibuat dengan HTML, CSS, dan JavaScript murni.</p>
       </div>
     `;
+    if (global.Avatars) Avatars.renderAdmin(document.getElementById('avatarColorsCard'));
     // Class management
     document.getElementById('addClassBtn').addEventListener('click', () => {
       const inp = document.getElementById('newClassName');
@@ -3305,7 +3326,7 @@
             const hay = `${s.name} ${s.username || ''} ${s.kelas || ''} ${s.targetUniv || ''}`.toLowerCase();
             return `<label class="pick-item ${on ? 'is-checked' : ''}" data-hay="${UI.esc(hay)}">
               <input type="checkbox" name="${inputName}" value="${s.id}" ${on ? 'checked' : ''} />
-              <span class="pick-av">${UI.initials(s.name)}</span>
+              <span class="pick-av">${AV(s)}</span>
               <span class="pick-main">
                 <span class="pick-name">${UI.esc(s.name)}</span>
                 <span class="pick-meta">@${UI.esc(s.username || '-')} • ${UI.esc(s.kelas || 'tanpa kelas')}${s.targetUniv ? ' • ' + UI.esc(s.targetUniv) : ''}</span>

@@ -20,6 +20,8 @@
  * ===================================================================*/
 (function (global) {
   'use strict';
+  // Isi lingkaran avatar: avatar almamater / foto / inisial (js/avatars.js).
+  const AV = (u) => (global.Avatars ? Avatars.inner(u) : UI.esc(UI.initials(u && u.name)));
 
   const K = { q: 'lms_game_questions', battles: 'lms_game_battles', scores: 'lms_game_scores' };
   const PREF_KEY = 'lms_game_prefs';
@@ -1547,7 +1549,7 @@
         <h4 class="gb-sub-h">🟢 Pilih lawan sendiri <span class="muted small">(${online.length} siswa online)</span></h4>
         ${online.length ? `<div class="gb-online">${online.map(o => `
           <div class="gb-on-row ${o.busy ? 'is-busy' : ''}">
-            <span class="gb-on-av">${esc(UI.initials(o.user.name))}<i class="presence-dot ${o.state}"></i></span>
+            <span class="gb-on-av">${AV(o.user)}<i class="presence-dot ${o.state}"></i></span>
             <div class="gb-on-main"><strong>${esc(o.user.name)}</strong>
               <span class="muted small">${esc(o.user.kelas || '')}${o.inGame ? ' • 🎮 di Game Battle' : ''}${o.busy ? ' • ⚔️ sedang bertanding' : (o.state === 'away' ? ' • menjauh' : '')}</span></div>
             <button type="button" class="btn btn-sm btn-primary" data-chal="${o.id}" ${o.busy || !ready.length ? 'disabled' : ''}>Tantang</button>

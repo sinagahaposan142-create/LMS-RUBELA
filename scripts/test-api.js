@@ -73,6 +73,19 @@ async function main() {
   const s1 = await login('siswa1', 'rahasia1', 'siswa');
   const s2 = await login('siswa2', 'rahasia1', 'siswa');
 
+  /* ---------- Avatar almamater / foto profil ---------- */
+  console.log('\n[Foto profil]');
+  const meS1 = (await pull(s1)).lms_users.u_s1;
+  r = await push(s1, [{ k: 'lms_users', id: 'u_s1', v: Object.assign({}, meS1, { photo: 'av1:ui:f:2' }) }]);
+  check('siswa memilih avatar almamater', r.rejected.length === 0 && r.applied[0].v.photo === 'av1:ui:f:2', r.rejected);
+  r = await push(s1, [{ k: 'lms_users', id: 'u_s1', v: Object.assign({}, meS1, { photo: 'javascript:alert(1)' }) }]);
+  check('foto profil bukan gambar ditolak', r.rejected.length === 1 && /Foto profil/.test(r.rejected[0].reason), r.rejected);
+  r = await push(s1, [{ k: 'lms_users', id: 'u_s1', v: Object.assign({}, meS1, { photo: 'data:image/jpeg;base64,' + 'A'.repeat(300000) }) }]);
+  check('foto profil terlalu besar ditolak', r.rejected.length === 1 && /terlalu besar/.test(r.rejected[0].reason), r.rejected);
+  const meS2 = (await pull(admin)).lms_users.u_s2;
+  r = await push(admin, [{ k: 'lms_users', id: 'u_s2', v: Object.assign({}, meS2, { photo: 'data:image/png;base64,' + PNG }) }]);
+  check('admin menyimpan foto kecil yang valid', r.rejected.length === 0, r.rejected);
+
   /* ---------- Penyimpanan berkas ---------- */
   console.log('\n[Penyimpanan berkas]');
   r = await putBlob(admin, 'qris:hc1:1', PNG);

@@ -299,7 +299,8 @@
       const fresh = DB.getUser(user.id) || user;
       el.classList.toggle('has-photo', !!fresh.photo);
       el.classList.toggle('bd-frame', !!(window.Birthday && Birthday.hasFrame(fresh)));
-      if (fresh.photo) el.innerHTML = `<img src="${UI.esc(fresh.photo)}" alt="" />`;
+      if (window.Avatars) el.innerHTML = Avatars.inner(fresh);
+      else if (fresh.photo) el.innerHTML = `<img src="${UI.esc(fresh.photo)}" alt="" />`;
       else el.textContent = UI.initials(fresh.name);
     }
 

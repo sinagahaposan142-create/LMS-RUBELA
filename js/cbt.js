@@ -9,6 +9,8 @@
  * Dipakai oleh Admin dan Guru. Guru hanya melihat kelas/soal miliknya.
  */
 (function (global) {
+  // Isi lingkaran avatar: avatar almamater / foto / inisial (js/avatars.js).
+  const AV = (u) => (global.Avatars ? Avatars.inner(u) : UI.esc(UI.initials(u && u.name)));
 
   /* =====================================================================
    * Utilitas
@@ -1545,7 +1547,7 @@
               const netHtml = cn ? `<div class="mon-net is-${cn.cls}">${NET_IC[cn.cls]}<span>${UI.esc(cn.text)}${cn.sub ? `<small>${UI.esc(cn.sub)}</small>` : ''}</span></div>` : '';
               return `<div class="mon-card ${risk} ${a && a.submittedAt ? 'done' : ''} ${cn && cn.cls === 'bad' ? 'net-bad' : ''}">
                 <div class="mc-top">
-                  <div class="avatar">${UI.initials(s.name)}</div>
+                  <div class="avatar">${AV(s)}</div>
                   <div style="flex:1;min-width:0;">
                     <div class="mc-nm">${UI.esc(s.name)}</div>
                     <div class="mc-mt">${UI.esc(s.kelas || '-')}</div>

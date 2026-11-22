@@ -728,7 +728,23 @@ function checkBattle(ctx, op, before, after) {
   return allow(out);
 }
 
+/* Foto profil: kosong, kode avatar almamater (js/avatars.js), atau gambar kecil terkompresi. */
+const AVATAR_CODE = /^av1:[a-z]{2,8}:[mf]:[0-5]$/;
+const PHOTO_DATA = /^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+/]+=*$/;
+const PHOTO_MAX = 280000;               // ±200 KB gambar (320 px JPEG jauh di bawahnya)
+function photoProblem(before, after) {
+  if (!after || after.photo == null || after.photo === '') return null;
+  if (before && before.photo === after.photo) return null;      // foto lama tidak diperiksa ulang
+  const p = after.photo;
+  if (typeof p !== 'string') return 'Foto profil tidak valid.';
+  if (AVATAR_CODE.test(p)) return null;
+  if (p.length > PHOTO_MAX) return 'Foto profil terlalu besar. Pilih avatar almamater atau gambar yang lebih kecil.';
+  if (!PHOTO_DATA.test(p)) return 'Foto profil harus gambar PNG, JPG, atau WEBP.';
+  return null;
+}
 function checkUser(ctx, op, before, after) {
+  const pp = photoProblem(before, after);
+  if (pp) return deny(pp);
   if (ctx.isAdmin) {
     if (after) {
       if (!ROLES.includes(after.role)) return deny('Peran akun tidak valid.');
