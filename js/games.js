@@ -1,5 +1,7 @@
 /* =====================================================================
- * js/games.js — Game Battle: 10 game edukasi (pribadi & battle 1 lawan 1)
+ * js/games.js — Game Battle: mesin game edukasi (pribadi & battle 1 lawan 1)
+ *   10 game dasar ada di berkas ini; 8 game arkade didaftarkan oleh
+ *   js/games-arcade.js lewat Games.register().
  * ---------------------------------------------------------------------
  * Mode bermain:
  *  - Pribadi : main sendiri, skor tersimpan & masuk papan peringkat game.
@@ -20,6 +22,8 @@
  * ===================================================================*/
 (function (global) {
   'use strict';
+  // Isi lingkaran avatar: avatar almamater / foto / inisial (js/avatars.js).
+  const AV = (u) => (global.Avatars ? Avatars.inner(u) : UI.esc(UI.initials(u && u.name)));
 
   const K = { q: 'lms_game_questions', battles: 'lms_game_battles', scores: 'lms_game_scores' };
   const PREF_KEY = 'lms_game_prefs';
@@ -30,11 +34,54 @@
   const esc = (s) => UI.esc(s);
   const rt = (html) => `<span class="rt-content">${RichText.render(html || '')}</span>`;
   const plain = (html, n) => RichText.plain(html || '', n || 400).trim();
-  const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
   const server = () => !!(global.Sync && Sync.isServer && Sync.isServer());
   const reducedMotion = () => !!(global.matchMedia && global.matchMedia('(prefers-reduced-motion: reduce)').matches);
   const uid = (p) => p + '_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
   const fmt = (n) => Math.round(Number(n) || 0).toLocaleString('id-ID');
+
+  /* ---------- Layar penuh saat bermain ----------
+   * Fullscreen API bila tersedia, ditambah kelas .game-fs (posisi tetap memenuhi layar)
+   * sehingga tetap berfungsi di iPhone/peramban tanpa Fullscreen API. Dipakai juga oleh
+   * Main Bareng (js/game-room.js) dan Games Area Arena (js/arena.js) lewat GameFS. */
+  const FS_ON = '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg>';
+  const FS_OFF = '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 4v5H4M15 4v5h5M9 20v-5H4M15 20v-5h5"/></svg>';
+  const fsBtnHtml = () => `<button type="button" class="icon-btn gb-fs-btn" data-fs-toggle aria-pressed="false" aria-label="Layar penuh" title="Layar penuh">${FS_ON}</button>`;
+  function fsSet(el, on) {
+    if (!el) return;
+    // Kunci gulir halaman lewat CSS html:has(.game-fs) — otomatis lepas bila elemen dibuang saat pindah halaman.
+    el.classList.toggle('game-fs', on);
+    try {
+      if (on && el.requestFullscreen && document.fullscreenElement !== el) el.requestFullscreen({ navigationUI: 'hide' }).catch(() => {});
+      if (!on && document.fullscreenElement) document.exitFullscreen().catch(() => {});
+    } catch (e) { /* peramban tanpa Fullscreen API: cukup kelas .game-fs */ }
+    el.querySelectorAll('[data-fs-toggle]').forEach(b => {
+      b.setAttribute('aria-pressed', String(on));
+      b.setAttribute('aria-label', on ? 'Keluar layar penuh' : 'Layar penuh');
+      b.title = on ? 'Keluar layar penuh' : 'Layar penuh';
+      b.innerHTML = on ? FS_OFF : FS_ON;
+    });
+    // Kanvas arkade menyesuaikan tinggi area bermain.
+    setTimeout(() => global.dispatchEvent(new Event('resize')), 80);
+  }
+  /**
+   * Pasang tombol [data-fs-toggle] di dalam el (target layar penuh = el).
+   * Mengembalikan pelepas: release(keep) — keep=true mempertahankan layar penuh (sesi berikutnya memakai el yang sama).
+   */
+  function fsBind(el) {
+    if (!el) return () => {};
+    el.querySelectorAll('[data-fs-toggle]').forEach(b => b.addEventListener('click', () => fsSet(el, !el.classList.contains('game-fs'))));
+    const onChange = () => {
+      // Keluar lewat Esc / gesture sistem: lepas juga tampilan layar penuh CSS.
+      if (document.fullscreenElement === el) el.dataset.fsNative = '1';
+      else if (el.dataset.fsNative) { delete el.dataset.fsNative; if (el.classList.contains('game-fs')) fsSet(el, false); }
+    };
+    document.addEventListener('fullscreenchange', onChange);
+    return (keep) => {
+      document.removeEventListener('fullscreenchange', onChange);
+      if (!keep && el.classList.contains('game-fs')) fsSet(el, false);
+    };
+  }
+  global.GameFS = { buttonHtml: fsBtnHtml, bind: fsBind, set: fsSet };
 
   /* ================================================================
    * Penyimpanan
@@ -86,7 +133,6 @@
       return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
     };
   }
-  function hashStr(s) { let h = 2166136261; for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); } return h >>> 0; }
   function shuffle(arr, rng) {
     const a = arr.slice();
     for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(rng() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; }
@@ -159,16 +205,40 @@
     const q = m[1] === 'g' ? getGameQuestions().find(x => x.id === m[2]) : DB.getQuestion(m[2]);
     return q ? Object.assign({}, q, { _ref: ref }) : null;
   }
-  /** Kumpulan soal untuk satu game (opsional filter subtest). */
-  function poolFor(game, subject) {
+  /** Kumpulan soal untuk satu game sesuai kategori latihan (js/qscope.js; string lama = satu subtest). */
+  function poolFor(game, scope) {
+    const sc = QScope.normalize(scope);
     return sourceQuestions().filter(q => {
-      if (subject && q.subject !== subject) return false;
+      if (!QScope.matches(q, sc)) return false;
+      if (q.passageId) return false;            // soal bertautan teks bacaan butuh bacaan panjang, tidak cocok untuk game
       if (Array.isArray(q.games) && q.games.length && !q.games.includes(game.id)) return false;
       return autoValid(q) && game.accepts(q);
     });
   }
   /** Banyaknya "unit" bermain dari kumpulan (mis. pernyataan/pasangan), untuk syarat minimum. */
   const unitsOf = (game, pool) => (game.units ? game.units(pool) : pool.length);
+
+  /**
+   * Soal untuk satu sesi mentee berdasarkan riwayat jawabannya (DB.qh*):
+   * soal yang pernah dijawab benar disisihkan, soal yang salah & baru tetap ikut.
+   * Bila sisa soal kurang untuk satu ronde, ditambah soal yang sudah dikuasai (paling lama
+   * dulu); bila semua sudah dikuasai, kategori ini diulang dari awal (putaran baru).
+   * @returns {{ pool, reset:boolean, cycle:number }}
+   */
+  function sessionPool(game, scope, user) {
+    const pool = poolFor(game, scope);
+    if (!user || user.role !== 'siswa' || !pool.length) return { pool, reset: false, cycle: 1 };
+    const key = 'game:' + QScope.key(scope);
+    const elig = new Set(DB.qhEligible(user.id, pool.map(q => q._ref)));
+    const fresh = pool.filter(q => elig.has(q._ref));
+    if (!fresh.length) return { pool, reset: true, cycle: DB.qhReset(user.id, pool.map(q => q._ref), key) };
+    if (unitsOf(game, fresh) >= game.min) return { pool: fresh, reset: false, cycle: DB.qhStats(user.id, [], key).cycle };
+    const h = DB.qHistory(user.id);
+    const done = pool.filter(q => !elig.has(q._ref)).sort((a, b) => ((h.items[a._ref] || [])[2] || 0) - ((h.items[b._ref] || [])[2] || 0));
+    const out = fresh.slice();
+    for (const q of done) { if (unitsOf(game, out) >= game.min) break; out.push(q); }
+    return { pool: out, reset: false, cycle: DB.qhStats(user.id, [], key).cycle };
+  }
 
   /* ================================================================
    * AnswerUI — input jawaban semua format otomatis, keluaran sesuai
@@ -342,7 +412,7 @@
   function qCardHtml(q, idx, total, extra) {
     const st = DB.subtestByName(q.subject);
     return `<div class="gb-qhead">
-        <span class="gb-qnum">${idx}/${total}</span>
+        <span class="gb-qnum">${total ? idx + '/' + total : 'Soal ' + idx}</span>
         <span class="gb-chip-s">${st ? st.icon + ' ' + esc(st.short) : esc(q.subject || 'Umum')}</span>
         <span class="gb-chip-s d-${esc(q.difficulty || 'sedang')}">${esc(q.difficulty || 'sedang')}</span>
         ${extra || ''}
@@ -367,6 +437,7 @@
       ui.reveal(res.correct);
       fbEl.innerHTML = res.correct ? `<div class="gb-good">✅ Benar!${res.msg ? ' ' + res.msg : ''}</div>`
         : `<div class="gb-badfb">${res.timedOut ? '⏰ Waktu habis.' : '❌ Belum tepat.'} <span>Kunci: ${esc(keyText(q))}</span></div>`;
+      if (ctx.seen) ctx.seen(q, res.correct);
       ctx.flash(res.correct);
       onResult(Object.assign(res, { ui, fb: fbEl }));
     };
@@ -380,7 +451,7 @@
   }
 
   /* ================================================================
-   * Katalog 10 game
+   * Katalog 10 game dasar (game arkade: js/games-arcade.js)
    *  accepts(q)  : soal cocok untuk game ini?
    *  min         : minimal unit (soal/pernyataan/pasangan) agar bisa main
    *  pick(pool)  : pilih soal untuk satu ronde (deterministik dengan rng)
@@ -413,11 +484,11 @@
     qs.forEach(q => {
       const f = fmtOf(q);
       if (f === 'Menjodohkan') (q.pairs || []).forEach(p => {
-        if (plain(p.left).length <= 70 && plain(p.right).length <= 70) out.push({ a: p.left, b: p.right });
+        if (plain(p.left).length <= 70 && plain(p.right).length <= 70) out.push({ a: p.left, b: p.right, ref: q._ref });
       });
       else if (f === 'Pilihan Ganda' && plain(q.text).length <= 70) {
         const k = (q.options || [])[q.correctIndex];
-        if (k && plain(k).length <= 40) out.push({ a: q.text, b: k });
+        if (k && plain(k).length <= 40) out.push({ a: q.text, b: k, ref: q._ref });
       }
     });
     return out;
@@ -492,7 +563,7 @@
           busy = true;
           const c = cards[i];
           const ok = v === c.value;
-          ctx.mark(ok);
+          ctx.mark(ok); ctx.seen(c.ref, ok);
           let gain;
           if (ok) { streak++; gain = 50 + Math.min(100, Math.max(0, streak - 2) * 10); } else { streak = 0; gain = -25; }
           ctx.add(gain);
@@ -729,7 +800,7 @@
             if (over || b.disabled || sel == null) { if (sel == null && !over) UI.toast('Pilih item di kolom kiri terlebih dahulu.', 'info'); return; }
             const left = pairs[sel], right = rights[Number(b.dataset.r)];
             const ok = plain(left.p.right) === plain(right.p.right);
-            ctx.mark(ok);
+            ctx.mark(ok); ctx.seen(q, ok);
             const lb = ctx.stage.querySelector(`[data-l="${sel}"]`);
             if (ok) {
               ctx.add(40); ctx.flash(true);
@@ -761,7 +832,7 @@
       bot: { units: 6, sec: 14, per: 100, wrong: -10, bonusSec: 30 },
       play(ctx) {
         const pairs = shuffle(memoryPairs(ctx.qs), ctx.rng).slice(0, 6);
-        const cards = shuffle(pairs.flatMap((p, k) => [{ k, side: 'a', html: p.a }, { k, side: 'b', html: p.b }]), ctx.rng);
+        const cards = shuffle(pairs.flatMap((p, k) => [{ k, side: 'a', html: p.a, ref: p.ref }, { k, side: 'b', html: p.b, ref: p.ref }]), ctx.rng);
         let open = [], matched = 0, busy = false, over = false;
         const t = ctx.timer(120, () => { over = true; ctx.finish(); });
         ctx.info(`0/${pairs.length} pasangan`);
@@ -779,6 +850,8 @@
           const cx = cards[Number(x.dataset.c)], cy = cards[Number(y.dataset.c)];
           const ok = cx.k === cy.k && cx.side !== cy.side;
           ctx.mark(ok);
+          // Pasangan salah: kedua soal asal kartu dicatat perlu diulang; benar: soal pasangan itu.
+          if (ok) ctx.seen(cx.ref, true); else { ctx.seen(cx.ref, false); ctx.seen(cy.ref, false); }
           if (ok) {
             matched++; ctx.add(100); ctx.flash(true);
             x.classList.add('is-done'); y.classList.add('is-done'); x.disabled = true; y.disabled = true;
@@ -849,7 +922,7 @@
           const end = (ok, timeout) => {
             if (done) return;
             done = true; t.stop();
-            ctx.mark(ok);
+            ctx.mark(ok); ctx.seen(q, ok);
             const fb = ctx.stage.querySelector('.gb-fb');
             ctx.stage.querySelectorAll('.gb-balloon').forEach(b => { b.disabled = true; if (Number(b.dataset.b) === q.correctIndex) b.classList.add('is-key'); });
             if (fb) fb.innerHTML = ok ? '<div class="gb-good">🎯 Tepat sasaran!</div>' : `<div class="gb-badfb">${timeout ? '🎈 Balon lepas!' : '❌'} Kunci: ${esc(keyText(q))}</div>`;
@@ -929,7 +1002,7 @@
   /**
    * @param {HTMLElement} container
    * @param {object} user
-   * @param {{gameId, mode:'solo'|'battle'|'bot'|'preview', subject?, battleId?, botLevel?, onExit?}} opts
+   * @param {{gameId, mode:'solo'|'battle'|'bot'|'preview', scope?, battleId?, botLevel?, onExit?}} opts (scope: js/qscope.js)
    */
   function runSession(container, user, opts) {
     stopSession('restart');
@@ -943,7 +1016,9 @@
       qs = (battle.qids || []).map(resolveRef).filter(Boolean);
     } else {
       seed = (Math.random() * 4294967296) >>> 0;
-      qs = game.pick(poolFor(game, opts.subject), mulberry(seed));
+      const sp = sessionPool(game, opts.scope, mode === 'preview' ? null : user);
+      qs = game.pick(sp.pool, mulberry(seed));
+      if (sp.reset) UI.toast(`Semua soal kategori ini sudah kamu jawab benar. Mulai putaran ke-${sp.cycle} dari awal!`, 'success');
     }
     if (!qs.length) { UI.toast('Soal untuk game ini belum tersedia.', 'error'); if (opts.onExit) opts.onExit(); return; }
     const rng = mulberry((seed ^ 0xA5A5A5A5) >>> 0);
@@ -953,6 +1028,14 @@
     const timers = new Set(), intervals = new Set(), disposers = [];
     const stats = { score: 0, answered: 0, correct: 0 };
     const startedAt = Date.now();
+    // Riwayat jawaban per soal (ref → benar semua unitnya?) untuk DB.qhRecord.
+    const seenMap = new Map();
+    const trackSeen = mode !== 'preview' && user.role === 'siswa';
+    const flushSeen = () => {
+      if (!seenMap.size) return;
+      DB.qhRecord(user.id, [...seenMap].map(([ref, ok]) => ({ ref, ok })));
+      seenMap.clear();
+    };
     let finished = false, lastWrite = 0, writeTimer = null, mainTimer = null;
     let learnTok = null;
     if (user.role === 'siswa' && mode !== 'preview' && DB.getSettings().streakEnabled !== false) {
@@ -963,11 +1046,12 @@
       <div class="gb-run" style="--gc:${game.color}">
         <div class="gb-hud">
           <button type="button" class="btn btn-sm btn-secondary" data-gb="quit">← Keluar</button>
-          <div class="gb-hud-game"><span class="gb-hud-ic">${game.icon}</span><div><strong>${esc(game.name)}</strong>
+          <div class="gb-hud-game"><span class="gb-hud-ic">${game.art || game.icon}</span><div><strong>${esc(game.name)}</strong>
             <small>${mode === 'battle' ? `⚔️ Battle vs ${esc(firstName(oppId))}` : mode === 'bot' ? `🤖 vs ${esc(bot.label)}` : mode === 'preview' ? '👁️ Pratinjau (tidak disimpan)' : '🎯 Main pribadi'}</small></div></div>
           <div class="gb-hud-info" id="gbInfo"></div>
           <div class="gb-hud-score"><span>Skor</span><b id="gbScore">0</b></div>
           <button type="button" class="icon-btn gb-sound" data-gb="sound" aria-label="Suara" title="Suara">${prefs().sound === false ? '🔇' : '🔊'}</button>
+          ${fsBtnHtml()}
         </div>
         <div class="gb-timer" id="gbTimer" hidden><span class="gb-timer-bar"><i id="gbTimerBar"></i></span><b id="gbTimerTxt"></b></div>
         ${battle || bot ? `<div class="gb-vs" id="gbVs"></div>` : ''}
@@ -975,6 +1059,10 @@
       </div>`;
     const $ = (s) => container.querySelector(s);
     const stage = $('#gbStage');
+    // Layar penuh memakai container (bukan .gb-run) agar tetap aktif saat "Main Lagi"/tanding ulang.
+    const fsRelease = fsBind(container);
+    if (container.classList.contains('game-fs')) fsSet(container, true);
+    let resultShown = false;
 
     /* ---------- tampilan lawan ---------- */
     let botState = null;
@@ -1014,15 +1102,28 @@
 
     /* ---------- ctx untuk game ---------- */
     const ctx = {
-      stage, qs, rng, game,
+      stage, qs, rng, game, mode,
       score: () => stats.score,
-      setScore(n) { stats.score = Math.round(n); $('#gbScore').textContent = fmt(stats.score); paintVs(); writeMine(); },
+      setScore(n) {
+        // Skor tidak boleh menjadi NaN/Infinity (mis. hasil hitung game yang keliru).
+        const v = Math.round(Number(n));
+        if (!Number.isFinite(v) || finished) return;
+        stats.score = Math.max(-1e6, Math.min(1e6, v));
+        $('#gbScore').textContent = fmt(stats.score); paintVs(); writeMine();
+      },
       add(delta) {
         ctx.setScore(stats.score + delta);
         const el = $('#gbScore');
         el.classList.remove('is-bump'); void el.offsetWidth; el.classList.add('is-bump');
       },
-      mark(ok) { stats.answered++; if (ok) stats.correct++; paintVs(); writeMine(); },
+      mark(ok) { if (finished) return; stats.answered++; if (ok) stats.correct++; paintVs(); writeMine(); },
+      /** Catat hasil satu soal (objek soal atau ref). Soal dengan beberapa unit: benar bila semua unitnya benar. */
+      seen(x, ok) {
+        if (!trackSeen || finished) return;
+        const ref = typeof x === 'string' ? x : (x && x._ref);
+        if (!ref) return;
+        seenMap.set(ref, seenMap.has(ref) ? seenMap.get(ref) && !!ok : !!ok);
+      },
       info(html) { const el = $('#gbInfo'); if (el) el.innerHTML = esc(html); },
       flash(ok) {
         beep(ok ? 'ok' : 'bad');
@@ -1056,6 +1157,8 @@
         tick();
         return t;
       },
+      /** Sembunyikan bilah waktu (giliran selesai, menunggu animasi/lawan). */
+      hideTimer() { if (mainTimer) mainTimer.stop(); const el = $('#gbTimer'); if (el) el.hidden = true; },
       finish() { finishRound(); }
     };
 
@@ -1118,6 +1221,7 @@
       finished = true;
       if (mainTimer) mainTimer.stop();
       $('#gbTimer').hidden = true;
+      flushSeen();
       writeMine(true);
       paintVs();
       if (mode === 'battle') waitOpponent();
@@ -1137,7 +1241,8 @@
     function waitOpponent() {
       const check = () => {
         const b = getBattle(battle.id);
-        if (!b) return showResult();
+        // Battle hilang (dihapus/dibersihkan): tampilkan hasil sekali dan hentikan pengecekan.
+        if (!b) { showResult(); return true; }
         battle = b;
         paintVs();
         const op = (b.players || {})[oppId];
@@ -1168,7 +1273,7 @@
       if (mode === 'preview' || user.role !== 'siswa') return;
       upsert(K.scores, {
         id: uid('gs'), studentId: me, game: game.id, mode, score: stats.score, correct: stats.correct, answered: stats.answered,
-        subject: battle ? (battle.subject || '') : (opts.subject || ''), battleId: battle ? battle.id : null,
+        subject: battle ? (battle.subject || '') : (QScope.isAll(opts.scope) ? '' : QScope.label(opts.scope)), battleId: battle ? battle.id : null,
         opponentId: battle ? oppId : (bot ? 'bot:' + opts.botLevel : null), result: result || null,
         durationMs: Date.now() - startedAt, createdAt: Date.now()
       });
@@ -1197,7 +1302,8 @@
     }
 
     function showResult() {
-      if (!session || session !== sess) return;
+      if (!session || session !== sess || resultShown) return;
+      resultShown = true;
       let outcome = null, opScore = null, opName = '';
       if (mode === 'battle') {
         const b = getBattle(battle.id) || battle;
@@ -1209,9 +1315,12 @@
         opScore = botState ? botState.score : 0; opName = bot.label;
         outcome = stats.score > opScore ? 'win' : (stats.score === opScore ? 'draw' : 'lose');
       }
+      // Rekor dihitung SEBELUM skor ronde ini disimpan: menyamai rekor lama bukan rekor baru.
+      const prevBest = mode === 'solo' ? getScores().filter(s => s.studentId === me && s.game === game.id && s.mode === 'solo')
+        .reduce((m, s) => Math.max(m, Number(s.score) || 0), 0) : null;
       saveScore(outcome);
-      const best = mode === 'solo' ? Math.max(0, ...getScores().filter(s => s.studentId === me && s.game === game.id).map(s => s.score)) : null;
-      const isBest = mode === 'solo' && best === stats.score && stats.score > 0;
+      const isBest = mode === 'solo' && user.role === 'siswa' && stats.score > 0 && stats.score > prevBest;
+      const best = mode === 'solo' ? Math.max(prevBest, stats.score) : null;
       const OUT = { win: ['🏆', 'Kamu Menang!', 'is-win'], lose: ['💪', 'Belum Beruntung', 'is-lose'], draw: ['🤝', 'Seri!', 'is-draw'] };
       const o = outcome ? OUT[outcome] : null;
       stage.innerHTML = `<div class="gb-result ${o ? o[2] : ''}">
@@ -1233,7 +1342,7 @@
       if (again) again.addEventListener('click', () => runSession(container, user, Object.assign({}, opts)));
       const rem = stage.querySelector('[data-gb="rematch"]');
       if (rem) rem.addEventListener('click', () => {
-        const nb = createBattle(user, game, battle.subject || '', oppId);
+        const nb = createBattle(user, game, battle.scope || battle.subject || '', oppId);
         if (nb) { stopSession('rematch'); if (opts.onRematch) opts.onRematch(nb); }
       });
     }
@@ -1248,6 +1357,8 @@
         timers.clear(); intervals.clear();
         if (writeTimer) clearTimeout(writeTimer);
         disposers.forEach(fn => { try { fn(); } catch (e) { /* noop */ } });
+        flushSeen();       // keluar di tengah ronde: soal yang sudah dijawab tetap tercatat
+        fsRelease(reason === 'restart');
         // Keluar di tengah battle = menyerah dengan skor saat ini.
         if (mode === 'battle' && !finished && reason !== 'rematch') { finished = true; writeMine(true); }
       },
@@ -1291,19 +1402,22 @@
   /* ================================================================
    * Battle: buat, terima, tolak, batalkan, cari otomatis
    * ==============================================================*/
-  function playableGames(subject) {
+  function playableGames(scope) {
     const st = settings();
     return GAMES.filter(g => !st.disabled.includes(g.id)).map(g => {
-      const pool = poolFor(g, subject);
+      const pool = poolFor(g, scope);
       return { g, pool, units: unitsOf(g, pool), ok: unitsOf(g, pool) >= g.min };
     });
   }
 
-  function createBattle(user, game, subject, opponentId) {
+  function createBattle(user, game, scopeIn, opponentId) {
     const st = settings();
     if (!st.battle) { UI.toast('Mode battle sedang dinonaktifkan admin.', 'info'); return null; }
-    const pool = poolFor(game, subject);
-    if (unitsOf(game, pool) < game.min) { UI.toast(`Soal ${game.name} belum cukup untuk battle.`, 'error'); return null; }
+    const scope = QScope.compact(scopeIn);
+    const subject = QScope.isAll(scope) ? '' : QScope.label(scope);
+    if (unitsOf(game, poolFor(game, scope)) < game.min) { UI.toast(`Soal ${game.name} pada kategori ini belum cukup untuk battle.`, 'error'); return null; }
+    // Soal dipilih dari riwayat pembuat tantangan (kedua pemain mendapat soal yang sama).
+    const pool = sessionPool(game, scope, user).pool;
     if (opponentId && activeBattleOf(opponentId)) { UI.toast(`${firstName(opponentId)} sedang bertanding. Coba lawan lain.`, 'info'); return null; }
     // Satu tantangan aktif per pemain: tantangan lama yang masih menunggu dibatalkan.
     getBattles().filter(b => b.p1Id === user.id && (b.status === 'invite' || b.status === 'open')).forEach(b => {
@@ -1313,7 +1427,7 @@
     const qs = game.pick(pool, mulberry(seed));
     const now = Date.now();
     const b = {
-      id: uid('gb'), game: game.id, subject: subject || '', qids: qs.map(q => q._ref), seed,
+      id: uid('gb'), game: game.id, subject, scope, qids: qs.map(q => q._ref), seed,
       limitMs: game.limitSec * 1000, createdAt: now, expiresAt: now + INVITE_TTL,
       p1Id: user.id, p2Id: opponentId || null, status: opponentId ? 'invite' : 'open',
       players: { [user.id]: blankPlayer() }, startAt: null, winnerId: null
@@ -1370,20 +1484,21 @@
    * terbuka lalu undang hingga 3 siswa online (yang sedang di Game Battle diutamakan).
    * @returns {Promise<{battleId, joined:boolean, invited:string[]}|null>}
    */
-  async function autoMatch(user, game, subject) {
+  async function autoMatch(user, game, scope) {
     const now = Date.now();
+    const want = QScope.key(scope);
     const open = getBattles().filter(b => b.status === 'open' && !b.p2Id && b.p1Id !== user.id && !battleExpired(b, now)
-      && (!game || b.game === game.id) && (!subject || b.subject === subject)).sort((a, b) => a.createdAt - b.createdAt);
+      && (!game || b.game === game.id) && (want === 'all' || QScope.key(b.scope || b.subject) === want)).sort((a, b) => a.createdAt - b.createdAt);
     for (const b of open) {
       if (await acceptBattle(user, b.id)) return { battleId: b.id, joined: true, invited: [] };
     }
     let g = game;
     if (!g) {
-      const ok = playableGames(subject).filter(x => x.ok);
+      const ok = playableGames(scope).filter(x => x.ok);
       if (!ok.length) { UI.toast('Belum ada game dengan soal yang cukup.', 'error'); return null; }
       g = ok[Math.floor(Math.random() * ok.length)].g;
     }
-    const b = createBattle(user, g, subject, null);
+    const b = createBattle(user, g, scope, null);
     if (!b) return null;
     const cand = onlineStudents(user).filter(c => !c.busy && c.state === 'online').slice(0, 3);
     if (cand.length) {
@@ -1399,15 +1514,18 @@
   /* ================================================================
    * Halaman siswa: Game Battle
    * ==============================================================*/
-  const view = { tab: 'play', subject: '', rankGame: GAMES[0].id, battleGame: '', waiting: null };
+  const view = { tab: 'play', scope: null, rankGame: GAMES[0].id, battleGame: '', waiting: null };
   let page = null;           // { container, user }
   let pendingJoin = null;    // id battle yang diterima dari kartu undangan
 
-  function subjectSelectHtml(id, value, allLabel) {
-    return `<select id="${id}" class="gb-select-sub" aria-label="Subtest">
-      <option value="">${esc(allLabel || 'Semua subtest')}</option>
-      ${DB.SUBTESTS.map(s => `<option value="${esc(s.name)}" ${value === s.name ? 'selected' : ''}>${s.icon} ${esc(s.short)}</option>`).join('')}
-    </select>`;
+  /** Panel Kategori latihan (per subtest, beberapa subtest, semua, atau per materi/sub bab). */
+  function mountScope(host, user) {
+    QScope.mount(host, {
+      scope: view.scope, userId: user.id, title: 'Kategori latihan',
+      refs: (sc) => sourceQuestions().filter(q => !q.passageId && autoValid(q) && QScope.matches(q, sc)).map(q => q._ref),
+      count: (name) => sourceQuestions().filter(q => !q.passageId && autoValid(q) && q.subject === name).length,
+      onChange: (sc) => { view.scope = sc; QScope.save('games', user.id, sc); render(page.container, user); }
+    });
   }
 
   function myStats(uid2) {
@@ -1442,25 +1560,29 @@
     if (act && !((act.players || {})[user.id] || {}).finished) {
       return runSession(container, user, { gameId: act.game, mode: 'battle', battleId: act.id, onExit: () => render(container, user), onRematch: (nb) => { view.waiting = nb.id; render(container, user); } });
     }
+    if (!view.scope || view.scopeUser !== user.id) { view.scope = QScope.load('games', user.id); view.scopeUser = user.id; }
     const ms = myStats(user.id);
-    const tabs = [['play', '🎮 Main'], ['battle', '⚔️ Battle'], ['rank', '🏆 Peringkat'], ['history', '📜 Riwayat']];
+    const tabs = [['play', '🎮 Main'], ['battle', '⚔️ Battle'], ['bareng', '🎪 Main Bareng'], ['rank', '🏆 Peringkat'], ['history', '📜 Riwayat']];
+    if (!global.GameRoom && view.tab === 'bareng') view.tab = 'play';
     const incoming = getBattles().filter(b => b.status === 'invite' && b.p2Id === user.id && !battleExpired(b)).length;
+    const roomsOpen = global.GameRoom ? GameRoom.openCount() : 0;
     container.innerHTML = `
       <section class="welcome-hero gb-hero">
         <span class="blob b1"></span><span class="blob b2"></span>
         <div class="wh-inner">
           <div class="wh-eyebrow">🎮 Game Battle</div>
           <h2>Belajar sambil bertanding!</h2>
-          <p class="wh-sub">10 game edukasi dari Bank Soal. Main sendiri untuk memecahkan rekor, atau tantang teman yang sedang online — pilih lawan sendiri atau biarkan bot mencarikan.</p>
+          <p class="wh-sub">${GAMES.length} game edukasi dari Bank Soal. Main sendiri untuk memecahkan rekor, tantang teman yang sedang online — pilih lawan sendiri atau biarkan bot mencarikan — atau gabung Main Bareng Kelas dengan kode dari tutor.</p>
           <div class="wh-chips"><span class="wh-chip">🎯 ${ms.plays} ronde</span><span class="wh-chip">⚔️ ${ms.wins}/${ms.battles} menang</span><span class="wh-chip">🏅 Rekor ${fmt(ms.best)}</span></div>
         </div>
       </section>
-      <div class="tabs gb-tabs" role="tablist">${tabs.map(([k, l]) => `<button type="button" class="tab-btn ${view.tab === k ? 'active' : ''}" data-gbtab="${k}" role="tab" aria-selected="${view.tab === k}">${l}${k === 'battle' && incoming ? ` <span class="gb-dot">${incoming}</span>` : ''}</button>`).join('')}</div>
+      <div class="tabs gb-tabs" role="tablist">${tabs.map(([k, l]) => `<button type="button" class="tab-btn ${view.tab === k ? 'active' : ''}" data-gbtab="${k}" role="tab" aria-selected="${view.tab === k}">${l}${k === 'battle' && incoming ? ` <span class="gb-dot">${incoming}</span>` : ''}${k === 'bareng' && roomsOpen ? ` <span class="gb-dot">${roomsOpen}</span>` : ''}</button>`).join('')}</div>
       <div id="gbBody"></div>`;
     container.querySelectorAll('[data-gbtab]').forEach(b => b.addEventListener('click', () => { view.tab = b.dataset.gbtab; render(container, user); }));
     const body = container.querySelector('#gbBody');
     if (view.tab === 'play') paintPlay(body, user);
     else if (view.tab === 'battle') paintBattle(body, user);
+    else if (view.tab === 'bareng') { GameRoom.tidy(user); GameRoom.renderJoin(body, user); }
     else if (view.tab === 'rank') paintRank(body, user);
     else paintHistory(body, user);
     if (global.Effects) Effects.enhance(container);
@@ -1470,7 +1592,7 @@
     const g = x.g;
     const best = getScores().filter(s => s.studentId === user.id && s.game === g.id).reduce((m, s) => Math.max(m, s.score), 0);
     return `<article class="gb-card-g ${x.ok ? '' : 'is-off'}" style="--gc:${g.color}">
-      <div class="gb-cg-top"><span class="gb-cg-ic">${g.icon}</span><span class="gb-cg-tag">${esc(g.tag)}</span></div>
+      <div class="gb-cg-top"><span class="gb-cg-ic">${g.art || g.icon}</span><span class="gb-cg-tag">${esc(g.tag)}</span></div>
       <h4>${esc(g.name)}</h4>
       <p>${esc(g.desc)}</p>
       <div class="gb-cg-meta"><span title="Format soal">🧩 ${esc(g.formats.join(', '))}</span>
@@ -1485,14 +1607,14 @@
   }
 
   function paintPlay(body, user) {
-    const list = playableGames(view.subject);
+    const list = playableGames(view.scope);
     body.innerHTML = `
-      <div class="gb-toolbar"><label for="gbSub" class="muted small">Sumber soal</label>${subjectSelectHtml('gbSub', view.subject)}
-        <span class="muted small">${list.filter(x => x.ok).length}/${list.length} game siap dimainkan</span></div>
+      <div id="gbScope"></div>
+      <div class="gb-toolbar"><span class="muted small">${list.filter(x => x.ok).length}/${list.length} game siap dimainkan untuk <b>${esc(QScope.label(view.scope))}</b></span></div>
       <div class="gb-grid">${list.map(x => gameCardHtml(x, user)).join('')}</div>`;
-    body.querySelector('#gbSub').addEventListener('change', (e) => { view.subject = e.target.value; render(page.container, user); });
+    mountScope(body.querySelector('#gbScope'), user);
     body.querySelectorAll('[data-solo]').forEach(b => b.addEventListener('click', () =>
-      runSession(page.container, user, { gameId: b.dataset.solo, mode: 'solo', subject: view.subject, onExit: () => render(page.container, user) })));
+      runSession(page.container, user, { gameId: b.dataset.solo, mode: 'solo', scope: view.scope, onExit: () => render(page.container, user) })));
     body.querySelectorAll('[data-battle]').forEach(b => b.addEventListener('click', () => { view.tab = 'battle'; view.battleGame = b.dataset.battle; render(page.container, user); }));
   }
 
@@ -1503,7 +1625,7 @@
     const now = Date.now();
     const incoming = getBattles().filter(b => b.status === 'invite' && b.p2Id === user.id && !battleExpired(b, now)).sort((a, b) => b.createdAt - a.createdAt);
     const openList = getBattles().filter(b => b.status === 'open' && !b.p2Id && b.p1Id !== user.id && !battleExpired(b, now)).sort((a, b) => a.createdAt - b.createdAt);
-    const ready = playableGames(view.subject).filter(x => x.ok);
+    const ready = playableGames(view.scope).filter(x => x.ok);
     if (view.battleGame && !ready.some(x => x.g.id === view.battleGame)) view.battleGame = '';
     const online = onlineStudents(user);
     const avail = me.gameAvailable !== false;
@@ -1530,12 +1652,12 @@
           <div class="form-group"><label for="gbBGame">Game</label>
             <select id="gbBGame"><option value="">🎲 Acak (bot memilihkan)</option>
               ${ready.map(x => `<option value="${x.g.id}" ${view.battleGame === x.g.id ? 'selected' : ''}>${x.g.icon} ${esc(x.g.name)}</option>`).join('')}</select></div>
-          <div class="form-group"><label for="gbBSub">Subtest</label>${subjectSelectHtml('gbBSub', view.subject)}</div>
         </div>
+        <div id="gbBScope"></div>
         <div class="gb-opp-grid">
           <div class="gb-opp-card is-auto">
             <div class="gb-opp-ic">🤖</div><h4>Cari Otomatis</h4>
-            <p>Bot mendeteksi siswa yang sedang online lalu mencarikan lawan untukmu.</p>
+            <p>Bot mendeteksi mentee yang sedang online lalu mencarikan lawan untukmu.</p>
             <button type="button" class="btn btn-primary" id="gbAuto" ${ready.length ? '' : 'disabled'}>🔍 Cari Lawan</button>
           </div>
           <div class="gb-opp-card is-bot ${st.bot ? '' : 'is-off'}">
@@ -1544,54 +1666,54 @@
             <div class="flex-gap">${Object.entries(BOT_LEVELS).map(([k, v]) => `<button type="button" class="btn btn-sm btn-secondary" data-bot="${k}" ${st.bot && ready.length ? '' : 'disabled'}>${esc(v.label.replace('Bot ', ''))}</button>`).join('')}</div>
           </div>
         </div>
-        <h4 class="gb-sub-h">🟢 Pilih lawan sendiri <span class="muted small">(${online.length} siswa online)</span></h4>
+        <h4 class="gb-sub-h">🟢 Pilih lawan sendiri <span class="muted small">(${online.length} mentee online)</span></h4>
         ${online.length ? `<div class="gb-online">${online.map(o => `
           <div class="gb-on-row ${o.busy ? 'is-busy' : ''}">
-            <span class="gb-on-av">${esc(UI.initials(o.user.name))}<i class="presence-dot ${o.state}"></i></span>
+            <span class="gb-on-av">${AV(o.user)}<i class="presence-dot ${o.state}"></i></span>
             <div class="gb-on-main"><strong>${esc(o.user.name)}</strong>
               <span class="muted small">${esc(o.user.kelas || '')}${o.inGame ? ' • 🎮 di Game Battle' : ''}${o.busy ? ' • ⚔️ sedang bertanding' : (o.state === 'away' ? ' • menjauh' : '')}</span></div>
             <button type="button" class="btn btn-sm btn-primary" data-chal="${o.id}" ${o.busy || !ready.length ? 'disabled' : ''}>Tantang</button>
           </div>`).join('')}</div>`
-          : `<div class="empty"><div class="empty-icon">🌙</div>Belum ada siswa lain yang online${server() ? '' : ' (mode lokal: hanya tab di peramban ini)'}. Coba <b>Cari Otomatis</b> — tantanganmu terbuka 2 menit untuk siswa yang baru masuk — atau lawan bot.</div>`}
-        <label class="check-row gb-avail"><input type="checkbox" id="gbAvail" ${avail ? 'checked' : ''} /> Terima tantangan battle dari siswa lain (status online-ku terlihat di daftar lawan)</label>
+          : `<div class="empty"><div class="empty-icon">🌙</div>Belum ada mentee lain yang online${server() ? '' : ' (mode lokal: hanya tab di peramban ini)'}. Coba <b>Cari Otomatis</b> — tantanganmu terbuka 2 menit untuk mentee yang baru masuk — atau lawan bot.</div>`}
+        <label class="check-row gb-avail"><input type="checkbox" id="gbAvail" ${avail ? 'checked' : ''} /> Terima tantangan battle dari mentee lain (status online-ku terlihat di daftar lawan)</label>
       </div>`;
     const cfg = () => {
       const gid = body.querySelector('#gbBGame').value;
-      return { game: gid ? GAME[gid] : null, subject: body.querySelector('#gbBSub').value };
+      return { game: gid ? GAME[gid] : null, scope: view.scope };
     };
+    mountScope(body.querySelector('#gbBScope'), user);
     body.querySelector('#gbBGame').addEventListener('change', (e) => { view.battleGame = e.target.value; });
-    body.querySelector('#gbBSub').addEventListener('change', (e) => { view.subject = e.target.value; render(page.container, user); });
-    const pickGame = (subject) => {
+    const pickGame = (scope) => {
       const c = cfg();
       if (c.game) return c.game;
-      const ok = playableGames(subject).filter(x => x.ok);
+      const ok = playableGames(scope).filter(x => x.ok);
       return ok.length ? ok[Math.floor(Math.random() * ok.length)].g : null;
     };
     body.querySelectorAll('[data-acc]').forEach(b => b.addEventListener('click', () => joinFlow(b.dataset.acc, b)));
     body.querySelectorAll('[data-dec]').forEach(b => b.addEventListener('click', () => { declineBattle(user, b.dataset.dec); UI.toast('Tantangan ditolak.', 'info'); render(page.container, user); }));
     body.querySelectorAll('[data-chal]').forEach(b => b.addEventListener('click', () => {
-      const c = cfg(); const g = pickGame(c.subject);
+      const c = cfg(); const g = pickGame(c.scope);
       if (!g) return;
-      const nb = createBattle(user, g, c.subject, b.dataset.chal);
+      const nb = createBattle(user, g, c.scope, b.dataset.chal);
       if (nb) { view.waiting = nb.id; UI.toast(`Tantangan dikirim ke ${firstName(b.dataset.chal)}.`, 'success'); render(page.container, user); }
     }));
     body.querySelector('#gbAuto').addEventListener('click', async (e) => {
       const btn = e.currentTarget; UI.setBusy(btn, true);
       const c = cfg();
-      const r = await autoMatch(user, c.game, c.subject);
+      const r = await autoMatch(user, c.game, c.scope);
       UI.setBusy(btn, false);
       if (!r) return;
       if (r.joined) joinFlow(r.battleId, null, true);
       else { view.waiting = r.battleId; render(page.container, user); }
     });
     body.querySelectorAll('[data-bot]').forEach(b => b.addEventListener('click', () => {
-      const c = cfg(); const g = pickGame(c.subject);
+      const c = cfg(); const g = pickGame(c.scope);
       if (!g) return;
-      runSession(page.container, user, { gameId: g.id, mode: 'bot', botLevel: b.dataset.bot, subject: c.subject, onExit: () => render(page.container, user) });
+      runSession(page.container, user, { gameId: g.id, mode: 'bot', botLevel: b.dataset.bot, scope: c.scope, onExit: () => render(page.container, user) });
     }));
     body.querySelector('#gbAvail').addEventListener('change', (e) => {
       DB.updateUser(user.id, { gameAvailable: e.target.checked });
-      UI.toast(e.target.checked ? 'Kamu bisa ditantang siswa lain.' : 'Kamu tidak muncul di daftar lawan.', 'info');
+      UI.toast(e.target.checked ? 'Kamu bisa ditantang mentee lain.' : 'Kamu tidak muncul di daftar lawan.', 'info');
     });
   }
 
@@ -1617,7 +1739,7 @@
         <div class="gb-radar"><span></span><span></span><span></span><b>${g.icon}</b></div>
         <h3>${b.status === 'invite' ? `Menunggu ${esc(userName(b.p2Id))} menerima tantangan…` : '🤖 Bot sedang mencarikan lawan…'}</h3>
         <p class="muted">${esc(g.name)}${b.subject ? ' • ' + esc(b.subject) : ''} • berlaku <b id="gbLeft">${left}</b> detik lagi</p>
-        ${b.status === 'open' ? '<p class="muted small">Tantangan terbuka untuk semua siswa online. Siswa yang diundang mendapat notifikasi di perangkatnya.</p>' : ''}
+        ${b.status === 'open' ? '<p class="muted small">Tantangan terbuka untuk semua mentee online. Mentee yang diundang mendapat notifikasi di perangkatnya.</p>' : ''}
         <div class="flex-gap" style="justify-content:center;margin-top:12px;">
           <button type="button" class="btn btn-secondary" id="gbCancel">Batalkan</button>
           ${settings().bot ? '<button type="button" class="btn btn-ghost" id="gbToBot">🦾 Lawan Bot saja</button>' : ''}
@@ -1626,7 +1748,7 @@
     const tb = container.querySelector('#gbToBot');
     if (tb) tb.addEventListener('click', () => {
       cancelBattle(user, b.id); view.waiting = null;
-      runSession(container, user, { gameId: b.game, mode: 'bot', botLevel: 'sedang', subject: b.subject, onExit: () => render(container, user) });
+      runSession(container, user, { gameId: b.game, mode: 'bot', botLevel: 'sedang', scope: b.scope || b.subject, onExit: () => render(container, user) });
     });
     const tick = () => {
       if (!page || page.container !== container || view.waiting !== b.id || session) return;
@@ -1666,14 +1788,14 @@
     body.innerHTML = `
       <div class="gb-rank-wrap">
         <div class="card">
-          <div class="card-header">${UI.secHead('🏆', 'Rekor per Game', 'skor terbaik tiap siswa')}
+          <div class="card-header">${UI.secHead('🏆', 'Rekor per Game', 'skor terbaik tiap mentee')}
             <select id="gbRankG">${GAMES.map(x => `<option value="${x.id}" ${x.id === g.id ? 'selected' : ''}>${x.icon} ${esc(x.name)}</option>`).join('')}</select></div>
           ${rows.length ? `<ol class="gb-rank">${rows.map((s, i) => `<li class="${s.studentId === user.id ? 'is-me' : ''}"><span class="gb-rk">${medal(i)}</span>
             <span class="gb-rn">${esc(userName(s.studentId))}</span><span class="muted small">${esc(UI.fmtRelative(s.createdAt))}</span><b>${fmt(s.score)}</b></li>`).join('')}</ol>`
             : '<div class="empty"><div class="empty-icon">🏁</div>Belum ada skor. Jadilah yang pertama!</div>'}
         </div>
         <div class="card">
-          <div class="card-header">${UI.secHead('⚔️', 'Juara Battle', 'kemenangan battle melawan siswa')}</div>
+          <div class="card-header">${UI.secHead('⚔️', 'Juara Battle', 'kemenangan battle melawan mentee')}</div>
           ${champs.length ? `<ol class="gb-rank">${champs.map(([id, n], i) => `<li class="${id === user.id ? 'is-me' : ''}"><span class="gb-rk">${medal(i)}</span>
             <span class="gb-rn">${esc(userName(id))}</span><b>${n} menang</b></li>`).join('')}</ol>`
             : '<div class="empty"><div class="empty-icon">⚔️</div>Belum ada battle yang selesai.</div>'}
@@ -1688,7 +1810,7 @@
     body.innerHTML = `<div class="card"><div class="card-header">${UI.secHead('📜', 'Riwayat Main', '30 ronde terakhir')}</div>
       ${mine.length ? `<div class="table-wrap"><table class="table"><thead><tr><th>Game</th><th>Mode</th><th>Skor</th><th>Benar</th><th>Hasil</th><th>Waktu</th></tr></thead>
         <tbody>${mine.map(s => { const g = GAME[s.game] || {}; return `<tr><td>${g.icon || '🎮'} ${esc(g.name || s.game)}</td>
-          <td>${s.mode === 'battle' ? `⚔️ vs ${esc(firstName(s.opponentId))}` : s.mode === 'bot' ? '🦾 vs Bot' : '🎯 Pribadi'}</td>
+          <td>${s.mode === 'battle' ? `⚔️ vs ${esc(firstName(s.opponentId))}` : s.mode === 'bot' ? '🦾 vs Bot' : s.mode === 'kelas' ? '🎪 Main Bareng' : '🎯 Pribadi'}</td>
           <td><strong>${fmt(s.score)}</strong></td><td>${s.correct}/${s.answered}</td><td>${RES[s.result] || '-'}</td>
           <td class="small">${esc(UI.fmtDateTime(s.createdAt))}</td></tr>`; }).join('')}</tbody></table></div>`
         : '<div class="empty"><div class="empty-icon">🎮</div>Belum ada riwayat. Ayo main!</div>'}</div>`;
@@ -1721,7 +1843,7 @@
         shownCards.add('inv:' + b.id);
         // Kartu selalu muncul (juga di halaman Game Battle, tab apa pun); daftar ikut diperbarui.
         showCard(b, 'inv');
-        if (onPage && page) render(page.container, page.user);
+        if (onPage && page && !(global.GameRoom && GameRoom.busy())) render(page.container, page.user);
       }
       if (b.status === 'playing' && b.p1Id === me && !onPage && !shownCards.has('acc:' + b.id)
         && now < (b.startAt || 0) + (b.limitMs || 300000) && !((b.players || {})[me] || {}).finished) {
@@ -1772,12 +1894,25 @@
     setInterval(watch, 4000);
   }
 
-  function stop() { stopSession('nav'); clearTimeout(waitTimer); page = null; }
+  function stop() { stopSession('nav'); clearTimeout(waitTimer); page = null; if (global.GameRoom) GameRoom.stop(); }
+
+  /**
+   * Daftarkan game tambahan (js/games-arcade.js). Game harus memiliki bentuk yang
+   * sama dengan katalog di atas: id unik, accepts, min, pick, limitSec, bot, play.
+   */
+  function register(game) {
+    if (!game || !game.id || GAME[game.id] || typeof game.play !== 'function' || typeof game.accepts !== 'function') return false;
+    GAMES.push(game);
+    GAME[game.id] = game;
+    return true;
+  }
 
   global.Games = {
     PAGE, KEYS: K, GAMES, GAME, settings, poolFor, unitsOf, autoValid, sourceQuestions, getGameQuestions, upsertQuestion: (q) => upsert(K.q, q),
     removeQuestion: (id) => removeRec(K.q, id), getBattles, getScores, playableGames, gameCardHtml, keyText,
-    render, init, stop, runSession, stopSession, AnswerUI, winnerOf,
+    render, init, stop, runSession, stopSession, AnswerUI, winnerOf, register,
+    /** Bagian mesin game yang dipakai ulang game tambahan & Main Bareng Kelas. */
+    kit: { askTurn, qCardHtml, beep, shuffle, mulberry, gainHtml, fmtOf, optCount, plain, rt, esc, fmt, reducedMotion, bsLabels, DIFF_ORDER, ALL_AUTO, BOT_LEVELS, resolveRef, prefs, saveScore: (rec) => upsert(K.scores, rec) },
     _test: { mulberry, shuffle, bsCards, memoryPairs, createBattle, acceptBattle, autoMatch, onlineStudents }
   };
 })(window);

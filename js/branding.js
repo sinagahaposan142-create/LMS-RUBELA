@@ -65,6 +65,12 @@
       link.href = st.appLogo;
     }
 
+    // Cache kecil untuk layar pemuatan (js/boot-splash.js), yang tampil sebelum data dimuat.
+    try {
+      const logo = typeof st.appLogo === 'string' && st.appLogo.length <= 120000 && /^data:image\//.test(st.appLogo) ? st.appLogo : '';
+      localStorage.setItem('lms_brand_cache', JSON.stringify({ name, logo }));
+    } catch (e) { /* penyimpanan penuh: layar pemuatan memakai nama bawaan */ }
+
     // Footer hak cipta di halaman masuk
     document.querySelectorAll('.hero-footer').forEach(el => {
       el.innerHTML = `&copy; ${new Date().getFullYear()} ${esc(name)}`;

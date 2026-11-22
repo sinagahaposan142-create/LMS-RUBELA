@@ -117,7 +117,10 @@
     if (el.dataset.counted) return;
     const parsed = parseValue(el.textContent);
     // Angka desimal format Indonesia ("7,5") tidak dianimasikan: pemisah desimal akan hilang.
-    if (!parsed || parsed.value === 0 || Math.abs(parsed.value) > 1e12 || /\d,\d/.test(el.textContent)) {
+    // Begitu pula desimal bertitik ("66.7%"): titik bukan pemisah ribuan bila diikuti selain tepat 3 angka
+    // (sebelumnya "66.7%" teranimasi menjadi "667%").
+    if (!parsed || parsed.value === 0 || Math.abs(parsed.value) > 1e12 || /\d,\d/.test(el.textContent) ||
+      /\d\.(?!\d{3}(?!\d))\d/.test(el.textContent)) {
       el.dataset.counted = '1';
       return;
     }

@@ -16,10 +16,11 @@
         { key: 'overview', label: 'Overview', icon: '📊', group: 'Utama' },
         { key: 'notifikasi', label: 'Notifikasi & Aktivitas', icon: '🔔', group: 'Utama' },
         { key: 'online', label: 'Sedang Online', icon: '🟢', group: 'Utama' },
-        { key: 'guru', label: 'Kelola Guru', icon: '👨‍🏫', group: 'Pengguna' },
-        { key: 'siswa', label: 'Kelola Siswa', icon: '👨‍🎓', group: 'Pengguna' },
+        { key: 'guru', label: 'Kelola Tutor', icon: '👨‍🏫', group: 'Pengguna' },
+        { key: 'siswa', label: 'Kelola Mentee', icon: '👨‍🎓', group: 'Pengguna' },
         { key: 'orangtua', label: 'Kelola Orang Tua', icon: '👨‍👩‍👦', group: 'Pengguna' },
         { key: 'staff', label: 'Admin & Staff', icon: '🛡️', group: 'Pengguna' },
+        { key: 'data-ganda', label: 'Cek Data Ganda', icon: '🔁', group: 'Pengguna' },
         { key: 'courses', label: 'Semua Kelas', icon: '📚', group: 'Akademik' },
         { key: 'course-admin', label: 'Course Mandiri', icon: '🎓', group: 'Akademik' },
         { key: 'hub-pay', label: 'Pembayaran Course', icon: '💳', group: 'Akademik' },
@@ -38,6 +39,7 @@
         { key: 'arena-admin', label: 'Arena Belajar', icon: '🎮', group: 'Motivasi & Gamifikasi' },
         { key: 'game-admin', label: 'Game Battle', icon: '⚔️', group: 'Motivasi & Gamifikasi' },
         { key: 'leaderboard', label: 'Papan Peringkat', icon: '🏆', group: 'Motivasi & Gamifikasi' },
+        { key: 'ruang-belajar', label: 'Ruang Belajar', icon: '⏱️', group: 'Motivasi & Gamifikasi' },
         { key: 'birthday', label: 'Ulang Tahun', icon: '🎂', group: 'Motivasi & Gamifikasi' },
         { key: 'motivasi', label: 'Kata Motivasi', icon: '💡', group: 'Motivasi & Gamifikasi' },
         { key: 'ayat-admin', label: 'Ayat Harian', icon: '📖', group: 'Motivasi & Gamifikasi' },
@@ -70,14 +72,16 @@
         { key: 'bank-soal', label: 'Bank Soal', icon: '📝', group: 'Mengajar' },
         { key: 'cbt', label: 'CBT / Ujian', icon: '🖥️', group: 'Mengajar' },
         { key: 'grading', label: 'Penilaian Tugas', icon: '✅', group: 'Mengajar' },
+        { key: 'course-tutor', label: 'Course Mandiri', icon: '🎓', group: 'Mengajar' },
         { key: 'kalkulator-utbk', label: 'Kalkulator UTBK', icon: '🧮', group: 'Tools' },
         { key: 'kalender-seleksi', label: 'Kalender Seleksi', icon: '📆', group: 'Tools' },
-        { key: 'rekap', label: 'Rekapan Kelas', icon: '📈', group: 'Siswa & Laporan' },
-        { key: 'streak-siswa', label: 'Streak Siswa', icon: '🔥', group: 'Siswa & Laporan' },
-        { key: 'game-admin', label: 'Game Battle', icon: '⚔️', group: 'Siswa & Laporan' },
-        { key: 'leaderboard', label: 'Papan Peringkat', icon: '🏆', group: 'Siswa & Laporan' },
-        { key: 'ai-asisten', label: 'Asisten AI', icon: '💬', group: 'Siswa & Laporan' },
-        { key: 'ai-analytics', label: 'AI Analytics', icon: '🤖', group: 'Siswa & Laporan' },
+        { key: 'rekap', label: 'Rekapan Kelas', icon: '📈', group: 'Mentee & Laporan' },
+        { key: 'streak-siswa', label: 'Streak Mentee', icon: '🔥', group: 'Mentee & Laporan' },
+        { key: 'ruang-belajar', label: 'Ruang Belajar', icon: '⏱️', group: 'Mentee & Laporan' },
+        { key: 'game-admin', label: 'Game Battle', icon: '⚔️', group: 'Mentee & Laporan' },
+        { key: 'leaderboard', label: 'Papan Peringkat', icon: '🏆', group: 'Mentee & Laporan' },
+        { key: 'ai-asisten', label: 'Asisten AI', icon: '💬', group: 'Mentee & Laporan' },
+        { key: 'ai-analytics', label: 'AI Analytics', icon: '🤖', group: 'Mentee & Laporan' },
         { key: 'pengumuman', label: 'Pengumuman', icon: '📢', group: 'Komunikasi' },
         { key: 'berita', label: 'Berita', icon: '📰', group: 'Komunikasi' },
         { key: 'kalender', label: 'Kalender', icon: '📅', group: 'Komunikasi' },
@@ -92,6 +96,7 @@
         { key: 'overview', label: 'Overview', icon: '📊', group: 'Utama' },
         { key: 'notifikasi', label: 'Notifikasi', icon: '🔔', group: 'Utama' },
         { key: 'my-courses', label: 'Kelas Saya', icon: '📚', group: 'Belajar' },
+        { key: 'ruang-belajar', label: 'Ruang Belajar', icon: '⏱️', group: 'Belajar' },
         { key: 'course', label: 'Course', icon: '🎓', group: 'Belajar' },
         { key: 'browse', label: 'Jelajah Kelas', icon: '🔎', group: 'Belajar' },
         { key: 'modul', label: 'Modul', icon: '📘', group: 'Belajar' },
@@ -126,18 +131,19 @@
         { key: 'anak-nilai', label: 'Nilai & Ujian', icon: '🏆', group: 'Pantau Anak' },
         { key: 'anak-absensi', label: 'Kehadiran', icon: '📋', group: 'Pantau Anak' },
         { key: 'anak-tugas', label: 'Tugas', icon: '📝', group: 'Pantau Anak' },
-        { key: 'anak-kelas', label: 'Kelas & Guru', icon: '📚', group: 'Pantau Anak' },
+        { key: 'anak-kelas', label: 'Kelas & Tutor', icon: '📚', group: 'Pantau Anak' },
         { key: 'anak-course', label: 'Course Anak', icon: '🎓', group: 'Pantau Anak' },
         { key: 'anak-jadwal', label: 'Jadwal Kelas', icon: '🗓️', group: 'Pantau Anak' },
         { key: 'anak-perkembangan', label: 'Perkembangan', icon: '📈', group: 'Pantau Anak' },
         { key: 'anak-streak', label: 'Streak Anak', icon: '🔥', group: 'Pantau Anak' },
+        { key: 'ruang-belajar', label: 'Jam Belajar Anak', icon: '⏱️', group: 'Pantau Anak' },
         { key: 'birthday', label: 'Ulang Tahun Anak', icon: '🎂', group: 'Pantau Anak' },
         { key: 'kalkulator-utbk', label: 'Kalkulator UTBK', icon: '🧮', group: 'Tools' },
         { key: 'kalender-seleksi', label: 'Kalender Seleksi', icon: '📆', group: 'Tools' },
         { key: 'pengumuman', label: 'Pengumuman', icon: '📢', group: 'Komunikasi' },
         { key: 'berita', label: 'Berita', icon: '📰', group: 'Komunikasi' },
         { key: 'kalender', label: 'Kalender', icon: '📅', group: 'Komunikasi' },
-        { key: 'chat', label: 'Chat Guru', icon: '💭', group: 'Komunikasi' },
+        { key: 'chat', label: 'Chat Tutor', icon: '💭', group: 'Komunikasi' },
         { key: 'feedback', label: 'Kritik & Saran', icon: '💬', group: 'Komunikasi' },
         { key: 'keuangan', label: 'Pembayaran', icon: '💰', group: 'Akun' },
         { key: 'profile', label: 'Profil', icon: '👤', group: 'Akun' }
@@ -146,7 +152,7 @@
 
     /* Navigasi bawah ponsel: menu yang paling sering dipakai tiap peran + "Menu". */
     const BOTTOM_NAV = {
-      admin: [['overview', 'Beranda'], ['siswa', 'Siswa'], ['courses', 'Kelas'], ['attendance', 'Presensi']],
+      admin: [['overview', 'Beranda'], ['siswa', 'Mentee'], ['courses', 'Kelas'], ['attendance', 'Presensi']],
       guru: [['overview', 'Beranda'], ['courses', 'Kelas'], ['absensi', 'Presensi'], ['grading', 'Nilai']],
       siswa: [['overview', 'Beranda'], ['my-courses', 'Kelas'], ['streak', 'Streak'], ['assignments', 'Tugas']],
       orangtua: [['overview', 'Beranda'], ['anak-nilai', 'Nilai'], ['anak-absensi', 'Hadir'], ['anak-tugas', 'Tugas']]
@@ -154,24 +160,24 @@
 
     /* Aksi cepat di Overview — hanya menu yang memang tersedia bagi peran itu. */
     const QUICK_ACTIONS = {
-      admin: [['attendance', 'Ambil presensi', 'Isi kehadiran hari ini'], ['siswa', 'Tambah siswa', 'Kelola akun mentee'],
-        ['courses', 'Kelola kelas', 'Tutor, jadwal & siswa'], ['admin-cbt', 'Buat ujian', 'CBT & tryout'],
+      admin: [['attendance', 'Ambil presensi', 'Isi kehadiran hari ini'], ['siswa', 'Tambah mentee', 'Kelola akun mentee'],
+        ['courses', 'Kelola kelas', 'Tutor, jadwal & mentee'], ['admin-cbt', 'Buat ujian', 'CBT & tryout'],
         ['pengumuman', 'Pengumuman', 'Kirim info penting'], ['keuangan', 'Keuangan', 'Pemasukan & gaji']],
       guru: [['absensi', 'Ambil presensi', 'Kelas hari ini'], ['grading', 'Nilai tugas', 'Submission menunggu'],
         ['jadwal-kelas', 'Jadwal', 'Validasi pertemuan'], ['cbt', 'Buat ujian', 'CBT kelas'],
-        ['modul', 'Modul', 'Materi berbagian'], ['chat', 'Chat', 'Pesan siswa & admin']],
+        ['modul', 'Modul', 'Materi berbagian'], ['chat', 'Chat', 'Pesan mentee & admin']],
       siswa: [['arena', 'Tantangan harian', 'Nyalakan streak'], ['assignments', 'Tugas', 'Kerjakan sebelum deadline'],
         ['cbt', 'Tryout / CBT', 'Ujian tersedia'], ['jadwal-siswa', 'Jadwal kelas', 'Masuk Zoom/Meet'],
         ['course', 'Course', 'Belajar mandiri'], ['mesin-waktu', 'Mesin Waktu', 'Surat untuk masa depan']],
       orangtua: [['anak-nilai', 'Nilai & ujian', 'Hasil terbaru'], ['anak-absensi', 'Kehadiran', 'Persentase hadir'],
         ['anak-tugas', 'Tugas', 'Status pengumpulan'], ['anak-jadwal', 'Jadwal', 'Kelas minggu ini'],
-        ['keuangan', 'Pembayaran', 'Tagihan & riwayat'], ['chat', 'Chat guru', 'Hubungi tutor']]
+        ['keuangan', 'Pembayaran', 'Tagihan & riwayat'], ['chat', 'Chat tutor', 'Hubungi tutor']]
     };
 
     const ROLE_TITLES = {
       admin: 'Admin Panel',
-      guru: 'Guru Panel',
-      siswa: 'Siswa Panel',
+      guru: 'Tutor Panel',
+      siswa: 'Mentee Panel',
       orangtua: 'Panel Orang Tua'
     };
 
@@ -299,7 +305,8 @@
       const fresh = DB.getUser(user.id) || user;
       el.classList.toggle('has-photo', !!fresh.photo);
       el.classList.toggle('bd-frame', !!(window.Birthday && Birthday.hasFrame(fresh)));
-      if (fresh.photo) el.innerHTML = `<img src="${UI.esc(fresh.photo)}" alt="" />`;
+      if (window.Avatars) el.innerHTML = Avatars.inner(fresh);
+      else if (fresh.photo) el.innerHTML = `<img src="${UI.esc(fresh.photo)}" alt="" />`;
       else el.textContent = UI.initials(fresh.name);
     }
 
@@ -313,7 +320,9 @@
       'kalkulator-utbk': (c) => UtbkCalc.render(c, user),
       'kalender-seleksi': (c) => AdmissionCal.render(c, user),
       'data-ptn': (c) => PtnAdmin.render(c, user),
-      grup: (c) => Groups.render(c, user)
+      grup: (c) => Groups.render(c, user),
+      // Ruang Belajar ala YPT (js/study-room.js): timer, ruang kelas, peringkat, rekap.
+      'ruang-belajar': (c) => StudyRoom.render(c, user)
     };
 
     /* ================= Routing ================= */
@@ -321,8 +330,9 @@
     function navigate(key, opts) {
       const quiet = !!(opts && opts.quiet);
       const keepY = quiet ? window.scrollY : 0;
+      const keepUi = quiet && key === currentKey ? captureUiState(document.getElementById('content')) : [];
+      if (key !== currentKey) refreshDue = false;      // halaman baru selalu digambar dari data terbaru
       currentKey = key;
-      hideLiveChip();
       document.querySelectorAll('.side-nav a').forEach(a => {
         const on = a.dataset.key === key;
         a.classList.toggle('active', on);
@@ -336,13 +346,17 @@
       const navItem = (NAVS[user.role] || []).find(n => n.key === key);
       document.getElementById('pageTitle').textContent = navItem ? navItem.label : 'Dashboard';
       const content = document.getElementById('content');
-      if (window.Whiteboard) Whiteboard.destroy();
+      if (window.WbHub) WbHub.destroy();
       // Ruang pribadi Mesin Waktu terkunci kembali setiap kali halaman ditinggalkan.
       if (window.TimeCapsule) TimeCapsule.lock();
       if (window.Arena) Arena.stop();
       if (window.Games) Games.stop();
       if (window.GamesAdmin) GamesAdmin.stop();
-      if (window.CourseHub && key !== 'course' && key !== 'course-admin') CourseHub.reset();
+      // Halaman penuh tryout & pemilih soal tidak boleh tertinggal di atas halaman baru.
+      if (window.QPicker) QPicker.close();
+      if (window.Tryout) Tryout.close();
+      if (window.StudyRoom) StudyRoom.stop();
+      if (window.CourseHub && key !== 'course' && key !== 'course-admin' && key !== 'course-tutor') CourseHub.reset();
       if (content.__presenceDispose) {
         content.__presenceDispose();
         delete content.__presenceDispose;
@@ -384,6 +398,7 @@
       // Responsif: beri label kolom tabel & tandai area yang perlu digulir
       if (window.Responsive) Responsive.apply(content);
       if (window.Shared && Shared.bindMotivation) Shared.bindMotivation(content);
+      if (keepUi.length) { try { restoreUiState(content, keepUi); } catch (e) { console.warn('[LMS] pulihkan tab', e); } }
       if (quiet) window.scrollTo(0, keepY);
       else window.scrollTo({ top: 0, behavior: 'smooth' });
     }
@@ -407,40 +422,45 @@
     }
 
     /* ================= Pembaruan dari perangkat lain (mode server) =================
-     * Halaman ringkasan diperbarui otomatis; halaman lain menampilkan tombol
-     * "Muat ulang" agar isian/tab yang sedang dibuka tidak tiba-tiba berubah. */
-    const AUTO_REFRESH = new Set(['overview', 'notifikasi', 'pengumuman', 'kalender', 'online', 'hub-pay', 'kalender-seleksi']);
-    const SELF_LIVE = new Set(['chat', 'game-battle', 'game-admin', 'grup']);
+     * Data dari pengguna/perangkat lain langsung tersimpan di perangkat ini, lalu
+     * halaman yang terbuka digambar ulang diam-diam (posisi gulir & tab aktif
+     * dipertahankan) begitu pengguna tidak sedang mengisi formulir atau membuka
+     * dialog. Pantulan perubahan sendiri (simpan, unggah) tidak memicu apa pun. */
+    const SELF_LIVE = new Set(['chat', 'game-battle', 'game-admin', 'grup', 'ruang-belajar']);
+    // Data yang hanya berarti di halaman tertentu; lonceng & avatar diperbarui terpisah.
+    const PAGE_KEYS = {
+      lms_notifications: ['notifikasi'], lms_activity_log: ['notifikasi'], lms_birthday_notified: [],
+      lms_messages: [], lms_ai_chats: ['ai-asisten'], lms_whiteboard_boards: [],
+      lms_game_rooms: [], lms_game_players: [], lms_game_battles: [], lms_game_scores: ['leaderboard'],
+      lms_study_sessions: [], lms_study_goals: [],
+      lms_learning_log: ['streak', 'streak-admin', 'streak-siswa', 'anak-streak', 'leaderboard', 'overview']
+    };
     let lastInputAt = 0;
     let liveTimer = null;
-    let lastLiveAt = 0;
-    document.getElementById('content').addEventListener('input', () => { lastInputAt = Date.now(); }, true);
-    document.getElementById('content').addEventListener('change', () => { lastInputAt = Date.now(); }, true);
-    function hideLiveChip() {
-      const chip = document.getElementById('liveChip');
-      if (chip) chip.remove();
-    }
+    let refreshDue = false;
+    ['input', 'change', 'keydown', 'pointerdown'].forEach(ev =>
+      document.addEventListener(ev, () => { lastInputAt = Date.now(); }, { capture: true, passive: true }));
     function interactionBusy() {
       if (document.body.classList.contains('exam-mode') || document.getElementById('loginQuizGate')) return true;
       if (!document.getElementById('genericModal').classList.contains('hidden')) return true;
+      if (document.querySelector('.qe-workspace, .cbt-workspace, .qe-dialog-back, details.act-menu[open], .wb-text-input, .rte-pop.is-open')) return true;
       const a = document.activeElement;
-      const content = document.getElementById('content');
-      if (a && content.contains(a) && a.matches('input, textarea, select, [contenteditable="true"], [contenteditable=""]')) return true;
-      return Date.now() - lastInputAt < 20000;
+      if (a && a !== document.body && a.matches('input:not([type=checkbox]):not([type=radio]):not([type=button]):not([type=submit]):not([type=range]), textarea, select, [contenteditable="true"], [contenteditable=""]')) return true;
+      if (window.getSelection && String(window.getSelection() || '').trim()) return true;
+      return Date.now() - lastInputAt < 6000;
     }
-    function showLiveChip() {
-      if (document.getElementById('liveChip')) return;
-      const content = document.getElementById('content');
-      const chip = document.createElement('div');
-      chip.id = 'liveChip';
-      chip.className = 'live-chip';
-      chip.setAttribute('role', 'status');
-      chip.innerHTML = '<span>🔄 Ada data baru dari perangkat lain.</span><button type="button" class="btn btn-primary btn-sm">Muat ulang</button><button type="button" class="icon-btn" aria-label="Tutup">&times;</button>';
-      chip.querySelector('.btn').addEventListener('click', () => navigate(currentKey, { quiet: true }));
-      chip.querySelector('.icon-btn').addEventListener('click', hideLiveChip);
-      content.prepend(chip);
+    function scheduleLiveRefresh(ms) {
+      clearTimeout(liveTimer);
+      liveTimer = setTimeout(() => {
+        if (!refreshDue) return;
+        if (SELF_LIVE.has(currentKey) || document.querySelector('#content .wbh, #content .wb-pro, #content .tc-root')) { refreshDue = false; return; }
+        if (document.hidden || interactionBusy()) { scheduleLiveRefresh(1500); return; }
+        refreshDue = false;
+        navigate(currentKey, { quiet: true });
+      }, ms);
     }
-    function onRemoteChange(keys) {
+    document.addEventListener('visibilitychange', () => { if (!document.hidden && refreshDue) scheduleLiveRefresh(300); });
+    function onRemoteChange(keys, foreign) {
       renderBell();
       renderAvatar();
       if (keys.includes('lms_settings') && window.Branding) Branding.apply();
@@ -449,31 +469,53 @@
         const fresh = DB.getUser(user.id);
         if (fresh) { document.getElementById('userName').textContent = fresh.name; }
       }
-      const relevant = keys.filter(k => !['lms_birthday_notified', 'lms_activity_log'].includes(k) || currentKey === 'notifikasi');
+      const relevant = foreign.filter(k => !PAGE_KEYS[k] || PAGE_KEYS[k].includes(currentKey));
       if (!relevant.length || SELF_LIVE.has(currentKey)) return;
-      if (document.querySelector('#content .wb-root, #content .tc-root')) return;      // whiteboard & Mesin Waktu punya pembaruan sendiri
-      clearTimeout(liveTimer);
-      liveTimer = setTimeout(() => {
-        if (AUTO_REFRESH.has(currentKey) && !interactionBusy() && Date.now() - lastLiveAt > 3000) {
-          lastLiveAt = Date.now();
-          navigate(currentKey, { quiet: true });
-        } else if (!document.body.classList.contains('exam-mode')) showLiveChip();
-      }, 900);
+      // Whiteboard & Mesin Waktu menggabungkan pembaruan sendiri tanpa menggambar ulang halaman.
+      if (document.querySelector('#content .wbh, #content .wb-pro, #content .tc-root')) return;
+      refreshDue = true;
+      scheduleLiveRefresh(700);
     }
     if (window.Sync && Sync.isServer()) {
-      window.addEventListener('lms:remote-change', (e) => onRemoteChange((e.detail && e.detail.keys) || []));
+      window.addEventListener('lms:remote-change', (e) => {
+        const d = e.detail || {};
+        onRemoteChange(d.keys || [], d.foreign || d.keys || []);
+      });
+    }
+
+    /* Tab/subtab aktif di halaman: digambar ulang diam-diam tanpa kembali ke tab bawaan. */
+    const UI_STATE_SEL = '.subtab-btn.active, .tab-btn.active, .class-chip.is-active, .wbh-seg .is-on, [role="tab"][aria-selected="true"]';
+    function captureUiState(root) {
+      const out = [];
+      root.querySelectorAll(UI_STATE_SEL).forEach(el => {
+        const a = [...el.attributes].find(x => /^data-/.test(x.name) && x.value && x.name !== 'data-tip');
+        if (a) out.push([a.name, a.value]);
+      });
+      return out;
+    }
+    function restoreUiState(root, saved) {
+      saved.forEach(([name, value]) => {
+        let el = null;
+        try { el = root.querySelector(`[${name}="${CSS.escape(value)}"]`); } catch (e) { el = null; }
+        if (el && !el.matches(UI_STATE_SEL) && !el.disabled) el.click();
+      });
     }
 
     /* ================= Riwayat notifikasi & aktivitas ================= */
-    let notifTab = 'notif';
+    // Admin & tutor membuka Ruang Perhatian lebih dulu (js/attention.js).
+    const staffNotif = (user.role === 'admin' || user.role === 'guru') && !!window.Attention;
+    let notifTab = staffNotif ? 'perhatian' : 'notif';
     function renderNotifHistory(container) {
       const isAdmin = user.role === 'admin';
-      const tab = isAdmin ? notifTab : 'notif';
+      const tabs = [];
+      if (staffNotif) tabs.push(['perhatian', 'Perlu Ditindaklanjuti']);
+      if (staffNotif || isAdmin) tabs.push(['notif', 'Notifikasi Saya']);
+      if (isAdmin) tabs.push(['log', 'Riwayat Aktivitas']);
+      const tab = tabs.some(t => t[0] === notifTab) ? notifTab : 'notif';
+      const attCount = staffNotif ? Attention.count(user) : 0;
       container.innerHTML = `
-        ${isAdmin ? `<div class="tabs">
-          <button type="button" class="tab-btn ${tab === 'notif' ? 'active' : ''}" data-ntab="notif">🔔 Notifikasi Saya</button>
-          <button type="button" class="tab-btn ${tab === 'log' ? 'active' : ''}" data-ntab="log">🧾 Riwayat Aktivitas</button>
-        </div>` : ''}
+        ${tabs.length > 1 ? `<div class="tabs" role="tablist">${tabs.map(([k, l]) => `<button type="button" role="tab" aria-selected="${tab === k}" class="tab-btn ${tab === k ? 'active' : ''}" data-ntab="${k}">${l}${k === 'perhatian' && attCount ? ` <span class="tab-count">${attCount > 99 ? '99+' : attCount}</span>` : ''}</button>`).join('')}</div>` : ''}
+        ${tab === 'perhatian' ? '<div class="card" id="attRoom"></div>' : `
         <div class="card">
           <div class="card-header">
             ${UI.secHead(tab === 'log' ? '🧾' : '🔔', tab === 'log' ? 'Riwayat Aktivitas' : 'Riwayat Notifikasi',
@@ -483,11 +525,15 @@
               <button type="button" class="btn btn-sm btn-danger" id="nhClear">Bersihkan</button></div>` : ''}
           </div>
           <div id="nhList"></div>
-        </div>`;
+        </div>`}`;
       container.querySelectorAll('[data-ntab]').forEach(b => b.addEventListener('click', () => {
         notifTab = b.dataset.ntab; renderNotifHistory(container);
       }));
       const box = container.querySelector('#nhList');
+      if (tab === 'perhatian') {
+        Attention.render(container.querySelector('#attRoom'), user);
+        return;
+      }
       if (tab === 'log') {
         const ROLE = Auth.ROLE_LABELS;
         const log = DB.getActivityLog();
@@ -680,7 +726,7 @@
 
     const genericModal = document.getElementById('genericModal');
     function closeGenericModal() {
-      if (window.Whiteboard) Whiteboard.destroy();
+      if (window.WbHub) WbHub.destroy();
       UI.modal.close();
     }
     document.getElementById('modalClose').addEventListener('click', closeGenericModal);
@@ -702,25 +748,54 @@
       refresh: () => navigate(currentKey, { quiet: true })
     };
 
-    /* Indikator sinkronisasi di topbar (mode server). */
+    /* Indikator penyimpanan di topbar (mode server): menghitung lama penyimpanan
+     * secara langsung ("Menyimpan 0.8 detik") sampai server mengonfirmasi, lalu
+     * menampilkan hasilnya sebentar ("Tersimpan 1.2 detik"). */
+    let syncTicker = null;
+    let syncShown = '';
+    const SAVED_HOLD = 4000;
+    const fmtSec = (ms) => (Math.max(0, ms) / 1000).toFixed(1) + ' detik';
     function renderSyncBadge(st) {
       const el = document.getElementById('syncBadge');
       if (!el) return;
-      let cls = 'ok', label = 'Tersinkron', tip = 'Data tersimpan di server.';
-      if (!st.online) { cls = 'off'; label = 'Offline'; tip = 'Tidak ada koneksi. Perubahan disimpan di perangkat dan dikirim saat online.'; }
-      else if (st.error) { cls = 'err'; label = 'Gagal sinkron'; tip = st.error; }
-      else if (st.syncing || st.pending) { cls = 'busy'; label = st.pending ? `Menyimpan (${st.pending})` : 'Menyinkron…'; tip = 'Mengirim/menarik perubahan.'; }
-      if (st.lastSync) tip += ' Terakhir: ' + new Date(st.lastSync).toLocaleTimeString('id-ID');
+      const t = Date.now();
+      const justSaved = st.lastSaveAt && t - st.lastSaveAt < SAVED_HOLD;
+      let cls = 'ok', label = 'Tersinkron', time = '', tip = 'Semua data tersimpan di server.';
+      if (!st.online) {
+        cls = 'off'; label = 'Offline';
+        tip = st.saving ? 'Tidak ada koneksi. Perubahan aman di perangkat ini dan dikirim otomatis saat online.' : 'Tidak ada koneksi.';
+      } else if (st.saving && st.error) {
+        cls = 'err'; label = 'Mencoba lagi'; time = fmtSec(t - st.saveStartedAt); tip = st.error + ' Perubahan dikirim ulang otomatis.';
+      } else if (st.saving) {
+        cls = 'busy'; label = 'Menyimpan'; time = fmtSec(t - st.saveStartedAt);
+        tip = st.uploads ? 'Mengunggah berkas ke server…' : 'Mengirim perubahan ke server…';
+      } else if (st.error) {
+        cls = 'err'; label = 'Gagal sinkron'; tip = st.error;
+      } else if (justSaved) {
+        cls = 'saved'; label = 'Tersimpan'; time = fmtSec(st.lastSaveMs); tip = `Tersimpan di server dalam ${fmtSec(st.lastSaveMs)}.`;
+      }
+      if (st.lastSync) tip += ' Sinkron terakhir: ' + new Date(st.lastSync).toLocaleTimeString('id-ID');
       tip += st.realtime ? ' • Realtime aktif' : ' • Pembaruan berkala';
-      el.className = 'sync-badge is-' + cls;
+      const key = cls + '|' + label;
+      if (key !== syncShown) {
+        syncShown = key;
+        el.className = 'sync-badge is-' + cls;
+        el.innerHTML = `<span class="sync-dot" aria-hidden="true"></span><span class="sync-label">${UI.esc(label)}</span><span class="sync-time" aria-hidden="true"></span>`;
+        el.setAttribute('aria-label', label + (time && cls === 'saved' ? ' dalam ' + time : ''));
+      }
       el.title = tip;
-      el.setAttribute('aria-label', label + '. ' + tip);
-      el.innerHTML = `<span class="sync-dot" aria-hidden="true"></span><span class="sync-label">${UI.esc(label)}</span>`;
+      el.querySelector('.sync-time').textContent = time;
+      el.classList.toggle('has-time', !!time);
+      // Jam berjalan selama menyimpan; setelah tersimpan, kembali ke "Tersinkron" otomatis.
+      const live = st.saving || justSaved;
+      if (live && !syncTicker) syncTicker = setInterval(() => renderSyncBadge(Sync.status()), 100);
+      if (!live && syncTicker) { clearInterval(syncTicker); syncTicker = null; }
     }
     if (window.Sync && Sync.isServer()) {
       const slot = document.createElement('span');
       slot.id = 'syncBadge';
       slot.setAttribute('role', 'status');
+      slot.setAttribute('aria-live', 'polite');
       const right = document.querySelector('.topbar-right');
       if (right) right.insertBefore(slot, right.firstChild);
       renderSyncBadge(Sync.status());
@@ -775,18 +850,29 @@
       const btn = document.getElementById('presenceBtn');
       if (btn && canOpen) btn.addEventListener('click', () => navigate('online'));
     }
-    let stopPresenceBadge = null;
     if (window.Presence) {
       Presence.start(user);
       renderPresenceBadge();
-      stopPresenceBadge = Presence.subscribe(renderPresenceBadge);
+      Presence.subscribe(renderPresenceBadge);
     }
+
+    // Jawaban aman saat sinyal putus: pulihkan jurnal perangkat & siapkan salinan halaman offline.
+    if (window.SafeSave) { try { SafeSave.init(user); } catch (e) { console.warn('[LMS] simpan aman', e); } }
+    // Ruang Belajar: timer tetap berjalan & waktu aktif di LMS dihitung di halaman mana pun (mentee).
+    if (window.StudyRoom) { try { StudyRoom.init(user); } catch (e) { console.warn('[LMS] ruang belajar', e); } }
 
     navigate('overview');
     // Notifikasi perangkat (Web Push): daftarkan service worker, pulihkan langganan, ajakan aktifkan.
     if (window.PushNotif) { try { PushNotif.init(user); } catch (e) { console.warn('[LMS] notifikasi perangkat', e); } }
     // Game Battle: kartu undangan battle muncul di halaman mana pun (siswa).
     if (window.Games) { try { Games.init(user); } catch (e) { console.warn('[LMS] game battle', e); } }
+    // Judul kelas lama memuat nama tutor; admin merapikannya sekali (tersinkron ke semua perangkat).
+    if (user.role === 'admin' && DB.tidyCourseTitles) { try { DB.tidyCourseTitles(); } catch (e) { console.warn('[LMS] judul kelas', e); } }
+    // Mentee yang dulu ditambahkan dengan kelas utama tetapi belum masuk kelas subtestnya (bug lama): diperbaiki sekali.
+    if (user.role === 'admin' && DB.getSettings().enrollRepair !== 1) {
+      try { const n = DB.repairMainClassEnrollments(); DB.setSetting('enrollRepair', 1); if (n) UI.toast(`${n} pendaftaran kelas subtest yang terlewat sudah ditambahkan otomatis.`, 'info'); }
+      catch (e) { console.warn('[LMS] perbaikan pendaftaran', e); }
+    }
     // Musik latar hidup di shell sehingga tidak dimulai ulang saat berpindah menu.
     if (window.Music) { try { Music.init(user); } catch (e) { console.warn('[LMS] musik', e); } }
 

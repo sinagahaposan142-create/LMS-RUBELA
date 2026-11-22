@@ -27,6 +27,9 @@
   let micRaf = null;
   let proctorPip = null;
   let lockEl = null;
+  let saver = null;            // SafeSave.autosave: jurnal per detik selama ujian
+  let statusOff = null;        // indikator & bilah sinyal putus
+  let netOff = null;
   const listeners = [];
 
   /* ===== Penjaga pelanggaran =====
@@ -66,6 +69,9 @@
     Guard.armed = false;
     stopMedia();
     detachListeners();
+    if (saver) { saver.stop(); saver = null; }
+    if (statusOff) { statusOff(); statusOff = null; }
+    if (netOff) { netOff(); netOff = null; }
     if (lockEl) { lockEl.remove(); lockEl = null; }
     document.body.classList.remove('exam-mode', 'exam-nocopy', 'exam-blurred');
   }
@@ -142,6 +148,8 @@
       UI.toast('Ujian ini belum memiliki soal.', 'error');
       return;
     }
+    // Jawaban yang tersimpan di perangkat tetapi belum sampai server (tab tertutup saat offline).
+    if (global.SafeSave) SafeSave.recover('cbt');
     const existing = DB.getCbtAttemptByStudent(cbt.id, user.id);
     if (existing && existing.submittedAt) {
       showResult(cbt, existing);
@@ -149,6 +157,38 @@
     }
     renderIntro(cbt, user, sections, existing, onFinish);
   }
+
+  /* =====================================================================
+   * Pemulihan jurnal perangkat (js/safe-save.js)
+   * Jurnal = salinan lengkap attempt yang ditulis tiap detik selama ujian.
+   * Hanya kolom milik peserta yang diterapkan ulang; nilai tutor tidak disentuh.
+   * ===================================================================*/
+  const OWN_FIELDS = ['answers', 'currentSection', 'sectionDeadlines', 'sectionScores', 'violations', 'net'];
+  const FINAL_FIELDS = ['score', 'correctCount', 'totalCount', 'submittedAt'];
+  function restoreAttempt(entry) {
+    const j = entry.data;
+    if (!j || typeof j !== 'object' || !j.id || !j.cbtId || !j.studentId) return 'drop';
+    if (!DB.getCbt(j.cbtId)) return 'drop';
+    const cur = DB.getCbtAttempts().find(a => a.id === j.id);
+    if (!cur) {
+      // Attempt belum pernah sampai server: buat lagi, kecuali sudah ada percobaan lain.
+      if (DB.getCbtAttemptByStudent(j.cbtId, j.studentId)) return 'drop';
+      DB.addCbtAttempt(JSON.parse(JSON.stringify(j)));
+      return j.submittedAt ? 'synced' : 'keep';
+    }
+    if (cur.submittedAt && !j.submittedAt) return 'drop';
+    const savedCur = (cur.net && Number(cur.net.savedAt)) || 0;
+    const savedJ = (j.net && Number(j.net.savedAt)) || 0;
+    if (savedJ > savedCur) {
+      const patch = {};
+      OWN_FIELDS.forEach(f => { if (j[f] !== undefined) patch[f] = j[f]; });
+      if (j.submittedAt && !cur.submittedAt) FINAL_FIELDS.forEach(f => { if (j[f] !== undefined) patch[f] = j[f]; });
+      DB.updateCbtAttempt(j.id, patch);
+      if (patch.submittedAt && global.Scoring) { try { Scoring.recomputeCbt(j.cbtId); } catch (e) { /* skor dihitung ulang saat hasil dibuka */ } }
+    }
+    return j.submittedAt || cur.submittedAt ? 'synced' : 'keep';
+  }
+  if (global.SafeSave) SafeSave.registerRecovery('cbt', restoreAttempt);
 
   /** Gabungkan pengaturan keamanan ujian dengan bawaan sistem. */
   function secOf(cbt) {
@@ -549,6 +589,33 @@
     let sectionDeadline = 0;
     let timer = null;
 
+    /* ---- Simpan aman per detik + riwayat koneksi attempt ini ---- */
+    const netBase = Object.assign({ drops: 0, offlineMs: 0, lastDropAt: 0 }, attempt.net || {});
+    const net0 = global.SafeSave ? SafeSave.net() : null;
+    function netInfo() {
+      const n = global.SafeSave ? SafeSave.net() : null;
+      if (!n || !net0) return Object.assign({}, netBase, { savedAt: Date.now() });
+      return {
+        drops: netBase.drops + Math.max(0, n.drops - net0.drops),
+        offlineMs: netBase.offlineMs + Math.max(0, n.offlineMs - net0.offlineMs),
+        lastDropAt: n.lastDropAt > net0.lastDropAt ? n.lastDropAt : netBase.lastDropAt,
+        offline: !n.online,
+        savedAt: Date.now()
+      };
+    }
+    if (saver) saver.stop();
+    if (statusOff) statusOff();
+    if (netOff) netOff();
+    saver = global.SafeSave ? SafeSave.autosave({
+      scope: 'cbt', id: attempt.id,
+      read: () => {
+        const cur = DB.getCbtAttempts().find(a => a.id === attempt.id);
+        return cur ? JSON.parse(JSON.stringify(cur)) : null;
+      }
+    }) : null;
+    // Putus/sambung tercatat di attempt sehingga pengawas melihat riwayatnya.
+    netOff = global.SafeSave ? SafeSave.onNet(() => { if (Guard.armed) persist(true); }) : null;
+
     Guard.armed = true;
     Guard.suppress(2500);       // tenggang saat ujian baru dibuka
     document.body.classList.add('exam-mode');
@@ -802,11 +869,13 @@
       else {
         sectionDeadline = Date.now() + secMinutes(section, cbt) * 60000;
         sectionDeadlines[sectionIndex] = sectionDeadline;
-        DB.updateCbtAttempt(attempt.id, { sectionDeadlines });
+        DB.updateCbtAttempt(attempt.id, { sectionDeadlines, net: netInfo() });
       }
+      if (saver) saver.mark(true);
 
+      const withPassage = !!(global.Passages && questions.some(q => Passages.of(q)));
       content.innerHTML = `
-        <div class="exam-shell">
+        <div class="exam-shell ${withPassage ? 'has-passage' : ''}">
           <div class="exam-secbar">
             ${sections.map((s, i) => {
               const s2 = DB.subtestByName(s.subtest);
@@ -820,7 +889,10 @@
               <strong>Bagian ${sectionIndex + 1}/${sections.length} — ${st ? st.icon + ' ' + UI.esc(st.name) : UI.esc(section.subtest)}</strong>
               <div class="muted small">${questions.length} soal • ${secMinutes(section, cbt)} menit • ${UI.esc(cbt.title)}</div>
             </div>
-            <div class="time" id="exTime">--:--</div>
+            <div class="cbt-timer-side">
+              <span id="exNet" role="status"></span>
+              <div class="time" id="exTime">--:--</div>
+            </div>
           </div>
 
           <div class="card">
@@ -833,7 +905,7 @@
           </div>
 
           <div id="exQuestions">
-            ${questions.map((q, i) => questionBlock(q, i)).join('')}
+            ${withPassage ? Passages.layoutHtml(questions, questionBlock) : questions.map((q, i) => questionBlock(q, i)).join('')}
           </div>
 
           <div class="card" style="text-align:center;">
@@ -849,6 +921,9 @@
         </div>`;
 
       bindQuestions(questions);
+      if (withPassage) Passages.bindLayout(document.getElementById('exQuestions'));
+      if (statusOff) statusOff();
+      statusOff = global.SafeSave ? SafeSave.mountStatus(document.getElementById('exNet'), { banner: true }) : null;
 
       document.getElementById('exNextSection').addEventListener('click', async () => {
         const unanswered = questions.filter(q => !isAnswered(q, answers[q.id])).length;
@@ -1004,7 +1079,8 @@
     /* ---- Pengikatan jawaban ---- */
     function bindQuestions(questions) {
       const content = document.getElementById('content');
-      const save = () => { persist(); refreshProgress(questions); };
+      // Pilihan langsung dijurnal; ketikan dijurnal tiap detik oleh SafeSave.
+      const save = (typing) => { persist(!typing); refreshProgress(questions); };
 
       // Pilihan tunggal
       content.querySelectorAll('[data-single]').forEach(el => el.addEventListener('click', (e) => {
@@ -1038,11 +1114,11 @@
       // Esai & isian singkat
       content.querySelectorAll('[data-essay]').forEach(ta => ta.addEventListener('input', () => {
         answers[questions[Number(ta.dataset.essay)].id] = ta.value;
-        save();
+        save(true);
       }));
       content.querySelectorAll('[data-short]').forEach(inp => inp.addEventListener('input', () => {
         answers[questions[Number(inp.dataset.short)].id] = inp.value;
-        save();
+        save(true);
       }));
 
       // Majemuk kompleks (kolom kustom): simpan indeks kolom
@@ -1106,8 +1182,10 @@
       }));
     }
 
-    function persist() {
-      DB.updateCbtAttempt(attempt.id, { answers, currentSection: sectionIndex, sectionDeadlines });
+    /** immediate: tulis jurnal perangkat sekarang (pilihan), bukan menunggu detik berikutnya (ketikan). */
+    function persist(immediate) {
+      DB.updateCbtAttempt(attempt.id, { answers, currentSection: sectionIndex, sectionDeadlines, net: netInfo() });
+      if (saver) saver.mark(immediate);
     }
 
     /** Nilai bagian aktif, lalu lanjut atau kirim. */
@@ -1139,7 +1217,8 @@
 
       if (sectionIndex < sections.length - 1) {
         sectionIndex++;
-        DB.updateCbtAttempt(attempt.id, { answers, sectionScores, currentSection: sectionIndex, sectionDeadlines });
+        DB.updateCbtAttempt(attempt.id, { answers, sectionScores, currentSection: sectionIndex, sectionDeadlines, net: netInfo() });
+        if (saver) saver.mark(true);
         UI.toast(`Bagian selesai. Lanjut ke bagian ${sectionIndex + 1}.`, 'success');
         window.scrollTo({ top: 0, behavior: 'smooth' });
         // Pastikan tetap layar penuh setelah pindah bagian
@@ -1166,8 +1245,11 @@
 
       DB.updateCbtAttempt(attempt.id, {
         answers, score, correctCount: correct, totalCount: scorable,
-        sectionScores, sectionDeadlines, currentSection: sections.length, submittedAt: Date.now()
+        sectionScores, sectionDeadlines, currentSection: sections.length, submittedAt: Date.now(), net: netInfo()
       });
+      // Jurnal akhir ditulis sekarang; dihapus setelah server mengonfirmasi kiriman.
+      if (saver) { saver.flush(); saver.stop(); saver = null; }
+      if (global.SafeSave) SafeSave.dropWhenSynced('cbt', attempt.id);
       // Satu peserta baru mengubah estimasi kesulitan item; hitung ulang skor
       // seluruh cohort CBT agar bobot relatif tetap adil dan konsisten.
       if (global.Scoring) Scoring.recomputeCbt(cbt.id);
@@ -1264,7 +1346,7 @@
             return `
               <div style="margin-bottom:22px;">
                 <h4 style="margin:0 0 10px;">${si + 1}. ${st ? st.icon : '📘'} ${UI.esc(sc.subtest)}</h4>
-                ${qs.map((q, qi) => reviewBlock(q, qi, attempt)).join('')}
+                ${global.Passages ? Passages.reviewHtml(qs, (q, qi) => reviewBlock(q, qi, attempt)) : qs.map((q, qi) => reviewBlock(q, qi, attempt)).join('')}
               </div>`;
           }).join('')}
         </div>
@@ -1319,7 +1401,7 @@
     if (f === 'Esai') {
       body = `<div class="muted small">Jawaban Anda:</div>
         <div class="content" style="white-space:pre-wrap;">${UI.esc(ans || '(tidak dijawab)')}</div>
-        <div class="alert alert-info mt-1">Soal esai dinilai manual oleh guru.</div>`;
+        <div class="alert alert-info mt-1">Soal esai dinilai manual oleh tutor.</div>`;
     } else if (f === 'Isian Singkat') {
       body = `<div class="ex-review-line"><span class="muted small">Jawaban Anda:</span> <strong>${UI.esc(ans || '(kosong)')}</strong></div>
         <div class="ex-review-line"><span class="muted small">Kunci:</span> <strong>${UI.esc((q.answers || []).join(' / '))}</strong></div>`;

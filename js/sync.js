@@ -92,24 +92,43 @@
   /* ------------------------------------------------------------------
    * Status & event
    * ----------------------------------------------------------------*/
-  const status = { online: navigator.onLine !== false, lastSync: 0, error: '', realtime: false, pending: 0, syncing: false };
+  /* saving/saveStartedAt: sejak perubahan lokal pertama yang belum dikonfirmasi server
+   * (termasuk unggahan berkas) sampai semuanya tersimpan; lastSaveMs = lama penyimpanan terakhir. */
+  const status = { online: navigator.onLine !== false, lastSync: 0, error: '', realtime: false, pending: 0, syncing: false,
+    saving: false, saveStartedAt: 0, lastSaveMs: 0, lastSaveAt: 0, uploads: 0 };
   const statusListeners = [];
+  let uploads = 0;
   function setStatus(patch) {
     Object.assign(status, patch);
     status.pending = countPending();
+    status.uploads = uploads;
+    const busy = status.pending > 0 || uploads > 0;
+    if (busy && !status.saveStartedAt) status.saveStartedAt = now();
+    if (!busy && status.saveStartedAt && !status.syncing) {
+      status.lastSaveMs = now() - status.saveStartedAt;
+      status.lastSaveAt = now();
+      status.saveStartedAt = 0;
+    }
+    status.saving = busy;
     statusListeners.slice().forEach(fn => { try { fn(Object.assign({}, status)); } catch (e) { console.error(e); } });
   }
   /** Jumlah perubahan lokal yang belum dikonfirmasi server (kunci yang belum dihitung dihitung 1). */
   function countPending() { let n = dirty.size; pending.forEach(m => { n += m.size; }); return n; }
 
-  function emitRemote(keys) {
+  /**
+   * keys: semua kunci yang berubah secara lokal. foreign: bagian yang berasal dari
+   * pengguna/perangkat lain (bukan pantulan perubahan sendiri) — dipakai dasbor untuk
+   * memutuskan perlu tidaknya halaman diperbarui.
+   */
+  function emitRemote(keys, foreign) {
     if (!keys.size) return;
     keys.forEach(k => {
       try {
         global.dispatchEvent(new StorageEvent('storage', { key: k, newValue: mem.get(k) || null, oldValue: null, storageArea: LS, url: location.href }));
       } catch (e) { /* browser lama */ }
     });
-    try { global.dispatchEvent(new CustomEvent('lms:remote-change', { detail: { keys: [...keys] } })); } catch (e) { /* noop */ }
+    const f = foreign ? [...foreign].filter(k => keys.has(k)) : [...keys];
+    try { global.dispatchEvent(new CustomEvent('lms:remote-change', { detail: { keys: [...keys], foreign: f } })); } catch (e) { /* noop */ }
   }
 
   /* ------------------------------------------------------------------
@@ -504,17 +523,18 @@
    * Siklus sinkronisasi
    * ----------------------------------------------------------------*/
   let pushTimer = null, pollTimer = null, inflight = null, again = false, errorCount = 0, repushRounds = 0;
-  let started = false, lastLocalEdit = 0, lastActivity = now();
+  let started = false, lastActivity = now();
+  // Mode mendesak (ujian/kuis berjalan): coba kirim ulang tiap 3 detik saat koneksi putus.
+  let urgent = 0;
 
   function schedulePush() {
-    lastLocalEdit = now();
     if (pushTimer) clearTimeout(pushTimer);
     pushTimer = setTimeout(() => { pushTimer = null; syncNow('push'); }, PUSH_DEBOUNCE);
     setStatus({});
   }
 
   function pollDelay() {
-    if (errorCount) return Math.min(60000, 4000 * Math.pow(2, errorCount - 1));
+    if (errorCount) return urgent && countPending() ? 3000 : Math.min(60000, 4000 * Math.pow(2, errorCount - 1));
     if (document.visibilityState === 'hidden') return 60000;
     if (status.realtime) return 25000;
     return now() - lastActivity > 120000 ? 15000 : 7000;
@@ -533,15 +553,20 @@
   }
   let presenceSentAt = 0, presenceSentKey = '';
   /** Status online tab ini; dikirim paling sering tiap 20 detik kecuali halaman/visibilitas berubah. */
-  function presencePayload(force) {
+  /** sending: jumlah perubahan yang ikut permintaan ini (tidak dihitung sebagai tertunda). */
+  function presencePayload(force, sending) {
     if (!global.Presence || typeof Presence.localRecord !== 'function') return null;
     const r = Presence.localRecord();
     if (!r) return null;
-    const key = r.page + '|' + r.visibility;
+    const net = r.net || null;
+    // Jumlah putus koneksi ikut kunci: status langsung terkirim begitu tersambung kembali.
+    const key = r.page + '|' + r.visibility + '|' + (net ? net.drops : 0);
     if (!force && key === presenceSentKey && now() - presenceSentAt < 20000) return null;
     presenceSentAt = now();
     presenceSentKey = key;
-    return { tab: r.tabId, page: r.page, visibility: r.visibility, idle: Math.max(0, now() - (r.lastActivity || now())), browser: r.browser, os: r.os, device: r.device };
+    const out = { tab: r.tabId, page: r.page, visibility: r.visibility, idle: Math.max(0, now() - (r.lastActivity || now())), browser: r.browser, os: r.os, device: r.device };
+    if (net) out.net = { pending: Math.max(0, countPending() - (sending || 0)), drops: net.drops || 0, offlineMs: net.offlineMs || 0, lastDropAt: net.lastDropAt || 0 };
+    return out;
   }
 
   function applyPresence(list, serverNow) {
@@ -556,7 +581,8 @@
       const cur = map[p.tabId];
       if (cur && cur.lastSeen >= lastSeen) return;
       map[p.tabId] = { tabId: p.tabId, userId: p.userId, page: p.page || 'overview', lastSeen, lastActivity: lastSeen - (Number(p.idle) || 0),
-        visibility: p.visibility || 'visible', browser: p.browser || 'Browser', os: p.os || 'Perangkat', device: p.device || 'Perangkat', remote: true };
+        visibility: p.visibility || 'visible', browser: p.browser || 'Browser', os: p.os || 'Perangkat', device: p.device || 'Perangkat', remote: true,
+        net: p.net && typeof p.net === 'object' ? p.net : null };
       changed = true;
     });
     if (!changed) return;
@@ -579,8 +605,20 @@
     return out;
   }
 
+  /* Selisih jam perangkat − jam server (dihaluskan); dipakai game Main Bareng Kelas. */
+  let skewMs = null;
+  function noteServerTime(t) {
+    const v = Number(t);
+    if (!(v > 0)) return;
+    const s = now() - v;
+    skewMs = skewMs == null ? s : skewMs * 0.7 + s * 0.3;
+  }
+  /** Perkiraan waktu server (ms epoch). Tanpa server: jam perangkat. */
+  function serverNow() { return now() - (skewMs || 0); }
+
   function handleSyncResponse(resp, sent) {
     const changed = new Set();
+    noteServerTime(resp.now);
     const items = [];
     const sentMap = new Map((sent || []).map(x => [x.op.k + '\u0001' + x.op.id, x.op]));
     (resp.applied || []).forEach(a => {
@@ -608,12 +646,18 @@
       console.warn('[sync] ditolak:', resp.rejected);
       notifyRejected(rejectedMsg);
     }
+    // Baris yang baru saja dikirim perangkat ini ikut terbawa di `records` (ditarik setelah ditulis):
+    // itu pantulan perubahan sendiri, bukan data dari perangkat lain.
     const records = (resp.records || []).map(r => ({ k: r.k, id: r.id, v: r.v, ver: r.ver, seq: r.seq }));
-    if (records.length) applyServer(records).forEach(k => changed.add(k));
+    const echo = records.filter(r => sentMap.has(r.k + '\u0001' + r.id));
+    const others = records.filter(r => !sentMap.has(r.k + '\u0001' + r.id));
+    if (echo.length) applyServer(echo).forEach(k => changed.add(k));
+    const foreign = others.length ? applyServer(others) : new Set();
+    foreign.forEach(k => changed.add(k));
     if (typeof resp.cursor === 'number' && resp.cursor > cursor) cursor = resp.cursor;
     if (resp.presence) applyPresence(resp.presence, resp.now);
     if (resp.me && owner) refreshSessionFrom(resp.me);
-    return changed;
+    return { changed, foreign };
   }
 
   /** Respons atas perubahan sendiri: paksa set base, lalu sesuaikan lokal. */
@@ -662,6 +706,8 @@
     inflight = (async () => {
       setStatus({ syncing: true });
       const changedAll = new Set();
+      const foreignAll = new Set();
+      const take = (res) => { res.changed.forEach(k => changedAll.add(k)); res.foreign.forEach(k => foreignAll.add(k)); };
       try {
         flushDiff();
         const ops = [];
@@ -671,9 +717,9 @@
         let resp;
         if (!chunks.length) chunks.push([]);
         for (let i = 0; i < chunks.length; i++) {
-          resp = await api('sync', { cursor, changes: chunks[i].map(x => x.wire), presence: i === 0 ? presencePayload() : null });
+          resp = await api('sync', { cursor, changes: chunks[i].map(x => x.wire), presence: i === 0 ? presencePayload(false, ops.length) : null }, urgent ? { timeout: 20000 } : undefined);
           if (resp.reset) { await fullResync(); return; }
-          handleSyncResponse(resp, chunks[i]).forEach(k => changedAll.add(k));
+          take(handleSyncResponse(resp, chunks[i]));
           if (resp.nudge) nudge = mergeNudge(nudge, resp.nudge);
           if (resp.viewSig && viewSig && resp.viewSig !== viewSig) { viewSig = resp.viewSig; await fullResync(); return; }
           if (resp.viewSig) viewSig = resp.viewSig;
@@ -681,7 +727,7 @@
         let guard = 0;
         while (resp && resp.more && guard++ < 50) {
           resp = await api('sync', { cursor });
-          handleSyncResponse(resp, []).forEach(k => changedAll.add(k));
+          take(handleSyncResponse(resp, ops));     // halaman lanjutan bisa memuat pantulan perubahan sendiri
         }
         flushDiff();
         errorCount = 0;
@@ -693,12 +739,14 @@
         if (countPending() && repushRounds < 3) { repushRounds++; again = true; } else repushRounds = 0;
       } catch (e) {
         errorCount = Math.min(errorCount + 1, 6);
+        // Status online yang gagal terkirim diulang pada permintaan berikutnya.
+        presenceSentKey = '';
         setStatus({ error: e.message || String(e) });
         if (e.status === 401) return;
       } finally {
         inflight = null;
         setStatus({ syncing: false });
-        if (changedAll.size) emitRemote(changedAll);
+        if (changedAll.size) emitRemote(changedAll, foreignAll);
         if (again) { again = false; setTimeout(() => syncNow('again'), 50); }
         else schedulePoll();
       }
@@ -717,6 +765,25 @@
       else await syncNow('flush');
       if (!status.online || (status.error && errorCount > 1)) return;
     }
+  }
+
+  /**
+   * Simpan sekarang tanpa menunggu jeda: hitung selisih, tulis antrean ke IndexedDB,
+   * lalu kirim bila perangkat online. Dipanggil tiap detik oleh js/safe-save.js.
+   */
+  function saveNow() {
+    if (!isServer() || !ready) return;
+    if (pushTimer) { clearTimeout(pushTimer); pushTimer = null; }
+    flushDiff();
+    if (!countPending()) return;
+    if (navigator.onLine === false) { setStatus({ online: false }); return; }
+    // Saat galat, percobaan ulang mengikuti jadwal poll (3 detik di mode mendesak).
+    if (!errorCount || inflight) syncNow('save');
+  }
+  /** Aktifkan mode mendesak selama ada ujian/kuis berjalan (boleh bertumpuk). */
+  function setUrgent(on) {
+    urgent = Math.max(0, urgent + (on ? 1 : -1));
+    if (on && errorCount && started) schedulePoll(1000);
   }
 
   function mergeNudge(a, b) {
@@ -853,40 +920,10 @@
   };
 
   /* ------------------------------------------------------------------
-   * Overlay pemuatan
+   * Layar pemuatan (js/boot-splash.js): sapaan, kalimat penyemangat, tahap.
    * ----------------------------------------------------------------*/
-  let overlay = null;
-  function showOverlay(text) {
-    if (!document.body) return;
-    if (!overlay) {
-      overlay = document.createElement('div');
-      overlay.id = 'syncBoot';
-      overlay.setAttribute('role', 'status');
-      overlay.setAttribute('aria-live', 'polite');
-      overlay.style.cssText = 'position:fixed;inset:0;z-index:99999;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:14px;' +
-        'background:var(--bg,#f6f7fb);color:var(--text,#1f2937);font:500 15px/1.5 "Plus Jakarta Sans",system-ui,sans-serif;text-align:center;padding:24px;';
-      overlay.innerHTML = '<div class="spinner" style="width:34px;height:34px;"></div><div id="syncBootText"></div><div id="syncBootSub" style="font-size:13px;opacity:.7;max-width:420px;"></div>';
-      document.body.appendChild(overlay);
-    }
-    overlay.querySelector('#syncBootText').textContent = text;
-  }
-  function overlaySub(text) { if (overlay) overlay.querySelector('#syncBootSub').textContent = text || ''; }
-  function hideOverlay() { if (overlay) { overlay.remove(); overlay = null; } }
-  function overlayError(msg, retry) {
-    showOverlay('Data belum dapat dimuat');
-    overlaySub(msg);
-    const box = overlay;
-    if (!box.querySelector('#syncRetry')) {
-      const wrap = document.createElement('div');
-      wrap.style.cssText = 'display:flex;gap:8px;flex-wrap:wrap;justify-content:center;';
-      wrap.innerHTML = '<button type="button" class="btn btn-primary btn-sm" id="syncRetry">Coba lagi</button>' +
-        '<a class="btn btn-secondary btn-sm" href="index.html" id="syncToLogin">Ke halaman masuk</a>';
-      box.appendChild(wrap);
-      box.querySelector('#syncRetry').addEventListener('click', () => { wrap.remove(); retry(); });
-    }
-    const sp = box.querySelector('.spinner');
-    if (sp) sp.style.display = 'none';
-  }
+  const splash = () => global.BootSplash || null;
+  const fmtCount = (n) => Number(n || 0).toLocaleString('id-ID');
 
   /* ------------------------------------------------------------------
    * Boot dashboard
@@ -898,6 +935,10 @@
     const s = readSession();
     if (!s || !s.token) { location.replace('index.html'); return new Promise(() => {}); }
     owner = s.id;
+    let fromLogin = false;
+    try { fromLogin = sessionStorage.getItem('lms_boot_splash') === '1'; sessionStorage.removeItem('lms_boot_splash'); } catch (e) { /* noop */ }
+    // Baru masuk dari halaman login: lanjutkan layar pemuatan yang sama tanpa kedip.
+    if (fromLogin && splash()) splash().show({ step: 1, detail: 'Membuka data…', instant: true });
     let hasCache = false;
     try {
       await idbOpen();
@@ -911,21 +952,24 @@
     rebuildLocal();
     ready = true;
     if (!hasCache) {
-      const slow = setTimeout(() => showOverlay('Menyiapkan data LMS…'), 250);
+      // Tampilkan layar pemuatan hanya bila sinkron awal tidak selesai seketika.
+      const slow = setTimeout(() => { if (splash()) splash().show({ step: 1, detail: 'Menghubungkan ke server…' }); }, fromLogin ? 0 : 250);
       const attempt = async () => {
         try {
-          await fullResync(n => { if (overlay) overlaySub(n + ' data dimuat'); });
+          await fullResync(n => { if (splash() && splash().isOpen()) splash().step(1, fmtCount(n) + ' data dimuat'); });
           clearTimeout(slow);
-          hideOverlay();
+          if (splash() && splash().isOpen()) splash().hide();
         } catch (e) {
           clearTimeout(slow);
           if (e.status === 401) return new Promise(() => {});
-          await new Promise(res => overlayError(e.message || 'Tidak dapat terhubung ke server.', res));
-          showOverlay('Menyiapkan data LMS…');
+          if (!splash()) throw e;
+          await new Promise(res => splash().error(e.message || 'Tidak dapat terhubung ke server.', res));
           return attempt();
         }
       };
       await attempt();
+    } else if (fromLogin && splash() && splash().isOpen()) {
+      splash().hide();
     }
     start();
     if (hasCache) setTimeout(() => syncNow('boot'), 30);
@@ -1089,14 +1133,22 @@
       r.readAsDataURL(blob);
     });
   }
+  /** Unggah berkas bertahap; selama berjalan indikator topbar menghitung waktu penyimpanan. */
   async function blobUpload(key, blob, onProgress) {
     const size = blob.size || 0;
     const parts = Math.max(1, Math.ceil(size / BLOB_PART));
-    for (let i = 0; i < parts; i++) {
-      const data = await blobToB64(blob.slice(i * BLOB_PART, Math.min(size, (i + 1) * BLOB_PART)));
-      const r = await api('blob_put', { key, part: i, parts, size, type: blob.type || '', data: data || 'AA==' });
-      if (!r.ok) throw new Error(r.error || 'Unggah berkas gagal.');
-      if (onProgress) onProgress((i + 1) / parts);
+    uploads++;
+    setStatus({});
+    try {
+      for (let i = 0; i < parts; i++) {
+        const data = await blobToB64(blob.slice(i * BLOB_PART, Math.min(size, (i + 1) * BLOB_PART)));
+        const r = await api('blob_put', { key, part: i, parts, size, type: blob.type || '', data: data || 'AA==' });
+        if (!r.ok) throw new Error(r.error || 'Unggah berkas gagal.');
+        if (onProgress) onProgress((i + 1) / parts);
+      }
+    } finally {
+      uploads = Math.max(0, uploads - 1);
+      setStatus({});
     }
   }
   async function blobDownload(key) {
@@ -1199,7 +1251,7 @@
       if (PAGE !== 'dashboard') { readyResolve(); return readyPromise; }
       return bootDashboard();
     },
-    api, ApiError, syncNow, flush,
+    api, ApiError, syncNow, flush, saveNow, setUrgent, serverNow,
     status: () => Object.assign({}, status, { cursor, pending: countPending(), tab: TAB }),
     onStatus(fn) { statusListeners.push(fn); return () => { const i = statusListeners.indexOf(fn); if (i >= 0) statusListeners.splice(i, 1); }; },
     login, quiz, register, verifyPassword, logout, saveSession, healthCheck, detectMode,

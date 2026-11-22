@@ -98,8 +98,8 @@
 
         <div class="role-tabs" role="tablist" aria-label="Pilih peran">
           <button class="role-tab active" data-role="admin" type="button" role="tab" aria-selected="true">Admin</button>
-          <button class="role-tab" data-role="guru" type="button" role="tab" aria-selected="false">Guru</button>
-          <button class="role-tab" data-role="siswa" type="button" role="tab" aria-selected="false">Siswa</button>
+          <button class="role-tab" data-role="guru" type="button" role="tab" aria-selected="false">Tutor</button>
+          <button class="role-tab" data-role="siswa" type="button" role="tab" aria-selected="false">Mentee</button>
           <button class="role-tab" data-role="orangtua" type="button" role="tab" aria-selected="false">Orang Tua</button>
         </div>
 
@@ -132,15 +132,15 @@
         <details class="auth-guide">
           <summary>Cara menggunakan</summary>
           <ol>
-            <li>Pilih peran Anda: <strong>Admin</strong>, <strong>Guru</strong>, <strong>Siswa</strong>, atau <strong>Orang Tua</strong>.</li>
+            <li>Pilih peran Anda: <strong>Admin</strong>, <strong>Tutor</strong>, <strong>Mentee</strong>, atau <strong>Orang Tua</strong>.</li>
             <li>Masukkan username dan password yang diberikan admin bimbel.</li>
-            <li>Siswa baru dapat mendaftar sendiri lewat tautan <em>Daftar di sini</em>. Akun guru dan orang tua dibuat oleh admin; orang tua otomatis terhubung ke akun anaknya.</li>
+            <li>Mentee baru dapat mendaftar sendiri lewat tautan <em>Daftar di sini</em>. Akun tutor dan orang tua dibuat oleh admin; orang tua otomatis terhubung ke akun anaknya.</li>
             <li>Data tersimpan di server, jadi perubahan langsung terlihat di semua perangkat. Lupa password? Hubungi admin.</li>
           </ol>
         </details>
 
         <p class="auth-foot">
-          Belum punya akun siswa? <a href="#" id="openRegister">Daftar di sini</a>
+          Belum punya akun mentee? <a href="#" id="openRegister">Daftar di sini</a>
         </p>
       </main>
     </section>
@@ -206,7 +206,7 @@
         <h2 id="lpStepHead">Mulai dalam tiga langkah</h2>
       </div>
       <ol class="lp-step-grid">
-        <li class="lp-step lp-reveal"><span class="n">1</span><h3>Masuk sesuai peran</h3><p>Pilih Admin, Guru, Siswa, atau Orang Tua lalu masuk dengan akun dari admin bimbel.</p></li>
+        <li class="lp-step lp-reveal"><span class="n">1</span><h3>Masuk sesuai peran</h3><p>Pilih Admin, Tutor, Mentee, atau Orang Tua lalu masuk dengan akun dari admin bimbel.</p></li>
         <li class="lp-step lp-reveal"><span class="n">2</span><h3>Belajar &amp; berlatih</h3><p>Akses materi, kerjakan tugas, dan ikuti tryout CBT dengan skor ala UTBK.</p></li>
         <li class="lp-step lp-reveal"><span class="n">3</span><h3>Pantau kemajuan</h3><p>Lihat nilai, streak, dan rekap — orang tua pun ikut memantau secara otomatis.</p></li>
       </ol>
@@ -315,7 +315,7 @@
   <div id="registerModal" class="modal hidden">
     <div class="modal-content">
       <header class="modal-header">
-        <h3>Registrasi Siswa</h3>
+        <h3>Registrasi Mentee</h3>
         <button class="icon-btn" id="closeRegister" type="button" aria-label="Tutup">&times;</button>
       </header>
       <form id="registerForm" class="form">
@@ -347,7 +347,7 @@
         </div>
         <p class="muted small" style="margin-top:-4px;">Universitas impian akan ditampilkan pada sambutan dashboard Anda.</p>
         <div id="registerError" class="alert alert-error hidden"></div>
-        <button type="submit" class="btn btn-primary btn-block">Daftar Akun Siswa</button>
+        <button type="submit" class="btn btn-primary btn-block">Daftar Akun Mentee</button>
       </form>
     </div>
   </div>
@@ -355,6 +355,7 @@
   <script>
     try { document.querySelectorAll('[data-year]').forEach(function (el) { el.textContent = new Date().getFullYear(); }); } catch (e) {}
   </script>
+  <script src="js/boot-splash.js"></script>
   <script src="js/sync-config.js"></script>
   <script src="js/sync-catalog.js"></script>
   <script src="js/sync.js" data-page="login"></script>

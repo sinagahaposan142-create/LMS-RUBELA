@@ -43,6 +43,15 @@
       if (h.reachable && h.configured && h.ok === false) {
         showNote('Server sedang tidak dapat mengakses database. Coba beberapa saat lagi atau hubungi admin.', 'alert-warning');
       }
+      // Domain hosting (mis. Vercel) tanpa database: akun server tidak dapat dipakai masuk.
+      const hosted = !/^(localhost|127\.|0\.0\.0\.0|\[::1\])/.test(location.hostname);
+      if (hosted && h.reachable && h.configured === false) {
+        showNote(h.missing
+          ? '<strong>Server LMS tidak ditemukan di domain ini</strong> (/api/rubela). Pastikan domain diarahkan ke deployment Vercel proyek LMS ini, lalu muat ulang.'
+          : '<strong>Server belum tersambung ke database.</strong> Di Vercel → Settings → Environment Variables, isi <code>TURSO_DATABASE_URL</code> dan <code>TURSO_AUTH_TOKEN</code> untuk environment <b>Production</b>, lalu Redeploy. Sampai itu selesai, hanya akun demo di browser ini yang bisa masuk.', 'alert-warning');
+      } else if (hosted && !h.reachable && server()) {
+        showNote('Server LMS sedang tidak dapat dihubungi. Periksa koneksi internet, lalu coba lagi.', 'alert-warning');
+      }
     });
   }
   if (!server()) {
@@ -51,7 +60,7 @@
 
   let selectedRole = 'admin';
   const tabs = document.querySelectorAll('.role-tab');
-  const HINTS = { admin: 'Username admin', guru: 'Username tutor', siswa: 'Username siswa', orangtua: 'Username orang tua' };
+  const HINTS = { admin: 'Username admin', guru: 'Username tutor', siswa: 'Username mentee', orangtua: 'Username orang tua' };
   tabs.forEach(tab => {
     tab.addEventListener('click', () => {
       tabs.forEach(t => { t.classList.remove('active'); t.setAttribute('aria-selected', 'false'); });
@@ -86,8 +95,13 @@
       : 'Masuk';
   }
   function goDashboard() {
-    busy(true, 'Menyiapkan dashboard...');
-    setTimeout(() => { window.location.href = 'dashboard.html'; }, 300);
+    busy(true, 'Masuk…');
+    // Layar pemuatan yang sama dilanjutkan dashboard (sinkron awal) agar transisinya mulus.
+    if (window.BootSplash) {
+      BootSplash.show({ step: 1, detail: 'Membuka dashboard…' });
+      try { sessionStorage.setItem('lms_boot_splash', '1'); } catch (e) { /* noop */ }
+    }
+    setTimeout(() => { window.location.href = 'dashboard.html'; }, window.BootSplash ? 650 : 300);
   }
 
   loginForm.addEventListener('submit', async (e) => {
@@ -172,7 +186,7 @@
       targetUniv: fd.get('targetUniv') || '',
       targetMajor: fd.get('targetMajor') || ''
     });
-    if (btn) { btn.disabled = false; btn.textContent = 'Daftar Akun Siswa'; }
+    if (btn) { btn.disabled = false; btn.textContent = 'Daftar Akun Mentee'; }
     if (!result || !result.ok) {
       registerError.textContent = (result && result.error) || 'Pendaftaran gagal.';
       registerError.classList.remove('hidden');

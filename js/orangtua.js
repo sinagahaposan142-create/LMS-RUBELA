@@ -6,6 +6,8 @@
  * Satu akun orang tua dapat memantau beberapa anak (user.childIds).
  */
 (function (global) {
+  // Isi lingkaran avatar: avatar almamater / foto / inisial (js/avatars.js).
+  const AV = (u) => (global.Avatars ? Avatars.inner(u) : UI.esc(UI.initials(u && u.name)));
   // Anak yang sedang dilihat (dipertahankan saat berpindah menu)
   let activeChildId = null;
 
@@ -67,7 +69,7 @@
       const c = children[0];
       return `<div class="child-switch">
         <div class="child-card is-active">
-          <div class="avatar">${UI.initials(c.name)}</div>
+          <div class="avatar">${AV(c)}</div>
           <div>
             <div class="nm">${UI.esc(c.name)}</div>
             <div class="mt">${UI.esc(c.kelas || '-')} • ${UI.esc(c.targetUniv || 'Target belum diisi')}</div>
@@ -78,7 +80,7 @@
     return `<div class="child-switch">
       ${children.map(c => `
         <button type="button" class="child-card ${activeChildId === c.id ? 'is-active' : ''}" data-child="${c.id}">
-          <div class="avatar">${UI.initials(c.name)}</div>
+          <div class="avatar">${AV(c)}</div>
           <div style="text-align:left;">
             <div class="nm">${UI.esc(c.name)}</div>
             <div class="mt">${UI.esc(c.kelas || '-')}</div>
@@ -94,7 +96,7 @@
         <div class="wh-inner">
           <div class="wh-eyebrow">${UI.esc(UI.greeting())}</div>
           <h2>Selamat Datang, <span class="hl">${UI.esc(user.name)}</span></h2>
-          <p class="wh-sub">Akun Anda belum dihubungkan dengan data siswa mana pun.</p>
+          <p class="wh-sub">Akun Anda belum dihubungkan dengan data mentee mana pun.</p>
         </div>
       </section>
       <div class="card">
@@ -216,7 +218,7 @@
         ts: s.submittedAt,
         title: s.grade != null ? `Tugas dinilai: ${s.grade}` : 'Mengumpulkan tugas',
         meta: `${a ? a.title : 'Tugas'}${c ? ' • ' + c.title : ''}`,
-        body: s.feedback ? 'Catatan guru: ' + s.feedback : ''
+        body: s.feedback ? 'Catatan tutor: ' + s.feedback : ''
       });
     });
     DB.getCbtAttemptsByStudent(child.id).filter(a => a.submittedAt).forEach(a => {
@@ -278,7 +280,7 @@
         <div class="card-header">${UI.secHead('🏆', 'Nilai Tugas', `${UI.esc(child.name)} • ${subs.length} submission`)}</div>
         ${subs.length === 0 ? emptyState('Belum ada tugas yang dikumpulkan.') : `
         <div class="table-wrap"><table class="table">
-          <thead><tr><th>Tugas</th><th>Kelas</th><th>Dikumpulkan</th><th>Nilai</th><th>Catatan Guru</th></tr></thead>
+          <thead><tr><th>Tugas</th><th>Kelas</th><th>Dikumpulkan</th><th>Nilai</th><th>Catatan Tutor</th></tr></thead>
           <tbody>${subs.map(s => {
             const a = DB.getAssignment(s.assignmentId);
             const c = a ? DB.getCourse(a.courseId) : null;
@@ -398,7 +400,7 @@
 
     el.innerHTML = `
       <div class="card">
-        <div class="card-header">${UI.secHead('📚', `Kelas yang Diikuti (${courses.length})`, 'Beserta guru pengajar dan kontaknya')}</div>
+        <div class="card-header">${UI.secHead('📚', `Kelas yang Diikuti (${courses.length})`, 'Beserta tutor pengajar dan kontaknya')}</div>
         ${courses.length === 0 ? emptyState('Belum tergabung ke kelas manapun.') : `
         <div class="course-grid">
           ${courses.map(({ e, c }, i) => {
@@ -406,10 +408,10 @@
             const att = DB.getAttendanceByCourse(c.id).filter(a => a.userId === child.id);
             const pct = DB.attendanceSummary(att).pct;
             return `<div class="course-card">
-              <div class="course-banner ${UI.bannerClass(i)}">${UI.esc((c.title || '?').slice(0, 1).toUpperCase())}</div>
+              <div class="course-banner ${UI.bannerClass(i)}">${UI.esc(DB.courseMark(c))}</div>
               <div class="course-body">
                 <h4>${UI.esc(c.title)}</h4>
-                <div class="meta">${UI.esc(c.category || 'Umum')} • Guru: ${UI.esc(t ? t.name : '-')}</div>
+                <div class="meta">${UI.esc(c.category || 'Umum')} • Tutor: ${UI.esc(t ? t.name : '-')}</div>
                 <p>${UI.esc(c.description || '')}</p>
                 <div class="muted small">Bergabung ${UI.fmtDate(e.enrolledAt)}</div>
                 <div class="mt-1">${UI.progressHtml(pct, 'Kehadiran di kelas ini', 'auto')}</div>
@@ -427,16 +429,16 @@
       </div>
 
       <div class="card">
-        <div class="card-header">${UI.secHead('👨‍🏫', 'Guru Pengajar', 'Klik Hubungi untuk membuka menu Chat Guru')}</div>
-        ${courses.length === 0 ? emptyState('Belum ada guru terkait.') : `
+        <div class="card-header">${UI.secHead('👨‍🏫', 'Tutor Pengajar', 'Klik Hubungi untuk membuka menu Chat Tutor')}</div>
+        ${courses.length === 0 ? emptyState('Belum ada tutor terkait.') : `
         <div class="table-wrap"><table class="table">
-          <thead><tr><th>Guru</th><th>Subtest / Mapel</th><th>Kelas</th><th>Kontak</th></tr></thead>
+          <thead><tr><th>Tutor</th><th>Subtest / Mapel</th><th>Kelas</th><th>Kontak</th></tr></thead>
           <tbody>${courses.map(({ c }) => {
             const t = DB.getUser(c.teacherId);
             if (!t) return '';
             return `<tr>
               <td><strong>${UI.esc(t.name)}</strong></td>
-              <td>${UI.esc(t.subject || '-')}</td>
+              <td>${UI.esc(DB.userSubjectsLabel(t) || '-')}</td>
               <td>${UI.esc(c.title)}</td>
               <td class="muted small">${UI.esc(t.email || '-')}${t.whatsapp ? ' • ' + UI.esc(t.whatsapp) : ''}</td>
             </tr>`;
@@ -450,13 +452,13 @@
       if (!course || !DB.canViewWhiteboard(Dashboard.currentUser, course, child.id)) {
         UI.toast('Whiteboard kelas tidak dapat dibuka.', 'error'); return;
       }
-      UI.modal.open(`Whiteboard — ${course.title}`, '<div id="parentWhiteboard"></div>');
-      Whiteboard.mount({ container: document.getElementById('parentWhiteboard'), course,
+      UI.modal.open(`Whiteboard — ${DB.courseTitle(course)}`, '<div id="parentWhiteboard"></div>', { fullscreenToggle: true, fullKey: 'parentWb' });
+      WbHub.render({ container: document.getElementById('parentWhiteboard'), course,
         user: Dashboard.currentUser, childId: child.id });
     }));
 
     el.querySelectorAll('[data-chat-teacher]').forEach(b => b.addEventListener('click', () => {
-      UI.toast('Membuka menu Chat Guru...', 'info');
+      UI.toast('Membuka menu Chat Tutor...', 'info');
       Dashboard.navigate('chat');
     }));
   }
@@ -543,7 +545,7 @@
   function renderKeuangan(el, child) {
     const payments = DB.getPaymentsByStudent(child.id).slice().sort((a, b) => (b.paidAt || b.createdAt) - (a.paidAt || a.createdAt));
     const paid = payments.filter(p => p.status === 'lunas').reduce((s, p) => s + (p.amount || 0), 0);
-    const pending = payments.filter(p => p.status !== 'lunas').reduce((s, p) => s + (p.amount || 0), 0);
+    const pending = payments.filter(p => p.status !== 'lunas' && p.status !== 'dibatalkan').reduce((s, p) => s + (p.amount || 0), 0);
     const courses = DB.getEnrollmentsByStudent(child.id).map(e => DB.getCourse(e.courseId)).filter(Boolean);
     const billed = courses.reduce((s, c) => s + (c.price || 0), 0);
 
@@ -558,12 +560,14 @@
         <div class="card-header">${UI.secHead('💰', 'Riwayat Pembayaran', `Tagihan dan pembayaran ${UI.esc(child.name)}`)}</div>
         ${payments.length === 0 ? emptyState('Belum ada transaksi pembayaran.') : `
         <div class="table-wrap"><table class="table">
-          <thead><tr><th>Tanggal</th><th>Kelas / Keterangan</th><th>Jumlah</th><th>Metode</th><th>Status</th><th>Catatan</th></tr></thead>
+          <thead><tr><th>Tanggal</th><th>Jenis</th><th>Kelas / Keterangan</th><th>Jumlah</th><th>Metode</th><th>Status</th><th>Catatan</th></tr></thead>
           <tbody>${payments.map(p => {
             const c = p.courseId ? DB.getCourse(p.courseId) : null;
+            const k = DB.paymentKindMeta(DB.paymentKind(p));
             return `<tr>
               <td>${UI.fmtDate(p.paidAt || p.createdAt)}</td>
-              <td>${UI.esc(c ? c.title : 'Umum')}</td>
+              <td>${UI.esc(k.icon + ' ' + k.label)}${p.fineReason ? `<div class="muted small">${UI.esc(p.fineReason)}</div>` : ''}</td>
+              <td>${UI.esc(c ? DB.courseTitle(c) : 'Umum')}</td>
               <td><strong>${UI.fmtRp(p.amount)}</strong></td>
               <td>${UI.esc(p.method || '-')}</td>
               <td>${p.status === 'lunas' ? '<span class="badge badge-success">Lunas</span>' : '<span class="badge badge-warning">' + UI.esc(p.status || '-') + '</span>'}</td>
@@ -599,7 +603,7 @@
             <div class="form-group"><label>No. Telepon</label>
               <input name="phone" value="${UI.esc(user.phone || '')}" placeholder="08xxxxxxxxxx" /></div>
           </div>
-          <div class="form-group"><label>Hubungan dengan Siswa</label>
+          <div class="form-group"><label>Hubungan dengan Mentee</label>
             <select name="relation">
               ${['Ayah', 'Ibu', 'Wali', 'Kakak', 'Lainnya'].map(r =>
                 `<option value="${r}" ${(user.relation || 'Wali') === r ? 'selected' : ''}>${r}</option>`).join('')}

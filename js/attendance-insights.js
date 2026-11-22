@@ -165,6 +165,7 @@
             </div>
           </div>
           ${warningHtml(sum, role === 'guru' ? 'mengajar' : '')}
+          ${role === 'siswa' ? absenceNoteHtml(user) : ''}
           <div class="ai-top">
             ${ringHtml(sum.pct, 'kehadiran')}
             <div class="ai-top-body">
@@ -269,6 +270,27 @@
     paint();
   }
 
+  /** Catatan batas ketidakhadiran (status pendidikan) untuk satu mentee pada periode berjalan. */
+  function absenceNoteHtml(u) {
+    const st = DB.absenceStatusFor(u);
+    if (!st || (!st.exempt && st.limit == null)) return '';
+    const cls = st.exceeded ? 'is-over' : (st.atLimit ? 'is-limit' : '');
+    const msg = st.exempt
+      ? `${esc(st.eduLabel)}: tidak ada batas ketidakhadiran dan tidak ada sanksi.`
+      : `<strong>${esc(DB.absenceText(st))}</strong>. ` + (st.exceeded
+        ? `Melewati batas ${st.over}×${st.fine > 0 ? `, denda ${esc(UI.fmtRp(st.fine))}` : ''}.`
+        : (st.atLimit ? 'Sudah tepat di batas: ketidakhadiran berikutnya melewati batas.' : `Sisa ${st.remaining}× sebelum batas.`));
+    return `<div class="abs-note ${cls}" role="status"><span aria-hidden="true">⏰</span><div>${msg}
+      <div class="muted small">Status pendidikan: ${esc(st.eduLabel)}</div></div></div>`;
+  }
+  /** Pil "jumlah/batas" untuk tabel rekap. */
+  function absencePillHtml(st) {
+    if (!st) return '';
+    if (st.exempt || st.limit == null) return `<span class="abs-pill" title="${esc(st.eduLabel)}">${st.count}× · tanpa batas</span>`;
+    const cls = st.exceeded ? 'is-over' : (st.atLimit ? 'is-limit' : 'is-ok');
+    return `<span class="abs-pill ${cls}" title="${esc(DB.absenceText(st))}">${st.count}/${st.limit}${st.exceeded ? ' · lewat' : ''}</span>`;
+  }
+
   function statusBadge(key) {
     const m = DB.attStatusMeta(key);
     const cls = { hadir: 'badge-success', terlambat: 'badge-info', izin: 'badge-warning', sakit: 'badge-warning', alfa: 'badge-danger' }[key] || 'badge-gray';
@@ -299,6 +321,10 @@
     function paint() {
       const list = rows();
       const t = DB.attendanceThreshold();
+      // Batas ketidakhadiran per status pendidikan (periode berjalan, semua kelas).
+      const abs = role === 'siswa' ? new Map(DB.absenceReport(null, opts.people.map(u => u.id)).map(r => [r.studentId, r])) : null;
+      const absState = (r) => { const st = abs && abs.get(r.u.id); return !st || st.exempt || st.limit == null ? 'free' : (st.exceeded ? 'over' : (st.atLimit ? 'limit' : 'ok')); };
+      const overList = abs ? list.filter(r => absState(r) === 'over') : [];
       const withData = list.filter(r => r.s.sessions);
       const all = DB.attendanceSummary(opts.people.flatMap(u => DB.getAttendanceByUser(u.id)
         .filter(a => a.role === role && courseIds.has(a.courseId))
@@ -309,7 +335,7 @@
       container.innerHTML = `
         <div class="card ai-card">
           <div class="card-header">
-            ${UI.secHead('📊', role === 'guru' ? 'Persentase Kehadiran Tutor' : 'Persentase Kehadiran Siswa',
+            ${UI.secHead('📊', role === 'guru' ? 'Persentase Kehadiran Tutor' : 'Persentase Kehadiran Mentee',
               `ambang standar ${t}% • ${below.length} di bawah standar`)}
             <div class="ai-filters">
               <select class="input" data-ai="period" aria-label="Periode">
@@ -327,6 +353,8 @@
           </div>
           ${below.length ? `<div class="alert alert-error ai-warn" role="alert">⚠️ ${below.length} ${role === 'guru' ? 'tutor' : 'siswa'} di bawah standar kehadiran ${t}%:
             ${below.slice(0, 8).map(r => `<strong>${esc(r.u.name)}</strong> (${r.s.pct}%)`).join(', ')}${below.length > 8 ? ', …' : ''}</div>` : ''}
+          ${overList.length ? `<div class="alert alert-error ai-warn" role="alert">⏰ ${overList.length} mentee melewati batas ketidakhadiran ${esc(DB.absencePeriodLabel(DB.absencePeriodKey()))}:
+            ${overList.slice(0, 8).map(r => `<strong>${esc(r.u.name)}</strong> (${abs.get(r.u.id).count}/${abs.get(r.u.id).limit})`).join(', ')}${overList.length > 8 ? ', …' : ''}</div>` : ''}
         </div>
         <div class="card ai-card"><div id="aiRoster"></div></div>`;
 
@@ -334,12 +362,14 @@
         container: container.querySelector('#aiRoster'),
         items: list,
         placeholder: `Cari nama, username, atau ${role === 'guru' ? 'subtest' : 'kelas'}…`,
-        fields: r => [r.u.name, r.u.username, r.u.id, r.u.kelas || '', r.u.subject || '', r.u.email || ''],
+        fields: r => [r.u.name, r.u.username, r.u.id, r.u.kelas || '', DB.userSubjectsLabel(r.u), r.u.email || ''],
         filters: [
           { key: 'level', label: 'Semua tingkat', get: r => !r.s.sessions ? 'none' : (r.s.pct < t ? 'below' : 'ok'),
             options: [{ value: 'below', label: `Di bawah ${t}%` }, { value: 'ok', label: `≥ ${t}%` }, { value: 'none', label: 'Belum ada data' }] }
         ].concat(role === 'siswa' ? [{ key: 'kelas', label: 'Semua kelas utama', get: r => r.u.kelas || '',
-          options: DB.getMainClasses().map(k => ({ value: k, label: k })) }] : []),
+          options: DB.getMainClasses().map(k => ({ value: k, label: k })) },
+        { key: 'abs', label: 'Semua batas absen', get: absState,
+          options: [{ value: 'over', label: 'Melewati batas' }, { value: 'limit', label: 'Tepat di batas' }, { value: 'ok', label: 'Di bawah batas' }, { value: 'free', label: 'Tanpa batas' }] }] : []),
         sorts: [
           { key: 'low', label: 'Kehadiran terendah', cmp: (a, b) => (a.s.sessions ? a.s.pct : 999) - (b.s.sessions ? b.s.pct : 999) },
           { key: 'high', label: 'Kehadiran tertinggi', cmp: (a, b) => (b.s.sessions ? b.s.pct : -1) - (a.s.sessions ? a.s.pct : -1) },
@@ -348,12 +378,13 @@
         pageSize: 15,
         empty: 'Tidak ada data yang cocok.',
         render: (pageRows) => `<div class="table-wrap"><table class="table">
-          <thead><tr><th>Nama</th><th>Sesi</th>${DB.ATT_STATUSES.map(s => `<th>${esc(s.label)}</th>`).join('')}<th>Kehadiran</th>${opts.onOpen ? '<th>Aksi</th>' : ''}</tr></thead>
-          <tbody>${pageRows.map(r => `<tr class="${r.s.sessions && r.s.pct < t ? 'ai-row-warn' : ''}">
-            <td><strong>${esc(r.u.name)}</strong><div class="muted small">${esc(role === 'guru' ? (r.u.subject || '-') : (r.u.kelas || '-'))}</div></td>
+          <thead><tr><th>Nama</th><th>Sesi</th>${DB.ATT_STATUSES.map(s => `<th>${esc(s.label)}</th>`).join('')}<th>Kehadiran</th>${abs ? '<th title="Ketidakhadiran periode berjalan / batas status pendidikan">Batas Absen</th>' : ''}${opts.onOpen ? '<th>Aksi</th>' : ''}</tr></thead>
+          <tbody>${pageRows.map(r => `<tr class="${(r.s.sessions && r.s.pct < t) || (abs && absState(r) === 'over') ? 'ai-row-warn' : ''}">
+            <td><strong>${esc(r.u.name)}</strong><div class="muted small">${esc(role === 'guru' ? (DB.userSubjectsLabel(r.u) || '-') : (r.u.kelas || '-'))}</div></td>
             <td>${r.s.sessions}</td>
             ${DB.ATT_STATUSES.map(s => `<td>${r.s.counts[s.key] || 0}</td>`).join('')}
             <td style="min-width:150px;">${r.s.sessions ? barHtml(r.s.pct) : '<span class="muted small">Belum ada data</span>'}</td>
+            ${abs ? `<td class="nowrap">${absencePillHtml(abs.get(r.u.id))}</td>` : ''}
             ${opts.onOpen ? `<td><button type="button" class="btn btn-sm btn-primary" data-ai-open="${r.u.id}">Detail</button></td>` : ''}
           </tr>`).join('')}</tbody>
         </table></div>`,
@@ -374,6 +405,6 @@
 
   global.AttendanceInsights = {
     renderPersonal, renderRoster, ringHtml, barHtml, chartHtml, countsHtml,
-    statusBadge, tone, inPeriod, PERIODS, monthLabel
+    statusBadge, tone, inPeriod, PERIODS, monthLabel, absenceNoteHtml, absencePillHtml
   };
 })(window);

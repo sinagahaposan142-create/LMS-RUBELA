@@ -5,7 +5,7 @@
  *  - Soal Game  : buat/edit soal khusus game dengan editor soal LMS
  *                 (semua format otomatis), atur game tujuan, aktif/nonaktif.
  *  - Bank Soal  : salin soal dari Bank Soal ke Soal Game; kecocokan tiap
- *                 soal dengan 10 game ditampilkan otomatis.
+ *                 soal dengan semua game ditampilkan otomatis.
  *  - Buat dg AI : generate soal sesuai format yang dibutuhkan game,
  *                 wajib ditinjau sebelum disimpan.
  *  - Coba Game  : pratinjau semua game (tidak tersimpan).
@@ -51,6 +51,7 @@
   function render(container, user) {
     host = { container, user };
     const tabs = [['ringkasan', '📊 Ringkasan'], ['soal', '🧩 Soal Game'], ['bank', '📥 Ambil dari Bank Soal'], ['ai', '🤖 Buat dengan AI'], ['coba', '🎮 Coba Game']];
+    if (global.GameRoom) tabs.push(['bareng', '🎪 Main Bareng']);
     if (user.role === 'admin') tabs.push(['atur', '⚙️ Pengaturan']);
     if (!tabs.some(t => t[0] === view.tab)) view.tab = 'ringkasan';
     const st = Games.settings();
@@ -59,9 +60,9 @@
         <span class="blob b1"></span><span class="blob b2"></span>
         <div class="wh-inner">
           <div class="wh-eyebrow">⚔️ Kelola Game Battle</div>
-          <h2>10 game edukasi berbasis Bank Soal</h2>
+          <h2>${Games.GAMES.length} game edukasi berbasis Bank Soal</h2>
           <p class="wh-sub">Siapkan soal untuk setiap game: tulis sendiri dengan format soal LMS, salin dari Bank Soal, atau buat dengan AI.
-            Siswa bermain sendiri atau battle 1 lawan 1 dengan teman yang sedang online.</p>
+            Mentee bermain sendiri, battle 1 lawan 1 dengan teman yang sedang online, atau Main Bareng sekelas (Monster Co-op & Balap Kelas) dengan kode ruang.</p>
           <div class="wh-chips"><span class="wh-chip">${st.enabled ? '🟢 Aktif' : '🔴 Nonaktif'}</span>
             <span class="wh-chip">📚 Sumber: ${esc({ both: 'Bank Soal + Soal Game', game: 'Soal Game saja', bank: 'Bank Soal saja' }[st.source])}</span>
             <span class="wh-chip">🧩 ${Games.getGameQuestions().length} soal game</span></div>
@@ -69,9 +70,10 @@
       </section>
       <div class="tabs" role="tablist">${tabs.map(([k, l]) => `<button type="button" class="tab-btn ${view.tab === k ? 'active' : ''}" data-gtab="${k}">${l}</button>`).join('')}</div>
       <div id="gaBody"></div>`;
-    container.querySelectorAll('[data-gtab]').forEach(b => b.addEventListener('click', () => { Games.stopSession('tab'); view.tab = b.dataset.gtab; render(container, user); }));
+    container.querySelectorAll('[data-gtab]').forEach(b => b.addEventListener('click', () => { Games.stopSession('tab'); if (global.GameRoom) GameRoom.stop(); view.tab = b.dataset.gtab; render(container, user); }));
     const body = container.querySelector('#gaBody');
-    ({ ringkasan: paintSummary, soal: paintQuestions, bank: paintBank, ai: paintAi, coba: paintTry, atur: paintSettings })[view.tab](body, user);
+    const paintBareng = (el, u) => { GameRoom.tidy(u); GameRoom.renderHost(el, u); };
+    ({ ringkasan: paintSummary, soal: paintQuestions, bank: paintBank, ai: paintAi, coba: paintTry, atur: paintSettings, bareng: paintBareng })[view.tab](body, user);
     if (global.Effects) Effects.enhance(container);
     if (global.Responsive) Responsive.apply(container);
   }
@@ -91,13 +93,13 @@
       <div class="stats-grid">
         <div class="stat-card accent-primary"><div class="label">Ronde dimainkan</div><div class="value">${scores.length}</div><div class="sub">${playsToday} hari ini</div></div>
         <div class="stat-card accent-success"><div class="label">Battle selesai</div><div class="value">${done}</div><div class="sub">dari ${battles.length} tantangan</div></div>
-        <div class="stat-card accent-warning"><div class="label">Pemain</div><div class="value">${players}</div><div class="sub">siswa unik</div></div>
+        <div class="stat-card accent-warning"><div class="label">Pemain</div><div class="value">${players}</div><div class="sub">mentee unik</div></div>
         <div class="stat-card accent-danger"><div class="label">Game siap</div><div class="value">${list.filter(x => x.ok).length}/${list.length}</div><div class="sub">soal mencukupi</div></div>
       </div>
       ${global.GamesStarter ? (() => {
         const total = GamesStarter.count(), have = GamesStarter.installed();
         return have >= total ? '' : `<div class="card ga-starter">
-          <div class="card-header">${UI.secHead('📦', 'Paket Soal Contoh', `${total} soal siap pakai untuk semua format — langsung bisa dimainkan di 10 game`)}
+          <div class="card-header">${UI.secHead('📦', 'Paket Soal Contoh', `${total} soal siap pakai untuk semua format — langsung bisa dimainkan di semua game`)}
             <button type="button" class="btn btn-primary btn-sm" id="gaStarter">📦 Pasang ${have ? `${total - have} soal tersisa` : 'Paket Soal'}</button></div>
           <p class="muted small" style="margin:0;">Berisi Pilihan Ganda, Pilihan Lebih dari Satu, Benar/Salah, Benar/Salah Majemuk, Isian Singkat, Menjodohkan, dan Urutan
             dari 7 subtest UTBK. Soal dapat diedit atau dihapus setelah dipasang.</p></div>`;
@@ -253,49 +255,30 @@
   function paintBank(body, user) {
     const copied = new Set(Games.getGameQuestions().map(q => q.bankId).filter(Boolean));
     const list = DB.getQuestions().filter(q => !isEssay(q));
-    const picked = new Set();
+    const ready = list.filter(q => !copied.has(q.id) && compatGames(q).length);
     const st = Games.settings();
+    const row = (s) => {
+      const inSub = list.filter(q => q.subject === s.name);
+      return `<tr><td>${s.icon} ${esc(s.short)}</td><td>${inSub.length}</td><td>${inSub.filter(q => !copied.has(q.id) && compatGames(q).length).length}</td><td>${inSub.filter(q => copied.has(q.id)).length}</td></tr>`;
+    };
     body.innerHTML = `
       <div class="alert alert-info small">Bank Soal ${st.source === 'game' ? '<b>tidak</b> dipakai langsung oleh game (sumber: Soal Game saja)' : '<b>sudah dipakai langsung</b> oleh game (sesuai pengaturan sumber soal)'}.
         Menyalin ke Soal Game berguna untuk memilih game tujuan tertentu, menyesuaikan soal tanpa mengubah Bank Soal, atau bila sumber diatur "Soal Game saja".</div>
-      <div class="card"><div class="card-header">${UI.secHead('📥', 'Bank Soal', `${list.length} soal objektif • ikon = game yang cocok`)}
-        <button type="button" class="btn btn-primary btn-sm" id="gaCopy" disabled>Salin ke Soal Game (0)</button></div>
-        <div id="gaBankList"></div></div>`;
-    const btn = body.querySelector('#gaCopy');
-    const refresh = () => { btn.disabled = !picked.size; btn.textContent = `Salin ke Soal Game (${picked.size})`; };
-    DataSearch.mount({
-      container: body.querySelector('#gaBankList'), items: list, stateKey: 'game-bank',
-      placeholder: 'Cari teks soal…', fields: q => [plain(q.text, 600), q.subject, q.questionType],
-      filters: [
-        { key: 'sub', label: 'Semua subtest', get: q => q.subject || '', options: DB.SUBTESTS.map(s => ({ value: s.name, label: s.short })) },
-        { key: 'fmt', label: 'Semua format', get: q => q.questionType || 'Pilihan Ganda', options: DB.QUESTION_TYPES.filter(t => t !== 'Esai').map(t => ({ value: t, label: t })) },
-        { key: 'game', label: 'Cocok untuk game', get: q => compatGames(q).map(g => g.id), options: Games.GAMES.map(g => ({ value: g.id, label: `${g.icon} ${g.name}` })) },
-        { key: 'cp', label: 'Semua status', get: q => (copied.has(q.id) ? 'yes' : 'no'), options: [{ value: 'no', label: 'Belum disalin' }, { value: 'yes', label: 'Sudah disalin' }] }
-      ],
-      pageSize: 20, empty: 'Bank Soal belum berisi soal objektif.',
-      render: (rows, ctx) => `<div class="ga-qlist">${rows.map(q => {
-        const compat = compatGames(q);
-        return `<label class="ga-q is-pick ${copied.has(q.id) ? 'is-copied' : ''}">
-          <input type="checkbox" data-pick="${q.id}" ${picked.has(q.id) ? 'checked' : ''} ${copied.has(q.id) || !compat.length ? 'disabled' : ''} />
-          <div class="ga-q-main"><div class="ga-q-text">${ctx.highlight(plain(q.text, 200))}</div>
-            <div class="qc-tags"><span class="qc-chip type">${esc(q.questionType || 'Pilihan Ganda')}</span><span class="qc-chip sub">${esc((DB.subtestByName(q.subject) || {}).short || q.subject || '-')}</span>
-              ${copied.has(q.id) ? '<span class="badge badge-success">sudah disalin</span>' : ''}</div>
-            <div class="ga-q-games">${compat.length ? compat.map(g => `<span class="gb-gchip" title="${esc(g.name)}">${g.icon}</span>`).join('') : '<span class="badge badge-danger">tidak cocok untuk game</span>'}</div></div>
-        </label>`;
-      }).join('')}</div>`,
-      onPaint: (res) => res.querySelectorAll('[data-pick]').forEach(c => c.addEventListener('change', () => {
-        if (c.checked) picked.add(c.dataset.pick); else picked.delete(c.dataset.pick);
-        refresh();
-      }))
-    });
-    btn.addEventListener('click', () => {
+      <div class="card"><div class="card-header">${UI.secHead('📥', 'Ambil dari Bank Soal', `${list.length} soal objektif • ${ready.length} siap disalin • ${copied.size} sudah disalin`)}
+        <button type="button" class="btn btn-primary btn-sm" id="gaPickBank" ${ready.length ? '' : 'disabled'}>Pilih soal dari Bank Soal</button></div>
+        <p class="muted small">Di halaman pemilih, centang per soal, semua soal satu materi, semua soal satu kategori subtest, atau semua soal sekaligus. Soal esai, soal yang tidak cocok untuk game, dan soal yang sudah disalin dilewati otomatis.</p>
+        <div class="table-wrap"><table class="table">
+          <thead><tr><th>Subtest</th><th>Soal objektif</th><th>Siap disalin</th><th>Sudah disalin</th></tr></thead>
+          <tbody>${DB.SUBTESTS.map(row).join('')}</tbody>
+        </table></div></div>`;
+    const copy = (ids) => {
       let n = 0;
-      picked.forEach(id => {
+      ids.forEach(id => {
         const q = DB.getQuestion(id);
         if (!q || copied.has(id)) return;
-        const copy = JSON.parse(JSON.stringify(q));
-        delete copy.id; delete copy.points; delete copy._ref;
-        Games.upsertQuestion(Object.assign(copy, {
+        const dup = JSON.parse(JSON.stringify(q));
+        delete dup.id; delete dup.points; delete dup._ref;
+        Games.upsertQuestion(Object.assign(dup, {
           id: 'gq_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 7) + n,
           bankId: id, source: 'bank', authorId: user.id, active: true, games: [], createdAt: Date.now() + n
         }));
@@ -303,7 +286,15 @@
       });
       UI.toast(`${n} soal disalin ke Soal Game.`, 'success');
       view.tab = 'soal'; rerender();
-    });
+    };
+    body.querySelector('#gaPickBank').addEventListener('click', () => QPicker.open({
+      title: 'Ambil Soal dari Bank Soal', subtitle: 'Soal yang dipilih disalin ke Soal Game • ikon = game yang cocok',
+      questions: () => DB.getQuestions().filter(q => !isEssay(q)),
+      disabled: (q) => (copied.has(q.id) ? 'Sudah disalin' : (!compatGames(q).length ? 'Tidak cocok untuk game' : '')),
+      badge: (q) => compatGames(q).map(g => `<span class="gb-gchip" title="${esc(g.name)}">${g.icon}</span>`).join(''),
+      confirmLabel: (n) => `Salin ${n} soal ke Soal Game`,
+      onConfirm: (ids) => { copy(ids); }
+    }));
   }
 
   /* ---------------- Buat dengan AI ---------------- */
@@ -447,7 +438,7 @@
   /* ---------------- Coba Game ---------------- */
   function paintTry(body, user) {
     const list = Games.playableGames('');
-    body.innerHTML = `<div class="alert alert-info small">Pratinjau memainkan game persis seperti siswa, tetapi skor tidak disimpan.</div>
+    body.innerHTML = `<div class="alert alert-info small">Pratinjau memainkan game persis seperti mentee, tetapi skor tidak disimpan.</div>
       <div class="gb-grid">${list.map(x => Games.gameCardHtml(x, user, { preview: true })).join('')}</div>`;
     body.querySelectorAll('[data-preview]').forEach(b => b.addEventListener('click', () => {
       Games.runSession(body, user, { gameId: b.dataset.preview, mode: 'preview', onExit: () => paintTry(body, user) });
@@ -458,8 +449,8 @@
   function paintSettings(body) {
     const st = Games.settings();
     body.innerHTML = `<div class="card">
-        <div class="card-header">${UI.secHead('⚙️', 'Pengaturan Game Battle', 'berlaku untuk semua siswa')}</div>
-        <label class="check-row"><input type="checkbox" data-set="gamesEnabled" ${st.enabled ? 'checked' : ''} /> Aktifkan Game Battle untuk siswa</label>
+        <div class="card-header">${UI.secHead('⚙️', 'Pengaturan Game Battle', 'berlaku untuk semua mentee')}</div>
+        <label class="check-row"><input type="checkbox" data-set="gamesEnabled" ${st.enabled ? 'checked' : ''} /> Aktifkan Game Battle untuk mentee</label>
         <label class="check-row"><input type="checkbox" data-set="gameBattleEnabled" ${st.battle ? 'checked' : ''} /> Izinkan battle 1 lawan 1 antarsiswa</label>
         <label class="check-row"><input type="checkbox" data-set="gameBotEnabled" ${st.bot ? 'checked' : ''} /> Izinkan bermain melawan bot</label>
         <h4 class="gb-sub-h">📚 Sumber soal game</h4>
@@ -468,7 +459,7 @@
             <div><div class="tgt-name">${esc(n)}</div><div class="tgt-meta">${esc(d)}</div></div></label>`).join('')}</div>
         <h4 class="gb-sub-h">🎮 Game yang tersedia</h4>
         <div class="ga-gpick">${Games.GAMES.map(g => `<label class="check-row"><input type="checkbox" data-gon="${g.id}" ${st.disabled.includes(g.id) ? '' : 'checked'} /> ${g.icon} ${esc(g.name)} <span class="muted small">— ${esc(g.tag)}</span></label>`).join('')}</div>
-        <p class="muted small">XP streak dari game mengikuti aturan "Games Area" (maks. 3 ronde per hari, minimal 6 jawaban benar). Siswa dapat memilih untuk tidak menerima tantangan battle dari halaman Game Battle.</p>
+        <p class="muted small">XP streak dari game mengikuti aturan "Games Area" (maks. 3 ronde per hari, minimal 6 jawaban benar). Mentee dapat memilih untuk tidak menerima tantangan battle dari halaman Game Battle.</p>
       </div>`;
     body.querySelectorAll('[data-set]').forEach(c => c.addEventListener('change', () => { DB.setSetting(c.dataset.set, c.checked); UI.toast('Pengaturan disimpan.', 'success'); rerender(); }));
     body.querySelectorAll('[name="gaSrc"]').forEach(r => r.addEventListener('change', () => { DB.setSetting('gameSource', r.value); UI.toast('Sumber soal diperbarui.', 'success'); rerender(); }));
@@ -480,7 +471,7 @@
     }));
   }
 
-  function stop() { if (global.Games) Games.stopSession('nav'); host = null; }
+  function stop() { if (global.Games) Games.stopSession('nav'); if (global.GameRoom) GameRoom.stop(); host = null; }
 
   global.GamesAdmin = { render, stop, rowToGameQuestion, AI_FORMATS };
 })(window);

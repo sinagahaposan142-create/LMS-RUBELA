@@ -269,7 +269,7 @@ Hasil audit lengkap 23 poin permintaan beserta buktinya ada di
   Esai diberi poin oleh tutor lewat ✍️ Nilai Esai. Kolom `Poin` di impor/ekspor Bank Soal.
 - **Notifikasi perangkat / Web Push** (`docs/NOTIFIKASI-PERANGKAT.md`): setelah satu kali "Aktifkan" + izin peramban,
   semua notifikasi LMS muncul di HP/laptop walau situs ditutup. Enkripsi RFC 8291 + VAPID tanpa dependensi.
-- **Game Battle** (`docs/GAME-BATTLE.md`): 10 game edukasi dari Bank Soal & Soal Game, main sendiri atau battle 1 lawan 1
+- **Game Battle** (`docs/GAME-BATTLE.md`): 18 game edukasi dari Bank Soal & Soal Game, main sendiri atau battle 1 lawan 1
   dengan siswa online (pilih manual, Cari Otomatis oleh bot matchmaking, atau Lawan Bot). Kelola soal game dengan editor
   soal LMS, salin dari Bank Soal, atau buat dengan AI; tersedia paket 47 soal contoh.
 
@@ -305,6 +305,83 @@ Hasil audit lengkap 23 poin permintaan beserta buktinya ada di
 - **Grup Belajar**: obrolan grup mentee; admin & tutor grup mengirim kuis dari Bank Soal (dinilai otomatis), bahan
   diskusi dengan utas balasan, materi, dan pengumuman. Hanya anggota yang menerima data grup.
 
+### Ruang Belajar, Avatar, Ruang Perhatian, Offline, Impor PDF/Word & 8 Game Baru (uji: `docs/UJI-FITUR-RONDE-15.md`)
+- **Ruang Belajar** ala YPT (menu semua peran): tujuan belajar + timer fokus/istirahat yang tetap berjalan saat pindah
+  halaman, pemeriksaan "masih belajar?" tiap 45 menit, Ruang Kelas berisi avatar teman, peringkat hari/minggu/bulan,
+  statistik pribadi, rekap admin & tutor, pantauan orang tua.
+- **Avatar Almamater**: 12 kampus, cowok & cewek, 6 gaya (2 berhijab), digambar SVG; dipakai di topbar, chat,
+  peringkat, status online, ujian, game, presensi.
+- **Ruang Perhatian** di Notifikasi admin & tutor: daftar pekerjaan yang perlu ditindaklanjuti, dihitung langsung dari data.
+- **Jawaban aman saat sinyal putus**: jurnal per detik untuk ujian CBT, kuis course, dan kuis grup; antrean kirim di
+  IndexedDB; halaman tetap terbuka tanpa sinyal (service worker, jaringan dulu).
+- **Impor PDF/Word dibantu AI** di Bank Soal & CBT: PDF, .docx, teks, atau tempel; pembacaan pola penomoran tanpa AI dan
+  Analisis AI untuk dokumen tidak rapi; halaman tinjau sebelum disimpan.
+- **8 game arkade**: Petualangan Peta, Pertarungan Monster, Balapan Mobil (8 sirkuit, item Turbo/Perisai/Oli, jawab
+  dengan suara), Lari-Lompat, Tarik Tambang, Tangkap Jawaban, Rebut Wilayah, Ludo Edukasi.
+- **Main Bareng Kelas** dengan kode ruang: **Monster Co-op** (peran & jurus di HP, pertarungan di layar kelas, Goblin →
+  Orc → Golem raksasa dengan darah sesuai jumlah siswa) dan **Balap Kelas** (setiap siswa menyetir dari HP, layar kelas
+  menampilkan seluruh balapan).
+- **Halaman masuk** kini menjelaskan bila server di domain hosting belum tersambung ke database (env Turso Production).
+
+### Teks Bacaan, Data Ganda, Whiteboard per Pertemuan & istilah Tutor/Mentee (uji: `docs/UJI-FITUR-RONDE-16.md`)
+- **Teks bacaan** dipakai bersama beberapa soal; saat ujian teks menempel di samping soalnya. Dapat dibuat di editor
+  soal, soal massal (`TEKS: Judul` … `---`), Excel (kolom "Judul Teks" & "Teks Bacaan"), dan impor PDF/Word.
+- **Cek Data Ganda** (menu Pengguna) dan peringatan langsung saat menambah akun, kelas, atau soal yang sudah ada.
+- **Whiteboard per materi/pertemuan**: daftar papan berjudul (materi, pertemuan, pembuat), layar penuh sungguhan,
+  impor PDF/gambar sebagai halaman (berkas ≤ 900 KB per halaman, 8 MB per kelas).
+- Tutor dapat mengampu **beberapa subtest**; daftar **mentee belum punya kelas** dan **tutor belum mengajar**.
+- Istilah antarmuka: **Guru → Tutor**, **Siswa/Murid → Mentee** (nilai peran di data tetap `guru`/`siswa`).
+
+### Jadwal 90 Menit, Rencana Materi, Presensi per Sesi & Tutor Course (uji: `docs/UJI-FITUR-RONDE-17.md`)
+- **Simpan otomatis tanpa notifikasi**: lencana menampilkan waktu simpan ("Menyimpan 0.8 detik"); perubahan dari
+  perangkat lain dimuat diam-diam.
+- **Jadwal Kelas**: setiap pertemuan 90 menit, boleh diajar beberapa tutor, pindah otomatis ke **Selesai**
+  (batalkan/pulihkan, hapus/urungkan); War Jadwal tampilan tabel atau per hari; tab **Rencana Materi** per minggu.
+- **Presensi per sesi**: baris kosong sampai ditandai, dapat dikosongkan, hanya tutor sesi itu (atau admin) yang dapat
+  mengubah — dijaga juga di server.
+- **Whiteboard**: blok & kelompok objek, gambar dapat diseret, latar penuh tanpa kotak putih, halaman PDF ukuran asli.
+- **Tutor Course Mandiri**: menyusun isi course dan menilai esai peserta.
+- Mentee otomatis masuk kelas subtest dari kelas utamanya.
+
+### CBT Tryout, Status Pendidikan, Kritik & Saran Privat (uji: `docs/UJI-FITUR-RONDE-18.md`)
+- **CBT Tryout** (halaman CBT admin): tryout untuk semua mentee, tidak terikat kelas. Admin mengisi nama, deskripsi,
+  jadwal, serta subtest beserta target soal & durasi; tryout tersimpan sebagai **draf**. Tutor melihat draf di halaman
+  CBT-nya dan **menyetor soal** sesuai subtest yang diampu, lewat pemilih soal halaman penuh atau membuat soal baru
+  (editor, buat massal, Excel/CSV, PDF/Word/teks dibantu AI). Admin menerima/menolak setoran, dapat menambah soal sendiri,
+  lalu **menerbitkan** sekarang atau pada waktu tertentu. Draf tidak pernah sampai ke perangkat mentee (dijaga server).
+- **Pemilih soal halaman penuh** (`js/qpicker.js`): kategori subtest, kelompok Materi › Sub Materi, pencarian di satu
+  atau semua subtest, centang semua per kelompok/kategori/seluruh soal, tinjau & batalkan pilihan. Dipakai juga oleh
+  **Game Battle → Ambil dari Bank Soal**.
+- **Status pendidikan mentee** (Kelas 12, Gap year, Gap year sambil bekerja, Semi gap year) dan **batas ketidakhadiran**
+  per status (Pengaturan → Kebijakan Kehadiran). Pelanggaran terdeteksi otomatis (Presensi → Batas & Sanksi, AI Analytics,
+  halaman kehadiran) dan dapat ditagih sebagai **denda** di Keuangan. Gap year sambil bekerja tanpa batas & sanksi.
+- **Kritik & saran** ke admin (hanya admin), ke tutor tertentu dari daftar akun (hanya tutor itu), atau umum; anonim
+  benar-benar menyembunyikan pengirim; penerima dapat membalas.
+- **AI Analytics**: peringatan dari jumlah Alfa (3× = Warning), tab **Mentee Tidak Hadir** dan **Jadwal Tutor**.
+- **Layar penuh** saat bermain game (Game Battle, Main Bareng mentee, Games Area) dan perbaikan skor game.
+
+### Riwayat Soal, Kategori Latihan, Mode Adaptif & Kosakata (uji: `docs/UJI-FITUR-RONDE-19.md`)
+- **Pemakaian soal**: di wizard CBT, Bank Soal, pemilih soal halaman penuh, dan studio Tryout setiap soal diberi
+  keterangan *Belum dipakai* atau *N× dipakai · N tryout* (judul ujian di tooltip). Soal yang belum pernah dipakai
+  diurutkan paling atas, tersedia filter **Pemakaian**, dan "acak soal" mendahulukan soal yang belum dipakai.
+- **Riwayat jawaban mentee** (`lms_q_history`) dipakai bersama Game Battle dan Arena Belajar. Soal yang sudah dijawab
+  benar tidak ditampilkan lagi, soal yang salah muncul lagi, dan bila semua soal dalam satu kategori sudah dikuasai,
+  kategori itu diulang dari awal (putaran baru). Panel kategori menampilkan jumlah soal baru, perlu diulang, dan dikuasai.
+- **Kategori latihan** (`js/qscope.js`) di Game Battle (Main, Battle, lawan bot) dan Arena → Latihan Soal: semua
+  subtest, satu atau beberapa subtest, atau per materi dan sub bab.
+- **Mode Adaptif** (Arena): 10 soal dibagi 6/3/1 ke tiga subtest fokus, dihitung dari 10 tryout/ujian terakhir
+  (hasil terbaru berbobot lebih besar). Subtest yang belum pernah diukur ikut diprioritaskan, dan materi dengan nilai di bawah 70% didahulukan.
+- **Kata Baku** (184 kata bawaan): pilih bentuk baku dari 2 pilihan, lihat contoh kalimat dan kaidahnya, lalu nilai
+  diri: **Lupa** (ulang besok), **Ragu** (ulang 2 hari lagi), **Ingat** (tidak diulang sampai semua kata selesai, lalu
+  putaran baru). Tombol Ingat dikunci bila pilihan salah.
+- **Vocab Inggris** (160 kata akademik UTBK): flashcard yang dibalik atau mode tebak arti (4 pilihan), pelafalan
+  (speech synthesis), definisi, contoh kalimat dan terjemahannya, sinonim. Sistem Lupa/Ragu/Ingat sama dengan Kata Baku.
+- Dek kosakata memiliki daftar kata (cari/filter/urut), aktivitas 14 hari, penguasaan per kategori, pintasan keyboard,
+  dan tercatat di streak. Admin mengelola kosakata tambahan, menonaktifkan kata bawaan, impor Excel/CSV,
+  dan mengatur jumlah kartu per sesi (Arena Belajar admin).
+- **Layar pemuatan baru** saat masuk (`js/boot-splash.js`): sapaan sesuai waktu, kalimat penyemangat per peran,
+  tahapan pemuatan, jumlah data, dan tombol coba lagi bila server tidak terjangkau.
+
 ### Tema Hari Besar Nasional (detail: `docs/TEMA-HARI-BESAR.md`)
 - Menu admin **Operasional → Tema Hari Besar**: 13 tema yang diaktifkan manual. Tersedia Tahun Baru, Imlek, Nyepi,
   Idulfitri, Hardiknas, Kenaikan Yesus Kristus, Waisak, Iduladha, Hari Lahir Pancasila, Hari Anak Nasional,
@@ -330,7 +407,8 @@ users ─── guru ───▶ courses ───▶ materials
   │        │          │   ├───▶ recordings (video URL)
   │        │          │   ├───▶ assignments ───▶ submissions ◀── siswa
   │        │          │   ├───▶ cbts ───▶ cbtAttempts ◀── siswa
-  │        │          │   │       └─ questionIds[] ──▶ questions (bank soal)
+  │        │          │   │       ├─ questionIds[] ──▶ questions (bank soal)
+  │        │          │   │       └─ (tryout) cbt_contribs ◀── setoran soal tutor (pending/accepted/rejected)
   │        │          │   ├───▶ enrollments ◀── siswa
   │        │          │   ├───▶ attendance ◀── siswa & guru
   │        │          │   ├───▶ whiteboards (objek vektor v2 per kelas) + whiteboard_boards (versi & papan tersimpan)
@@ -344,6 +422,7 @@ admin ── kelola semua + expenses (pengeluaran operasional)
 notifications ──userId──▶ users (dikirim otomatis oleh aksi lintas peran)
 birthday_wishes ──recipientId/authorId──▶ users   birthday_rewards (buku besar poin, 1×/tahun)
 activity_log (audit ringan: akun, pengaturan, moderasi)   schema_version (migrasi aman bertahap)
+q_history ──userId──▶ siswa (riwayat jawaban Bank Soal & soal game)   vocab_progress ──userId──▶ siswa   vocab_items (kosakata tambahan)
 ```
 
 Contoh sinkronisasi otomatis:
@@ -368,7 +447,7 @@ Tekan *Export Excel* untuk mengunduh template berisi kolom lengkap (termasuk dat
 | Data | Kolom |
 |------|-------|
 | Guru | Nama, Username, **Password**, Email, WhatsApp, Subtest, Tarif Gaji, Tanggal Lahir, Status |
-| Siswa | Nama, Username, **Password**, Email, Telepon, Kelas, Universitas Tujuan, Jurusan Tujuan, Tanggal Lahir, Agama, Status |
+| Siswa | Nama, Username, **Password**, Email, Telepon, Kelas, Universitas Tujuan, Jurusan Tujuan, Status Pendidikan, Tanggal Lahir, Agama, Status |
 | Orang Tua | Nama, Username, **Password**, Email, Telepon, Hubungan, **Username Anak** (pisahkan koma), Status |
 | Kelas | Judul Kelas, Subtest, Kelas Utama, Username Guru (boleh beberapa), Hari, Jam Mulai, Jam Selesai, Tanggal Mulai, Jumlah Pertemuan, Tautan Kelas, Kategori, Deskripsi, Biaya, Password |
 | Bank Soal | Subtest, Format, Tingkat, Pertanyaan, A, B, C, D, E, Kunci, Pembahasan |
@@ -464,7 +543,13 @@ LMS-RUBELA/
 │   ├── design-system.css # Token & komponen inti
 │   ├── news.css         # Berita: kartu, artikel, pengelola admin
 │   ├── tools.css        # Kalkulator UTBK, Kalender Seleksi, Data PTN
-│   └── groups.css       # Grup Belajar
+│   ├── groups.css       # Grup Belajar
+│   ├── study-room.css   # Ruang Belajar
+│   ├── doc-import.css   # Impor PDF/Word
+│   ├── tryout.css       # CBT Tryout & pemilih soal halaman penuh
+│   ├── practice.css     # Arena: kategori latihan, Mode Adaptif, Kata Baku & Vocab Inggris
+│   ├── games.css        # Game Battle (10 game dasar, battle)
+│   └── games-arcade.css # 8 game arkade, balapan, jawab suara, Main Bareng Kelas
 └── js/
     ├── sync-config.js   # Konfigurasi publik: alamat API & Supabase Realtime (publishable key)
     ├── sync-catalog.js  # Daftar data yang disinkronkan (dipakai browser & server)
@@ -492,6 +577,8 @@ LMS-RUBELA/
     │                    #   lembar presensi (pill), papan peringkat, lencana
     ├── cbt.js           # Workspace CBT: daftar ujian, wizard 6 langkah, bank soal per subtest,
     │                    #   pemantauan langsung, hasil & analisis per subtest
+    ├── tryout.js        # CBT Tryout: draf admin, setoran soal tutor, tinjauan, terbit terjadwal, kartu mentee
+    ├── qpicker.js       # Pemilih soal Bank Soal halaman penuh (tryout & Game Battle)
     ├── exam.js          # Runner ujian peserta: autosave jawaban/deadline, keamanan, hasil
     ├── scoring.js       # Raw 1/0, kesulitan empiris, bobot cohort, Rasch-like 200–800
     ├── autograder.js    # Saran nilai esai AI, batch apply, confidence & audit trail
@@ -505,7 +592,11 @@ LMS-RUBELA/
     ├── ai-context.js    # Konteks data LMS untuk AI + penyamaran nama mentee
     ├── ai-chat.js       # Komponen chat AI (Asisten AI, AI Guru, pembahasan CBT) + riwayat 7 hari
     ├── streak.js        # Streak API, Kampus Danau, statistik, leaderboard, pengaturan admin
-    ├── arena.js         # Arena Belajar: tantangan, mini quiz, latihan, Reading Text, games
+    ├── arena.js         # Arena Belajar: tantangan, mini quiz, latihan, Mode Adaptif, Reading Text, games
+    ├── qscope.js        # Kategori latihan bersama (subtest / beberapa subtest / materi) + status riwayat soal
+    ├── vocab.js         # Kata Baku & Vocab Inggris: sesi Lupa/Ragu/Ingat, daftar kata, pengelola admin
+    ├── vocab-data.js    # Kosakata bawaan (dimuat saat dibutuhkan)
+    ├── boot-splash.js   # Layar pemuatan saat masuk & sinkron awal
     ├── verses.js        # Ayat Harian sesuai agama
     ├── course-hub.js    # Course mandiri (admin, tanpa tutor) + pemutar pelajaran
     ├── hub-pay.js       # Course berbayar: checkout manual (rekening/QRIS + bukti), verifikasi admin
@@ -522,6 +613,17 @@ LMS-RUBELA/
     ├── utbk-calc.js     # Kalkulator UTBK + analisis AI
     ├── admission-cal.js # Kalender Seleksi + pengingat
     ├── groups.js        # Grup Belajar
+    ├── study-room.js    # Ruang Belajar (timer, Ruang Kelas, peringkat, statistik)
+    ├── avatars.js       # Avatar Almamater (SVG) + pemilih
+    ├── attention.js     # Ruang Perhatian admin & tutor
+    ├── safe-save.js     # Jurnal jawaban per detik & antrean offline
+    ├── doc-import.js    # Impor soal dari PDF/Word/teks (+ AI)
+    ├── games.js         # Mesin Game Battle, 10 game dasar, battle 1 lawan 1
+    ├── games-arcade.js  # 8 game arkade
+    ├── game-art.js      # Gambar SVG game (ikon, monster, peran, mobil)
+    ├── race-engine.js   # Mesin balapan: 8 sirkuit, fisika, jalan (kanvas), peta
+    ├── voice-answer.js  # Jawab soal dengan suara (Web Speech API, id-ID)
+    ├── game-room.js     # Main Bareng Kelas: Monster Co-op & Balap Kelas
     ├── timecapsule.js   # Mesin Waktu + enkripsi F2 & Recovery Key
     ├── music.js         # Musik latar global + pengelola admin
     ├── dashboard.js     # Router role-based + sidebar + pusat notifikasi + tema + drawer mobile

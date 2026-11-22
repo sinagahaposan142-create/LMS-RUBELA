@@ -415,12 +415,15 @@
     </div>`;
   }
 
+  /** Jenis aktivitas → tab Arena Belajar (tombol "Mulai" langsung ke tab yang tepat). */
+  const ARENA_TAB = { latihan: 'practice', miniquiz: 'quiz', reading: 'reading', tantangan: 'challenge', games: 'games', katabaku: 'katabaku', vocab: 'vocab' };
   function goalHtml(s, opts) {
     const o = opts || {};
     const done = new Set(s.todayTypes);
     const pct = Math.min(100, Math.round(done.size / s.goal * 100));
-    const order = ['latihan', 'miniquiz', 'materi', 'reading', 'tryout', 'tugas', 'kelas', 'tantangan', 'games', 'target', 'login'];
-    const go = { latihan: 'arena', miniquiz: 'arena', reading: 'arena', tantangan: 'arena', games: 'arena', materi: 'my-courses', tryout: 'cbt', tugas: 'assignments', kelas: 'jadwal-siswa' };
+    const vocabOn = DB.getSettings().vocabEnabled !== false;
+    const order = ['latihan', 'miniquiz', 'materi', 'reading'].concat(vocabOn ? ['katabaku', 'vocab'] : [], ['tryout', 'tugas', 'kelas', 'tantangan', 'games', 'target', 'login']);
+    const go = { latihan: 'arena', miniquiz: 'arena', reading: 'arena', tantangan: 'arena', games: 'arena', katabaku: 'arena', vocab: 'arena', materi: 'my-courses', tryout: 'cbt', tugas: 'assignments', kelas: 'jadwal-siswa' };
     return `<div class="card sk-goal">
       <div class="card-header">${UI.secHead('🎯', 'Daily Learning Goal', `${done.size}/${s.goal} jenis aktivitas berbeda hari ini • hari berganti pukul 00.00 ${s.tz}`)}
         ${s.goalMet ? '<span class="badge badge-success">Target tercapai 🎉</span>' : ''}</div>
@@ -433,7 +436,7 @@
           <div class="sk-act-body"><strong>${esc(d.label)}</strong><span>${esc(d.criteria)}</span>
             <em>${d.learning ? `+${d.xp} XP${d.cap > 1 ? ` • maks ${d.cap}×/hari` : ''}` : 'tidak menyalakan streak'}</em></div>
           ${isDone ? '<span class="sk-check" aria-label="selesai">✓</span>'
-            : (!o.readOnly && go[k] && global.Dashboard && Dashboard.hasSection(go[k]) ? `<button type="button" class="btn btn-sm btn-secondary" data-sk-go="${go[k]}">Mulai</button>` : '')}
+            : (!o.readOnly && go[k] && global.Dashboard && Dashboard.hasSection(go[k]) ? `<button type="button" class="btn btn-sm btn-secondary" data-sk-go="${go[k]}" ${ARENA_TAB[k] ? `data-sk-tab="${ARENA_TAB[k]}"` : ''}>Mulai</button>` : '')}
         </div>`;
       }).join('')}</div>
     </div>`;
@@ -644,7 +647,10 @@
     });
 
     bindLake(container, s, student, () => renderPage(container, student, o));
-    container.querySelectorAll('[data-sk-go]').forEach(b => b.addEventListener('click', () => Dashboard.navigate(b.dataset.skGo)));
+    container.querySelectorAll('[data-sk-go]').forEach(b => b.addEventListener('click', () => {
+      if (b.dataset.skTab && global.Arena) Arena.setTab(b.dataset.skTab);
+      Dashboard.navigate(b.dataset.skGo);
+    }));
     const pf = container.querySelector('#skPrefForm');
     if (pf) pf.addEventListener('submit', (e) => {
       e.preventDefault();
@@ -795,8 +801,8 @@
     const ids = new Set();
     DB.getCoursesByTeacher(user.id).forEach(c => DB.getEnrollmentsByCourse(c.id).forEach(e => ids.add(e.studentId)));
     const people = DB.getUsers().filter(u => ids.has(u.id));
-    container.innerHTML = `<div class="card"><div class="card-header">${UI.secHead('🔥', 'Streak Belajar Siswa Saya', 'mentee di kelas yang Anda ampu • hanya baca')}</div><div id="skTutor"></div></div>`;
-    if (!people.length) { container.querySelector('#skTutor').innerHTML = '<div class="empty"><div class="empty-icon">📭</div>Belum ada siswa di kelas Anda.</div>'; return; }
+    container.innerHTML = `<div class="card"><div class="card-header">${UI.secHead('🔥', 'Streak Belajar Mentee Saya', 'mentee di kelas yang Anda ampu • hanya baca')}</div><div id="skTutor"></div></div>`;
+    if (!people.length) { container.querySelector('#skTutor').innerHTML = '<div class="empty"><div class="empty-icon">📭</div>Belum ada mentee di kelas Anda.</div>'; return; }
     renderRoster(container.querySelector('#skTutor'), user, people, { canGrant: false });
   }
 

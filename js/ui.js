@@ -271,7 +271,11 @@
 
   const TOAST_ICONS = { success: '✓', error: '!', info: 'i', warning: '⚠' };
 
-  function toast(msg, type = 'success') {
+  /**
+   * Notifikasi singkat. `action` opsional: { label, onClick } menampilkan tombol
+   * (mis. "Urungkan") dan memperpanjang tampilan menjadi 6 detik.
+   */
+  function toast(msg, type = 'success', action) {
     const kind = ['success', 'error', 'info', 'warning'].includes(type) ? type : 'success';
     let t = document.getElementById('toastBox');
     if (!t) {
@@ -282,16 +286,28 @@
       t.setAttribute('aria-live', 'polite');
       document.body.appendChild(t);
     }
+    const ms = action ? 6000 : 3000;
     const el = document.createElement('div');
     el.className = 'toast ' + kind;
+    el.style.setProperty('--toast-ms', ms + 'ms');
     if (kind === 'error') el.setAttribute('role', 'alert');
     el.innerHTML = `<span class="t-icon">${TOAST_ICONS[kind]}</span><span class="t-msg"></span>`;
     el.querySelector('.t-msg').textContent = msg;
-    t.appendChild(el);
-    setTimeout(() => {
+    const close = () => {
+      if (el.classList.contains('is-out')) return;
       el.classList.add('is-out');
       setTimeout(() => el.remove(), 300);
-    }, 3000);
+    };
+    if (action && action.label && typeof action.onClick === 'function') {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = 't-act';
+      b.textContent = action.label;
+      b.addEventListener('click', () => { close(); action.onClick(); }, { once: true });
+      el.appendChild(b);
+    }
+    t.appendChild(el);
+    setTimeout(close, ms);
   }
 
   function confirmDialog(msg) { return window.confirm(msg); }
@@ -405,7 +421,107 @@
     setTimeout(go, wait);
   }
 
+  /* ===== Menu aksi baris (⋯) =====
+   * <details> agar bisa dibuka dengan keyboard tanpa skrip tambahan. Panel
+   * diposisikan fixed supaya tidak terpotong tabel yang dapat digulir.
+   * items: [{ label, attrs: 'data-edit="…"', danger?, icon? }] (null dilewati) */
+  function actionMenu(items, label) {
+    const list = (items || []).filter(Boolean);
+    if (!list.length) return '';
+    return `<details class="act-menu"><summary class="act-menu-btn" aria-label="${esc(label || 'Aksi lainnya')}" title="${esc(label || 'Aksi lainnya')}">
+        <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><circle cx="5" cy="12" r="1.8" fill="currentColor"/><circle cx="12" cy="12" r="1.8" fill="currentColor"/><circle cx="19" cy="12" r="1.8" fill="currentColor"/></svg></summary>
+      <div class="act-menu-list" role="menu">${list.map(it => `<button type="button" role="menuitem" class="act-menu-item${it.danger ? ' is-danger' : ''}" ${it.attrs || ''}>${it.icon ? `<span class="ami-ic" aria-hidden="true">${it.icon}</span>` : ''}${esc(it.label)}</button>`).join('')}</div></details>`;
+  }
+  /** Leluhur yang menjadi acuan position:fixed (transform, filter, perspective, contain, will-change). */
+  function fixedHostOf(el) {
+    for (let a = el.parentElement; a && a !== document.body && a !== document.documentElement; a = a.parentElement) {
+      const cs = getComputedStyle(a);
+      if ((cs.transform && cs.transform !== 'none') || (cs.filter && cs.filter !== 'none') || (cs.perspective && cs.perspective !== 'none')
+        || (cs.backdropFilter && cs.backdropFilter !== 'none') || /paint|layout|strict|content/.test(cs.contain || '')
+        || /transform|filter|perspective/.test(cs.willChange || '')) return a;
+    }
+    return null;
+  }
+  function placeActionMenu(d) {
+    const panel = d.querySelector('.act-menu-list');
+    const btn = d.querySelector('summary');
+    if (!panel || !btn) return;
+    const r = btn.getBoundingClientRect();
+    panel.style.visibility = 'hidden';
+    panel.style.display = 'block';
+    const w = panel.offsetWidth, h = panel.offsetHeight;
+    const vw = document.documentElement.clientWidth, vh = window.innerHeight;
+    // Rata kanan dengan tombol; balik ke atas bila ruang di bawah tidak cukup.
+    const left = Math.min(vw - w - 8, Math.max(8, r.right - w));
+    let top = r.bottom + 6;
+    if (top + h > vh - 8) top = r.top - h - 6 >= 8 ? r.top - h - 6 : Math.max(8, vh - h - 8);
+    // position:fixed mengikuti leluhur ber-transform/filter (mis. kartu yang sedang dianimasikan atau
+    // diangkat saat hover), bukan layar — koordinat dikoreksi terhadap leluhur itu.
+    const host = fixedHostOf(d);
+    const hr = host ? host.getBoundingClientRect() : null;
+    panel.style.left = Math.round(left - (hr ? hr.left + host.clientLeft : 0)) + 'px';
+    panel.style.top = Math.round(top - (hr ? hr.top + host.clientTop : 0)) + 'px';
+    panel.dataset.side = top < r.top ? 'up' : 'down';
+    panel.style.visibility = '';
+    const first = panel.querySelector('.act-menu-item');
+    if (first && d.dataset.kbd === '1') first.focus({ preventScroll: true });
+  }
+  function closeActionMenus(except) {
+    document.querySelectorAll('details.act-menu[open]').forEach(d => { if (d !== except) d.removeAttribute('open'); });
+  }
+  document.addEventListener('toggle', (e) => {
+    const d = e.target;
+    if (!(d instanceof HTMLElement) || !d.classList.contains('act-menu')) return;
+    if (d.open) { closeActionMenus(d); placeActionMenu(d); }
+  }, true);
+  // Keyboard: Enter/Spasi pada tombol ⋯ memfokuskan item pertama; panah atas/bawah berpindah item.
+  document.addEventListener('keydown', (e) => {
+    const sum = e.target.closest && e.target.closest('details.act-menu > summary');
+    if (sum && (e.key === 'Enter' || e.key === ' ')) { sum.parentElement.dataset.kbd = '1'; return; }
+    const item = e.target.closest && e.target.closest('.act-menu-item');
+    if (!item || (e.key !== 'ArrowDown' && e.key !== 'ArrowUp')) return;
+    e.preventDefault();
+    const items = [...item.parentElement.querySelectorAll('.act-menu-item')];
+    const i = items.indexOf(item) + (e.key === 'ArrowDown' ? 1 : -1);
+    items[(i + items.length) % items.length].focus();
+  });
+  document.addEventListener('pointerdown', (e) => {
+    const sum = e.target.closest && e.target.closest('details.act-menu > summary');
+    if (sum) sum.parentElement.dataset.kbd = '0';
+  }, true);
+  document.addEventListener('click', (e) => {
+    const inMenu = e.target.closest && e.target.closest('details.act-menu');
+    if (!inMenu) { closeActionMenus(); return; }
+    // Item dipilih → tutup menu setelah handler halaman berjalan.
+    if (e.target.closest('.act-menu-item')) setTimeout(() => inMenu.removeAttribute('open'), 0);
+  });
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeActionMenus(); });
+  window.addEventListener('resize', () => closeActionMenus(), { passive: true });
+  // Menggulir sedikit (mis. keyboard ponsel muncul) tidak menutup menu; panel ikut dipindah.
+  document.addEventListener('scroll', (e) => {
+    if (e.target && e.target.closest && e.target.closest('.act-menu-list')) return;
+    document.querySelectorAll('details.act-menu[open]').forEach(d => {
+      const r = d.querySelector('summary').getBoundingClientRect();
+      if (r.bottom < 0 || r.top > window.innerHeight) d.removeAttribute('open'); else placeActionMenu(d);
+    });
+  }, { passive: true, capture: true });
+
+  /** Tumpukan avatar kecil + nama ringkas (mis. daftar tutor). */
+  function peopleStack(users, max) {
+    const list = (users || []).filter(Boolean);
+    if (!list.length) return '<span class="muted small">—</span>';
+    const n = max || 3;
+    const shown = list.slice(0, n);
+    const av = (u) => (window.Avatars ? Avatars.inner(u) : esc(initials(u.name)));
+    const first = (u) => String(u.name || '').trim().split(/\s+/).slice(0, 2).join(' ');
+    const names = list.length <= 2 ? list.map(first).join(', ') : `${first(list[0])} +${list.length - 1} lainnya`;
+    return `<span class="ppl-stack" title="${esc(list.map(u => u.name).join(', '))}">
+      <span class="ppl-avs">${shown.map(u => `<span class="ppl-av">${av(u)}</span>`).join('')}${list.length > n ? `<span class="ppl-av is-more">+${list.length - n}</span>` : ''}</span>
+      <span class="ppl-names">${esc(names)}</span></span>`;
+  }
+
   global.UI = {
+    actionMenu, peopleStack,
     esc, fmtDate, fmtDateTime, toDateInput, toDateTimeLocalInput, todayYMD, fmtYMD, fmtRp, fmtDuration,
     modal, toast, confirmDialog, setBusy, initials, bannerClass, reloadAfterSync, colorFieldHtml,
     progressHtml, meterHtml, secHead, fmtRelative, greeting,

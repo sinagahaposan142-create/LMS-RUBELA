@@ -1,8 +1,11 @@
 /* =====================================================================
  * js/arena.js — Arena Belajar (aktivitas harian penyala streak)
  * ---------------------------------------------------------------------
- * Tantangan harian, mini quiz, latihan soal, Reading Text + soal
- * pemahaman, dan Games Area. Setiap aktivitas memakai token sesi dari
+ * Tantangan harian, mini quiz, latihan soal (kategori: js/qscope.js), Mode
+ * Adaptif (subtest terlemah dari hasil tryout), Kata Baku & Vocab Inggris
+ * (js/vocab.js), Reading Text + soal pemahaman, dan Games Area. Soal Bank Soal
+ * mengikuti riwayat jawaban mentee (DB.qh*): yang sudah benar tidak muncul
+ * lagi, yang salah diulang, dan setelah semua dikuasai diulang dari awal. Setiap aktivitas memakai token sesi dari
  * DB.beginLearning sehingga durasi minimum & kelengkapan jawaban
  * divalidasi di lapisan data (DB.recordLearning), bukan oleh tombol UI.
  * Admin mengelola Reading Text dari menu Arena Belajar.
@@ -12,16 +15,27 @@
   const esc = (s) => UI.esc(s);
   let tab = 'challenge';
   let timers = [];
-  const clearTimers = () => { timers.forEach(t => { clearInterval(t); clearTimeout(t); }); timers = []; };
+  const clearTimers = () => { timers.forEach(t => { clearInterval(t); clearTimeout(t); }); timers = []; if (global.Vocab) Vocab.stop(); };
 
   const SYNONYMS = [['cerdas', 'pandai'], ['gigih', 'tekun'], ['rintangan', 'hambatan'], ['ringkas', 'singkat'], ['akurat', 'tepat'],
     ['lazim', 'umum'], ['kendala', 'halangan'], ['mahir', 'cakap'], ['hakikat', 'esensi'], ['sahih', 'valid'], ['khalayak', 'publik'], ['nisbi', 'relatif']];
 
-  function pool(subtest) {
+  /** Soal pilihan ganda Bank Soal (opsional: kategori js/qscope.js atau nama subtest). */
+  function pool(scope) {
+    const sc = scope ? QScope.normalize(scope) : null;
     return DB.getQuestions().filter(q => (q.questionType || 'Pilihan Ganda') === 'Pilihan Ganda'
       && Array.isArray(q.options) && q.options.length >= 2 && q.correctIndex >= 0 && q.correctIndex < q.options.length
-      && (!subtest || q.subject === subtest));
+      && !q.passageId && (!sc || QScope.matches(q, sc)));
   }
+  const refOf = (q) => 'b:' + q.id;
+  /** Pilih n soal menurut riwayat mentee: yang pernah salah & baru dulu, yang sudah benar disisihkan. */
+  function pickByHistory(user, list, n, key) {
+    const byRef = new Map(list.map(q => [refOf(q), q]));
+    const r = DB.qhOrder(user.id, [...byRef.keys()], n, key);
+    if (r.reset) UI.toast(`Semua soal di kategori ini sudah kamu jawab benar. Mulai putaran ke-${r.cycle} dari awal!`, 'success');
+    return r.refs.slice(0, n).map(x => byRef.get(x)).filter(Boolean);
+  }
+  const record = (user, items) => DB.qhRecord(user.id, items.map(([q, ok]) => ({ ref: refOf(q), ok })));
   function shuffle(a, seed) {
     const arr = a.slice();
     let h = seed == null ? Math.random() * 1e9 : seed;
@@ -32,6 +46,8 @@
   const hashStr = (s) => { let h = 7; for (const c of s) h = (h * 31 + c.charCodeAt(0)) >>> 0; return h; };
   const today = (user) => DB.ymdInTz(Date.now(), DB.streakTzFor(user));
   const qText = (q) => global.RichText ? RichText.render(q.text || '') : esc(q.text);
+  // Pilihan & pembahasan Bank Soal berupa teks kaya (rumus, gambar); disanitasi RichText.
+  const rich = (h) => (global.RichText ? RichText.render(String(h == null ? '' : h)) : esc(h));
 
   /** Kirim catatan; bila durasi minimum belum terpenuhi, tunggu lalu kirim otomatis. */
   function submitWhenReady(user, type, payload, statusEl, onDone) {
@@ -66,8 +82,8 @@
     return `<fieldset class="ar-q" data-qi="${i}"><legend><span class="ar-qn">${i + 1}</span><div class="rt-content">${qText(q)}</div></legend>
       <div class="ar-opts">${q.options.map((op, k) => `<label class="ar-opt ${o.reveal ? (k === q.correctIndex ? 'is-key' : (o.chosen === k ? 'is-wrong' : '')) : ''}">
         <input type="radio" name="${name}${i}" value="${k}" ${o.chosen === k ? 'checked' : ''} ${o.reveal ? 'disabled' : ''}/>
-        <span class="ar-letter">${String.fromCharCode(65 + k)}</span><span>${esc(op)}</span></label>`).join('')}</div>
-      ${o.reveal && q.explanation ? `<div class="ar-exp"><strong>Pembahasan:</strong> ${esc(q.explanation)}</div>` : ''}
+        <span class="ar-letter">${String.fromCharCode(65 + k)}</span><span class="rt-content">${rich(op)}</span></label>`).join('')}</div>
+      ${o.reveal && q.explanation ? `<div class="ar-exp"><strong>Pembahasan:</strong> <span class="rt-content">${rich(q.explanation)}</span></div>` : ''}
     </fieldset>`;
   }
 
@@ -79,7 +95,10 @@
       return;
     }
     const s = global.StreakAPI ? StreakAPI.compute(me.id) : null;
-    const TABS = [['challenge', '🏆 Tantangan Harian'], ['quiz', '⚡ Mini Quiz'], ['practice', '🧮 Latihan Soal'], ['reading', '📰 Reading Text'], ['games', '🎮 Games Area']];
+    const TABS = [['challenge', '🏆 Tantangan Harian'], ['quiz', '⚡ Mini Quiz'], ['practice', '🧮 Latihan Soal'], ['adaptive', '🎯 Mode Adaptif']]
+      .concat(global.Vocab && Vocab.enabled() ? [['katabaku', '🔤 Kata Baku'], ['vocab', '🗂️ Vocab Inggris']] : [])
+      .concat([['reading', '📰 Reading Text'], ['games', '🎮 Games Area']]);
+    if (!TABS.some(t => t[0] === tab)) tab = 'challenge';
     container.innerHTML = `
       ${s ? StreakAPI.widgetHtml(me) : ''}
       <div class="tabs">${TABS.map(([k, l]) => `<button type="button" class="tab-btn ${tab === k ? 'active' : ''}" data-ar-tab="${k}">${l}</button>`).join('')}</div>
@@ -90,6 +109,9 @@
     if (tab === 'challenge') return renderChallenge(box, me);
     if (tab === 'quiz') return renderQuiz(box, me);
     if (tab === 'practice') return renderPractice(box, me);
+    if (tab === 'adaptive') return renderAdaptive(box, me);
+    if (tab === 'katabaku') return Vocab.renderKataBaku(box, me);
+    if (tab === 'vocab') return Vocab.renderEnglish(box, me);
     if (tab === 'reading') return renderReadingList(box, me);
     return renderGames(box, me);
   }
@@ -120,6 +142,7 @@
       if (!v) { UI.toast('Pilih satu jawaban.', 'error'); return; }
       const choice = Number(v.value);
       const correct = choice === q.correctIndex ? 1 : 0;
+      record(user, [[q, !!correct]]);
       f.querySelector('button[type=submit]').disabled = true;
       submitWhenReady(user, 'tantangan', { token: tok.token, answered: 1, total: 1, correct, choice }, f.querySelector('#arChStatus'), () => renderChallenge(box, user));
     });
@@ -131,9 +154,10 @@
     if (list.length < 5) { box.innerHTML = '<div class="empty"><div class="empty-icon">📭</div>Mini quiz membutuhkan minimal 5 soal pilihan ganda di Bank Soal.</div>'; return; }
     box.innerHTML = `<div class="card ar-card ar-intro"><div class="card-header">${UI.secHead('⚡', 'Mini Quiz 5 Soal', 'campuran semua subtest • waktu 5 menit')}</div>
       <p class="muted">Kriteria: ${esc(DB.LEARNING_TYPES.miniquiz.criteria)}</p>
+      ${QScope.statsHtml(DB.qhStats(user.id, list.map(refOf), 'arena:quiz'))}
       <button class="btn btn-primary" type="button" id="arQuizStart">Mulai Mini Quiz</button></div>`;
     box.querySelector('#arQuizStart').addEventListener('click', () => {
-      const qs = shuffle(list).slice(0, 5);
+      const qs = pickByHistory(user, list, 5, 'arena:quiz');
       const tok = DB.beginLearning(user.id, 'miniquiz', '');
       let left = 300;
       box.innerHTML = `<form class="card ar-card" id="arQuizForm"><div class="card-header">${UI.secHead('⚡', 'Mini Quiz', 'jawab semua soal lalu kumpulkan')}
@@ -160,6 +184,7 @@
         if (answered < 5 && left > 0) { UI.toast('Jawab semua soal sebelum mengumpulkan.', 'error'); return; }
         clearInterval(t);
         const correct = qs.reduce((n, q, i) => n + (answers[i] === q.correctIndex ? 1 : 0), 0);
+        record(user, qs.map((q, i) => [q, answers[i] === q.correctIndex, answers[i]]).filter(x => x[2] != null));
         const showResult = (msg) => {
           box.innerHTML = `<div class="card ar-card"><div class="card-header">${UI.secHead('📊', `Skor ${correct}/5`, msg)}</div>
             ${qs.map((q, i) => questionHtml(q, i, 'rv', { reveal: true, chosen: answers[i] })).join('')}
@@ -174,26 +199,42 @@
   }
 
   /* ------------------------- latihan soal ------------------------- */
+  let practiceScope = null;
   function renderPractice(box, user) {
-    const all = pool();
-    const subjects = [...new Set(all.map(q => q.subject).filter(Boolean))];
-    box.innerHTML = `<div class="card ar-card"><div class="card-header">${UI.secHead('🧮', 'Latihan Soal per Subtest', 'pembahasan langsung setelah menjawab')}</div>
+    if (!practiceScope || practiceScope.uid !== user.id) practiceScope = { uid: user.id, sc: QScope.load('arena', user.id) };
+    const list = pool(practiceScope.sc);
+    box.innerHTML = `<div class="card ar-card"><div class="card-header">${UI.secHead('🧮', 'Latihan Soal', 'pilih kategori: semua subtest, beberapa subtest, atau per materi • pembahasan langsung')}</div>
       <p class="muted">Kriteria: ${esc(DB.LEARNING_TYPES.latihan.criteria)}</p>
-      ${subjects.length ? `<div class="ar-subjects">${subjects.map(sj => {
-        const n = all.filter(q => q.subject === sj).length;
-        return `<button type="button" class="ar-subject" data-sj="${esc(sj)}" ${n < 5 ? 'disabled' : ''}><strong>${esc(sj)}</strong><span>${n} soal${n < 5 ? ' • belum cukup (min 5)' : ''}</span></button>`;
-      }).join('')}</div>` : '<div class="empty"><div class="empty-icon">📭</div>Bank soal pilihan ganda belum tersedia.</div>'}</div>`;
-    box.querySelectorAll('[data-sj]').forEach(b => b.addEventListener('click', () => startPractice(box, user, b.dataset.sj)));
+      <div id="arScope"></div>
+      <div class="ar-start-row">
+        <button type="button" class="btn btn-primary" id="arPrStart" ${list.length >= 5 ? '' : 'disabled'}>Mulai latihan • ${Math.min(10, list.length)} soal</button>
+        ${list.length < 5 ? `<span class="muted small">Kategori ini baru berisi ${list.length} soal pilihan ganda (minimal 5).</span>` : ''}
+      </div></div>`;
+    QScope.mount(box.querySelector('#arScope'), {
+      scope: practiceScope.sc, userId: user.id, title: 'Kategori latihan',
+      refs: (sc) => pool(sc).map(refOf), count: (name) => pool({ s: [name] }).length,
+      onChange: (sc) => { practiceScope.sc = sc; QScope.save('arena', user.id, sc); renderPractice(box, user); }
+    });
+    box.querySelector('#arPrStart').addEventListener('click', () => {
+      const sc = practiceScope.sc;
+      startPractice(box, user, { title: QScope.label(sc), qs: pickByHistory(user, pool(sc), 10, 'arena:' + QScope.key(sc)), back: () => renderPractice(box, user) });
+    });
   }
-  function startPractice(box, user, subject) {
-    const qs = shuffle(pool(subject)).slice(0, 10);
+  /** Sesi latihan: o = { title, qs, back(), adaptive? }. Jawaban dicatat ke riwayat saat diperiksa. */
+  function startPractice(box, user, o) {
+    const qs = o.qs;
+    if (!qs.length) { UI.toast('Belum ada soal untuk kategori ini.', 'error'); return; }
     const tok = DB.beginLearning(user.id, 'latihan', '');
     const answers = new Array(qs.length).fill(null);
     let i = 0;
     const paint = () => {
       const q = qs[i];
       const answered = answers[i] != null;
-      box.innerHTML = `<div class="card ar-card"><div class="card-header">${UI.secHead('🧮', esc(subject), `Soal ${i + 1}/${qs.length} • ${answers.filter(a => a != null).length} terjawab`)}</div>
+      const st = DB.subtestByName(q.subject);
+      const tl = global.Topics ? Topics.labelOf(q) : null;
+      box.innerHTML = `<div class="card ar-card"><div class="card-header">${UI.secHead(o.adaptive ? '🎯' : '🧮', esc(o.title), `Soal ${i + 1}/${qs.length} • ${answers.filter(a => a != null).length} terjawab`)}</div>
+        <div class="ar-qmeta"><span class="qc-chip sub">${st ? st.icon + ' ' + esc(st.short) : esc(q.subject || '-')}</span>${tl ? `<span class="qc-chip">${esc(tl.text)}</span>` : ''}
+          ${DB.qhState(DB.qHistory(user.id), refOf(q)) === 'review' && !answered ? '<span class="qc-chip ar-chip-review">pernah salah</span>' : ''}</div>
         <div class="ar-dots">${qs.map((_, k) => `<span class="${k === i ? 'is-cur' : ''} ${answers[k] != null ? (answers[k] === qs[k].correctIndex ? 'is-ok' : 'is-bad') : ''}"></span>`).join('')}</div>
         <form id="arPrForm">${questionHtml(q, i, 'pr', answered ? { reveal: true, chosen: answers[i] } : {})}</form>
         <div id="arPrStatus"></div>
@@ -206,23 +247,132 @@
       if (check) check.addEventListener('click', () => {
         const v = box.querySelector(`input[name=pr${i}]:checked`);
         if (!v) { UI.toast('Pilih jawaban dulu.', 'error'); return; }
-        answers[i] = Number(v.value); paint();
+        answers[i] = Number(v.value);
+        record(user, [[q, answers[i] === q.correctIndex]]);
+        paint();
       });
       const nx = box.querySelector('#arPrNext');
       if (nx) nx.addEventListener('click', () => { i++; paint(); });
       box.querySelector('#arPrFinish').addEventListener('click', () => {
-        const answered = answers.filter(a => a != null).length;
+        const done = answers.filter(a => a != null).length;
         const correct = qs.reduce((n, q2, k) => n + (answers[k] === q2.correctIndex ? 1 : 0), 0);
-        if (answered < 5) { UI.toast(`Jawab minimal 5 soal agar latihan tercatat (baru ${answered}).`, 'error'); return; }
+        if (done < 5) { UI.toast(`Jawab minimal 5 soal agar latihan tercatat (baru ${done}).`, 'error'); return; }
         box.querySelector('#arPrFinish').disabled = true;
-        submitWhenReady(user, 'latihan', { token: tok.token, answered, total: qs.length, correct }, box.querySelector('#arPrStatus'), () => {
-          box.innerHTML = `<div class="card ar-card"><div class="card-header">${UI.secHead('✅', `Latihan selesai: ${correct}/${answered} benar`, esc(subject))}</div>
-            <button type="button" class="btn btn-primary" id="arPrBack">Pilih subtest lain</button></div>`;
-          box.querySelector('#arPrBack').addEventListener('click', () => renderPractice(box, user));
+        submitWhenReady(user, 'latihan', { token: tok.token, answered: done, total: qs.length, correct }, box.querySelector('#arPrStatus'), () => {
+          const per = new Map();
+          qs.forEach((q2, k) => {
+            if (answers[k] == null) return;
+            const r = per.get(q2.subject) || { n: 0, ok: 0 };
+            r.n++; if (answers[k] === q2.correctIndex) r.ok++;
+            per.set(q2.subject, r);
+          });
+          box.innerHTML = `<div class="card ar-card"><div class="card-header">${UI.secHead('✅', `Latihan selesai: ${correct}/${done} benar`, esc(o.title))}</div>
+            <ul class="ar-res-list">${[...per].map(([sj, r]) => { const st = DB.subtestByName(sj); return `<li><span>${st ? st.icon + ' ' + esc(st.short) : esc(sj)}</span><b>${r.ok}/${r.n}</b></li>`; }).join('')}</ul>
+            <p class="muted small">Soal yang benar tidak akan muncul lagi; yang salah akan kembali di latihan berikutnya.${o.adaptive ? ' Profil kelemahanmu ikut diperbarui.' : ''}</p>
+            <button type="button" class="btn btn-primary" id="arPrBack">${o.adaptive ? 'Kembali ke Mode Adaptif' : 'Pilih kategori lain'}</button></div>`;
+          box.querySelector('#arPrBack').addEventListener('click', o.back);
         });
       });
     };
     paint();
+  }
+
+  /* ------------------------- Mode Adaptif ------------------------- */
+  const tone = (p) => (p == null ? 'is-none' : p >= 75 ? 'is-good' : p >= 50 ? 'is-mid' : 'is-low');
+  const STRONG = 85;   // subtest ≥ 85% dianggap sudah kuat
+  /**
+   * Urutan fokus adaptif: subtest terukur yang belum kuat (terlemah dulu), lalu subtest
+   * yang belum pernah diukur (titik buta), lalu subtest yang sudah kuat. Hanya subtest
+   * yang punya soal di Bank Soal.
+   */
+  function adaptivePlan(prof) {
+    const all = pool();
+    const has = (name) => all.some(q => q.subject === name);
+    const measured = prof.subtests.filter(s => s.pct != null && has(s.name));
+    const unmeasured = DB.SUBTEST_NAMES.filter(n => has(n) && !measured.some(s => s.name === n)).map(n => ({ name: n, pct: null }));
+    return measured.filter(s => s.pct < STRONG).concat(unmeasured, measured.filter(s => s.pct >= STRONG));
+  }
+  const QUOTA = [6, 3, 1];
+  /**
+   * Susun n soal mengikuti urutan fokus: ±60% fokus utama (materi terlemah didahulukan), ±30% fokus
+   * kedua, sisanya fokus ketiga; kekurangan diisi dari subtest lain. Mengikuti riwayat jawaban.
+   */
+  function adaptiveSet(user, prof, plan, n) {
+    const all = pool();
+    const weakTopic = new Map(prof.topics.filter(t => t.pct != null && t.pct < 70).map((t, i) => [t.topicId + '|' + (t.subtopicId || ''), i]));
+    const rank = (q) => { const k1 = weakTopic.get(q.topicId + '|' + (q.subtopicId || '')); const k2 = weakTopic.get(q.topicId + '|'); return k1 != null ? k1 : (k2 != null ? k2 + 0.5 : 999); };
+    const out = [];
+    const used = new Set();
+    plan.slice(0, 3).forEach((s2, i) => {
+      const want = Math.round(QUOTA[i] * n / 10);
+      const list = all.filter(q => q.subject === s2.name && !used.has(q.id));
+      const picked = pickByHistory(user, list.sort((a, b) => rank(a) - rank(b)), want, 'adaptif:' + s2.name);
+      // Soal materi terlemah didahulukan, lalu urutan riwayat.
+      picked.sort((a, b) => rank(a) - rank(b)).slice(0, want).forEach(q => { used.add(q.id); out.push(q); });
+    });
+    if (out.length < n) {
+      // Kuota subtest fokus tidak terpenuhi → lanjut ke subtest berikutnya dalam urutan fokus.
+      const order = plan.map(x => x.name);
+      const rest = all.filter(q => !used.has(q.id)).sort((a, b) => order.indexOf(a.subject) - order.indexOf(b.subject));
+      pickByHistory(user, rest, n - out.length, 'adaptif:lainnya').forEach(q => { used.add(q.id); out.push(q); });
+    }
+    return out.slice(0, n);
+  }
+  function renderAdaptive(box, user) {
+    const prof = DB.studentWeakness(user.id);
+    const plan = adaptivePlan(prof);
+    const focus = plan.slice(0, 3);
+    const topicLabel = (t) => {
+      const a = global.Topics ? Topics.get(t.topicId) : null;
+      const b = global.Topics && t.subtopicId ? Topics.get(t.subtopicId) : null;
+      return a ? a.name + (b ? ' › ' + b.name : '') : null;
+    };
+    const weakTopics = prof.topics.filter(t => t.pct != null && t.pct < 70 && topicLabel(t)).slice(0, 4);
+    const all = pool();
+    const total = all.length;
+    const SRC = {
+      tryout: `Dihitung dari ${prof.attempts} tryout/ujian terakhir (hasil terbaru berbobot lebih besar).`,
+      latihan: 'Belum ada hasil tryout — sementara memakai riwayat latihan & game Bank Soal.',
+      none: 'Belum ada hasil tryout maupun latihan. Kerjakan tryout agar soal diarahkan ke subtest terlemahmu; untuk sekarang soal dicampur merata.'
+    };
+    const measured = plan.filter(s => s.pct != null).length;
+    const allStrong = measured && plan.every(s => s.pct != null && s.pct >= STRONG);
+    const note = !measured ? '' : (allStrong ? 'Semua subtest yang terukur sudah kuat (≥ ' + STRONG + '%). Soal tetap diarahkan ke nilai terendah untuk menjaga konsistensi.'
+      : (plan.some(s => s.pct == null) ? 'Subtest yang belum pernah diukur ikut diprioritaskan setelah subtest yang lemah, supaya kelemahan yang belum terlihat ikut ketahuan.' : ''));
+    const stName = (name) => { const st = DB.subtestByName(name); return st ? st.short : name; };
+    const quotaOf = (i) => {
+      const n = all.filter(q => q.subject === focus[i].name).length;
+      return Math.min(QUOTA[i], n);
+    };
+    const planned = focus.map((s2, i) => quotaOf(i));
+    const mixed = 10 - planned.reduce((a, b) => a + b, 0);
+    box.innerHTML = `<div class="card ar-card ar-adapt">
+      <div class="card-header">${UI.secHead('🎯', 'Mode Adaptif', 'soal otomatis diarahkan ke subtest terlemahmu')}</div>
+      <p class="muted small">${esc(SRC[prof.source])}</p>
+      ${plan.length && prof.source !== 'none' ? `<div class="ar-adapt-grid">
+        <ol class="ar-mastery" aria-label="Penguasaan per subtest, urutan fokus latihan">
+          ${plan.map((s2, i) => { const st = DB.subtestByName(s2.name); return `<li class="${i < 3 ? 'is-focus' : ''} ${s2.pct == null ? 'is-unknown' : ''}">
+            <span class="ar-m-name">${st ? st.icon + ' ' + esc(st.short) : esc(s2.name)}</span>
+            <span class="ar-m-bar ${tone(s2.pct)}"><i style="width:${s2.pct == null ? 0 : Math.max(2, s2.pct)}%"></i></span>
+            <b>${s2.pct == null ? '–' : s2.pct + '%'}</b>${i === 0 ? '<span class="badge badge-danger">Fokus utama</span>' : (i < 3 ? '<span class="badge badge-warning">Fokus</span>' : (s2.pct == null ? '<span class="badge badge-secondary">Belum diukur</span>' : ''))}</li>`; }).join('')}
+        </ol>
+        <div class="ar-adapt-side">
+          <h4>Susunan 10 soal</h4>
+          <ul class="ar-plan">${focus.map((s2, i) => planned[i] ? `<li class="is-q"><b>${planned[i]}</b><span>soal ${esc(stName(s2.name))}</span>${s2.pct == null ? '<small>belum diukur</small>' : `<small>${s2.pct}%</small>`}</li>` : '').join('')}
+            ${mixed > 0 ? `<li class="is-q"><b>${mixed}</b><span>soal subtest berikutnya</span></li>` : ''}</ul>
+          ${weakTopics.length ? `<h4>Materi yang paling perlu diperkuat</h4><ul class="ar-plan">${weakTopics.map(t => `<li><span>${esc(topicLabel(t))}</span><b class="${tone(t.pct)}">${t.pct}%</b></li>`).join('')}</ul>` : ''}
+        </div>
+      </div>${note ? `<p class="muted small">${esc(note)}</p>` : ''}` : ''}
+      <div class="ar-start-row">
+        <button type="button" class="btn btn-primary" id="arAdStart" ${total >= 5 ? '' : 'disabled'}>Mulai latihan adaptif • 10 soal</button>
+        ${total < 5 ? '<span class="muted small">Bank Soal belum berisi cukup soal pilihan ganda.</span>' : ''}
+      </div></div>`;
+    box.querySelector('#arAdStart').addEventListener('click', () => {
+      const qs = adaptiveSet(user, prof, prof.source === 'none' ? [] : plan, 10);
+      if (qs.length < 5) { UI.toast('Soal belum cukup untuk latihan adaptif.', 'error'); return; }
+      const lead = prof.source !== 'none' && focus.length ? stName(focus[0].name) : '';
+      startPractice(box, user, { title: lead ? `Latihan Adaptif • fokus ${lead}` : 'Latihan Adaptif', qs, adaptive: true, back: () => renderAdaptive(box, user) });
+    });
   }
 
   /* ------------------------- Reading Text ------------------------- */
@@ -293,7 +443,19 @@
   }
 
   /* ------------------------- Games Area ------------------------- */
+  /** Layar penuh: target = kotak permainan (tetap ada walau isinya digambar ulang). */
+  function bindFs(box) {
+    if (!global.GameFS) return;
+    if (box._arFsRelease) box._arFsRelease(true);
+    box._arFsRelease = GameFS.bind(box);
+    if (box.classList.contains('game-fs')) GameFS.set(box, true);   // sinkronkan ikon tombol
+  }
+  function releaseFs(box) {
+    if (box && box._arFsRelease) { box._arFsRelease(); box._arFsRelease = null; }
+  }
   function renderGames(box, user) {
+    releaseFs(box);
+    box._arRun = (box._arRun || 0) + 1;
     const day = today(user);
     const played = DB.getLearningLog(user.id).filter(e => e.type === 'games' && e.day === day).length;
     box.innerHTML = `<div class="card"><div class="card-header">${UI.secHead('🎮', 'Games Area', `${played}/${DB.LEARNING_TYPES.games.cap} ronde ber-XP hari ini`)}</div>
@@ -315,23 +477,30 @@
       q = { text: `${a} ${op} ${b}`, ans: op === '+' ? a + b : op === '−' ? a - b : a * b };
     };
     next();
-    box.innerHTML = `<div class="card ar-card ar-math"><div class="card-header">${UI.secHead('⚡', 'Kilat Hitung', 'tekan Enter untuk menjawab')}<span class="ar-timer" id="gmT">60</span></div>
+    // Penanda ronde: pewaktu ronde lama berhenti bila ronde baru dimulai di kotak yang sama.
+    const run = (box._arRun = (box._arRun || 0) + 1);
+    box.innerHTML = `<div class="card ar-card ar-math"><div class="card-header">${UI.secHead('⚡', 'Kilat Hitung', 'tekan Enter untuk menjawab')}
+        <span class="flex-gap"><span class="ar-timer" id="gmT">60</span>${global.GameFS ? GameFS.buttonHtml() : ''}</span></div>
       <div class="ar-math-q" id="gmQ" aria-live="polite">${q.text}</div>
       <form id="gmF" class="flex-gap" style="justify-content:center;"><input id="gmA" class="input" inputmode="numeric" autocomplete="off" aria-label="Jawaban" style="max-width:160px;text-align:center;font-size:20px;" />
         <button class="btn btn-primary" type="submit">Jawab</button></form>
       <div class="ar-math-score">Skor: <strong id="gmS">0</strong></div><div id="gmStatus"></div></div>`;
+    bindFs(box);
     const inp = box.querySelector('#gmA');
     inp.focus();
     box.querySelector('#gmF').addEventListener('submit', (e) => {
       e.preventDefault();
       if (left <= 0) return;
-      if (Number(inp.value) === q.ans) { score++; box.querySelector('#gmS').textContent = score; }
+      // Kolom kosong bukan jawaban (dulu dihitung 0 sehingga benar untuk soal "a − a").
+      const raw = inp.value.trim().replace(/[−–]/g, '-');
+      if (!/^-?\d+$/.test(raw)) { inp.focus(); return; }
+      if (Number(raw) === q.ans) { score++; box.querySelector('#gmS').textContent = score; }
       inp.value = ''; next(); box.querySelector('#gmQ').textContent = q.text;
     });
     const t = setInterval(() => {
-      left--;
       const el = box.querySelector('#gmT');
-      if (!el) { clearInterval(t); return; }
+      if (!el || box._arRun !== run) { clearInterval(t); return; }
+      left--;
       el.textContent = left;
       if (left > 0) return;
       clearInterval(t);
@@ -354,10 +523,13 @@
     const pairs = shuffle(SYNONYMS).slice(0, 6);
     const cards = shuffle(pairs.flatMap((p, i) => [{ w: p[0], g: i }, { w: p[1], g: i }]));
     let open = [], matched = new Set(), moves = 0;
+    const run = (box._arRun = (box._arRun || 0) + 1);
     const paint = () => {
-      box.innerHTML = `<div class="card ar-card"><div class="card-header">${UI.secHead('🧩', 'Pasangan Kata', `${matched.size}/6 pasangan • ${moves} langkah`)}</div>
+      if (box._arRun !== run) return;
+      box.innerHTML = `<div class="card ar-card"><div class="card-header">${UI.secHead('🧩', 'Pasangan Kata', `${matched.size}/6 pasangan • ${moves} langkah`)}${global.GameFS ? GameFS.buttonHtml() : ''}</div>
         <div class="ar-pairs">${cards.map((c, i) => `<button type="button" class="ar-pair ${matched.has(c.g) ? 'is-done' : ''} ${open.includes(i) ? 'is-open' : ''}" data-i="${i}" ${matched.has(c.g) ? 'disabled' : ''}>${esc(c.w)}</button>`).join('')}</div>
         <div id="gpStatus"></div></div>`;
+      bindFs(box);
       box.querySelectorAll('.ar-pair:not([disabled])').forEach(b => b.addEventListener('click', () => {
         const i = Number(b.dataset.i);
         if (open.includes(i) || open.length === 2) return;
@@ -426,12 +598,14 @@
     const counts = {};
     log.filter(e => e.day === today0 && e.learning).forEach(e => { counts[e.type] = (counts[e.type] || 0) + 1; });
     container.innerHTML = `
-      <div class="stats-grid">${['tantangan', 'miniquiz', 'latihan', 'reading', 'games', 'materi'].map(k => `<div class="stat-card accent-primary">
+      <div class="stats-grid">${['tantangan', 'miniquiz', 'latihan', 'reading', 'games', 'materi', 'katabaku', 'vocab'].map(k => `<div class="stat-card accent-primary">
         <div class="label">${DB.LEARNING_TYPES[k].icon} ${esc(DB.LEARNING_TYPES[k].label)}</div><div class="value">${counts[k] || 0}</div><div class="sub">tercatat hari ini</div></div>`).join('')}</div>
       <div class="card"><div class="card-header">${UI.secHead('📰', `Reading Text (${texts.length})`, 'teks bacaan + soal pemahaman untuk Arena Belajar mentee')}
         <button type="button" class="btn btn-primary btn-sm" id="rtAdd">+ Tambah Teks</button></div><div id="rtAdmList"></div></div>
       <div class="card"><div class="card-header">${UI.secHead('🏆', 'Tantangan Harian', 'otomatis dari Bank Soal pilihan ganda (sama untuk semua mentee per hari)')}</div>
-        <p class="muted small">Soal pilihan ganda tersedia: <strong>${pool().length}</strong>. Mini quiz memerlukan minimal 5 soal; latihan per subtest memerlukan minimal 5 soal per subtest.</p></div>`;
+        <p class="muted small">Soal pilihan ganda tersedia: <strong>${pool().length}</strong>. Mini quiz memerlukan minimal 5 soal; latihan per kategori memerlukan minimal 5 soal. Mentee tidak lagi melihat soal yang sudah ia jawab benar sampai semua soal kategorinya dikuasai.</p></div>
+      <div id="arVocabAdmin"></div>`;
+    if (global.Vocab) Vocab.renderAdmin(container.querySelector('#arVocabAdmin'), admin);
     container.querySelector('#rtAdd').addEventListener('click', () => openReadingForm(container, admin));
     DataSearch.mount({
       container: container.querySelector('#rtAdmList'), items: texts, stateKey: 'arena-rt-admin',
@@ -501,5 +675,5 @@
     });
   }
 
-  global.Arena = { render, renderAdmin, readButtonHtml, bindReadButtons, stop: clearTimers };
+  global.Arena = { render, renderAdmin, readButtonHtml, bindReadButtons, stop: clearTimers, setTab: (k) => { tab = String(k || 'challenge'); } };
 })(window);
