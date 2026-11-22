@@ -191,7 +191,8 @@
     return {
       tabId, userId: currentUser.id, page: currentPage, lastActivity,
       visibility: document.visibilityState || 'visible',
-      browser: info.browser, os: info.os, device: info.device
+      browser: info.browser, os: info.os, device: info.device,
+      net: global.SafeSave && SafeSave.net ? SafeSave.net() : null
     };
   }
 

@@ -351,6 +351,12 @@ async function main() {
   check('jawaban yang sudah dikirim terkunci', r.rejected.length === 1 && /sudah dikirim/.test(r.rejected[0].reason), r.rejected);
   r = await push(s1, [ans('qzOld', 'u_s1')]);
   check('kuis yang lewat batas waktu ditolak', r.rejected.length === 1 && /Batas waktu/.test(r.rejected[0].reason), r.rejected);
+  // Sinyal putus: kiriman dibuat sebelum batas waktu, baru tersinkron sesudahnya.
+  r = await push(s1, [ans('qzOld', 'u_s1', { submittedAt: T2 - 3600000 - 60000, syncedLate: 1 })]);
+  check('kiriman offline yang dibuat sebelum batas diterima & dicap waktu server', r.rejected.length === 0 && r.applied[0].v.syncedLate >= T2, r.rejected.concat(r.applied.map(a => a.v && a.v.syncedLate)));
+  r = await push(guru, [gpost('qzOlder', 'u_g1', { kind: 'quiz', title: 'Kuis lama', text: '', quiz: { questions: quizQ, dueAt: T2 - 3 * 3600000 } })]);
+  r = await push(s1, [ans('qzOlder', 'u_s1', { submittedAt: T2 - 3 * 3600000 - 60000 })]);
+  check('kiriman offline lebih dari 2 jam setelah batas tetap ditolak', r.rejected.length === 1 && /Batas waktu/.test(r.rejected[0].reason), r.rejected);
   r = await push(s2, [ans('qz1', 'u_s2')]);
   check('bukan anggota tidak dapat mengerjakan kuis', r.rejected.length === 1, r.rejected);
   r = await push(s1, [ans('ds1', 'u_s1')]);
@@ -363,6 +369,17 @@ async function main() {
   check('tutor grup melihat jawaban anggota', !!(pG.lms_group_answers && pG.lms_group_answers['qz1:u_s1']));
   r = await push(guru, [{ k: 'lms_group_answers', id: 'qz1:u_s1', op: 'del' }]);
   check('tutor dapat mengatur ulang jawaban (anggota boleh mengerjakan lagi)', r.rejected.length === 0, r.rejected);
+  r = await push(s1, [ans('qz1', 'u_s1', { syncedLate: 5 })]);
+  check('cap kiriman offline tidak dapat diisi sendiri oleh anggota', r.rejected.length === 0 && r.applied[0].v.syncedLate === undefined, r.applied.map(a => a.v));
+
+  // Status koneksi (js/safe-save.js) ikut presence: dibersihkan server, hanya staf yang melihat.
+  await call('sync', { cursor: 0, presence: { tab: 'tab_net_s1', page: 'cbt', visibility: 'visible', net: { pending: 3, drops: 2, offlineMs: 5000.7, lastDropAt: 'x', evil: '<b>' } } }, s1);
+  const presG = (await call('sync', { cursor: 0 }, guru)).data.presence || [];
+  const pnet = (presG.find(p => p.tabId === 'tab_net_s1') || {}).net;
+  check('status koneksi peserta terlihat staf & dibersihkan', pnet && pnet.pending === 3 && pnet.drops === 2 && pnet.offlineMs === 5000 && pnet.lastDropAt === 0 && !('evil' in pnet), pnet);
+  const presS2 = (await call('sync', { cursor: 0 }, s2)).data.presence || [];
+  const other = presS2.find(p => p.tabId === 'tab_net_s1');
+  check('sesama siswa tidak melihat status koneksi', other && other.net === undefined, other);
   r = await push(admin, [{ k: 'lms_groups', id: 'grp1', v: { id: 'grp1', name: 'Grup PK 12', color: '#0d9488', memberIds: [], tutorIds: ['u_g1'], archived: false, createdBy: 'u_admin' } }]);
   const sync1 = await call('sync', { cursor: 0, full: true }, s1);
   const tomb = (sync1.data.records || []).find(x => x.k === 'lms_groups' && x.id === 'grp1');

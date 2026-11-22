@@ -575,3 +575,42 @@ html[data-theme="dark"] .qa-item { --qa-bg: rgba(255, 255, 255, .06) !important;
 .live-chip .icon-btn { width: 30px; height: 30px; }
 html[data-theme="dark"] .live-chip { background: rgba(99, 102, 241, .16); color: var(--gray-800); }
 @media (prefers-reduced-motion: reduce) { .sync-badge.is-busy .sync-dot { animation: none; } }
+
+/* ===== Simpan aman saat sinyal putus (js/safe-save.js) ===== */
+.ss-pill {
+  display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; max-width: 100%;
+  border-radius: var(--r-pill); border: 1px solid var(--border); background: var(--surface);
+  color: var(--gray-600); font-size: 12px; font-weight: 600; line-height: 1.4; white-space: nowrap;
+}
+.ss-pill svg { flex: none; }
+.ss-pill-sub { font-weight: 500; color: var(--gray-500); white-space: normal; }
+.ss-pill.is-ok { color: var(--success); border-color: color-mix(in srgb, var(--success) 30%, var(--border)); }
+.ss-pill.is-busy { color: var(--warning); border-color: color-mix(in srgb, var(--warning) 35%, var(--border)); }
+.ss-pill.is-off { color: var(--danger); background: var(--danger-bg); border-color: color-mix(in srgb, var(--danger) 40%, transparent); }
+.cbt-timer-side { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; justify-content: flex-end; }
+.ss-bar {
+  position: fixed; left: 50%; bottom: calc(env(safe-area-inset-bottom, 0px) + 14px); transform: translateX(-50%);
+  z-index: 220; width: min(620px, calc(100% - 24px)); display: flex; align-items: flex-start; gap: 10px;
+  padding: 11px 14px; border-radius: var(--r-md); border: 1px solid var(--border);
+  font-size: 13.5px; line-height: 1.45; color: var(--gray-900); box-shadow: var(--shadow-lg);
+}
+.ss-bar svg { flex: none; width: 18px; height: 18px; margin-top: 1px; }
+.ss-bar.is-off { background: var(--danger-bg); border-color: color-mix(in srgb, var(--danger) 40%, transparent); }
+.ss-bar.is-off svg { color: var(--danger); }
+.ss-bar.is-back { background: var(--success-bg); border-color: color-mix(in srgb, var(--success) 40%, transparent); }
+.ss-bar.is-back svg { color: var(--success); }
+@media (prefers-reduced-motion: no-preference) {
+  .ss-bar { animation: ssBarIn .22s var(--ease); }
+  @keyframes ssBarIn { from { opacity: 0; transform: translate(-50%, 8px); } }
+}
+@media (max-width: 520px) {
+  .cbt-timer-side { width: 100%; justify-content: space-between; }
+}
+/* Pemantauan ujian: kesehatan koneksi peserta */
+.mon-net { display: flex; align-items: flex-start; gap: 6px; margin-top: 8px; font-size: 12px; line-height: 1.4; color: var(--gray-600); }
+.mon-net svg { flex: none; margin-top: 1px; }
+.mon-net.is-ok { color: var(--success); }
+.mon-net.is-warn { color: var(--warning); }
+.mon-net.is-bad { color: var(--danger); font-weight: 600; }
+.mon-net small { display: block; font-weight: 500; color: var(--gray-500); }
+.mon-card.net-bad { border-color: var(--danger); }

@@ -196,6 +196,7 @@ function toolsProblem(k, id, r, me) {
  * ctx.groupAccess (Map groupId → 'staff' | 'member') dan ctx.refs.groups / groupPosts diisi handler. */
 const GROUP_KINDS = ['message', 'discussion', 'quiz', 'material', 'announcement'];
 const GROUP_QUIZ_GRACE = 10 * 60 * 1000;
+const GROUP_QUIZ_OFFLINE_MAX = 2 * 60 * 60 * 1000;   // kiriman offline yang dibuat sebelum batas waktu
 const idList = (a, max) => Array.isArray(a) && a.length <= max && a.every(x => typeof x === 'string' && x.length > 0 && x.length <= 200);
 function richUnsafe(html) {
   return /<\s*(script|iframe|object|embed|style)\b/i.test(html) || /<[^>]*\son[a-z]+\s*=/i.test(html) ||
@@ -288,9 +289,20 @@ function checkGroupAnswer(ctx, op, id, before, after) {
   if (!post || post.kind !== 'quiz' || post.deleted || post.groupId !== after.groupId) return deny('Kuis tidak ditemukan atau sudah dihapus.');
   if (before && before.submittedAt) return deny('Jawaban kuis sudah dikirim dan tidak dapat diubah.');
   if (after.answers == null || typeof after.answers !== 'object' || Array.isArray(after.answers) || JSON.stringify(after.answers).length > 200000) return deny('Isi jawaban kuis tidak valid.');
-  // Waktu server (bukan submittedAt kiriman perangkat) yang menentukan batas waktu.
-  if (after.submittedAt && post.dueAt && Date.now() > post.dueAt + GROUP_QUIZ_GRACE) return deny('Batas waktu kuis sudah lewat.');
-  return allow(after);
+  const out = clone(after);
+  delete out.syncedLate;
+  // Waktu server menentukan batas waktu. Kiriman yang dibuat perangkat sebelum batas tetapi baru
+  // tersinkron sesudahnya (sinyal putus) diterima paling lama GROUP_QUIZ_OFFLINE_MAX dan diberi
+  // cap syncedLate (waktu server) agar tutor dapat menilainya sendiri.
+  if (after.submittedAt && post.dueAt) {
+    const t = Date.now();
+    if (t > post.dueAt + GROUP_QUIZ_GRACE) {
+      const claimed = Number(after.submittedAt) || 0;
+      if (!(claimed > 0 && claimed <= post.dueAt + GROUP_QUIZ_GRACE && t <= post.dueAt + GROUP_QUIZ_OFFLINE_MAX)) return deny('Batas waktu kuis sudah lewat.');
+      out.syncedLate = t;
+    }
+  }
+  return allow(out);
 }
 
 /* ============================ REMEDIAL ============================ */

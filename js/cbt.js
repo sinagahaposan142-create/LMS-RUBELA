@@ -1459,8 +1459,40 @@
     wsEl.__onBack = () => { stop(); closeWorkspace(); if (typeof onDone === 'function') onDone(); };
 
     let timer = null;
+    // Koneksi peserta hanya bermakna bila data tersinkron lewat server.
+    const netOn = !!(global.Sync && Sync.isServer());
+    const NET_IC = {
+      ok: '<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5a10 10 0 0 1 14 0M8.5 16a5 5 0 0 1 7 0"/><circle cx="12" cy="19.5" r="1"/></svg>',
+      warn: '<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M17.5 19H8a5 5 0 1 1 .9-9.9A6 6 0 0 1 20 11a4 4 0 0 1-2.5 8Z"/><path d="M12 16v-5M9.5 13.5 12 11l2.5 2.5"/></svg>',
+      bad: '<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 3l18 18"/><path d="M8.6 8.7A5 5 0 0 0 8 19h9.5c.4 0 .8 0 1.1-.1M21.3 16.2A4 4 0 0 0 20 11a6 6 0 0 0-8.6-5.4"/></svg>'
+    };
+    const fmtDur = (ms) => {
+      const s = Math.round((ms || 0) / 1000);
+      if (s < 60) return s + ' dtk';
+      const m = Math.floor(s / 60);
+      return m < 60 ? `${m} mnt ${s % 60} dtk` : `${Math.floor(m / 60)} jam ${m % 60} mnt`;
+    };
+    /** Status koneksi peserta yang sedang mengerjakan: status online langsung + riwayat di attempt. */
+    function connectionOf(a, p) {
+      if (!netOn || !a || a.submittedAt) return null;
+      const n = a.net || {};
+      const live = p && p.net ? p.net : null;
+      const drops = Math.max(Number(n.drops) || 0, live ? Number(live.drops) || 0 : 0);
+      const offMs = Math.max(Number(n.offlineMs) || 0, live ? Number(live.offlineMs) || 0 : 0);
+      const hist = drops ? `Sempat terputus ${drops}× (total ${fmtDur(offMs)})` : '';
+      const saved = n.savedAt ? `jawaban terakhir diterima ${UI.fmtRelative(n.savedAt)}` : 'belum ada jawaban yang diterima';
+      if (!p) return { cls: 'bad', text: 'Tidak terhubung', sub: saved.charAt(0).toUpperCase() + saved.slice(1) + (hist ? '. ' + hist : '') };
+      if (live && live.pending > 0) return { cls: 'warn', text: `${live.pending} perubahan menunggu terkirim`, sub: hist || 'Jawaban sudah aman di perangkat peserta.' };
+      if (drops) return { cls: 'warn', text: 'Tersambung kembali', sub: hist };
+      return { cls: 'ok', text: 'Koneksi baik', sub: n.savedAt ? 'Tersimpan ' + UI.fmtRelative(n.savedAt) : '' };
+    }
+    let ticks = 0;
     paint();
-    timer = setInterval(paint, 5000);
+    timer = setInterval(() => {
+      // Tarik data & status online peserta tiap 10 detik selama pemantauan berlangsung.
+      if (netOn && ++ticks % 2 === 0) Sync.syncNow('monitor');
+      paint();
+    }, 5000);
     function stop() { if (timer) clearInterval(timer); timer = null; }
 
     function paint() {
@@ -1469,9 +1501,12 @@
       const attempts = DB.getCbtAttemptsByCbt(cbt.id);
       const byStudent = new Map(attempts.map(a => [a.studentId, a]));
       const sec = cbt.security || {};
+      const pres = new Map((global.Presence ? Presence.getAll() : []).map(r => [r.userId, r]));
       const working = attempts.filter(a => !a.submittedAt).length;
       const finished = attempts.filter(a => a.submittedAt).length;
       const totalVio = attempts.reduce((n, a) => n + (a.violations || []).length, 0);
+      const nets = new Map(students.map(s => [s.id, connectionOf(byStudent.get(s.id), pres.get(s.id))]));
+      const netBad = [...nets.values()].filter(n => n && n.cls !== 'ok').length;
 
       body.innerHTML = `
         <div class="stats-grid">
@@ -1479,6 +1514,7 @@
           <div class="stat-card accent-warning"><div class="label">Sedang Mengerjakan</div><div class="value">${working}</div></div>
           <div class="stat-card accent-success"><div class="label">Sudah Selesai</div><div class="value">${finished}</div></div>
           <div class="stat-card accent-danger"><div class="label">Total Pelanggaran</div><div class="value">${totalVio}</div></div>
+          ${netOn ? `<div class="stat-card accent-danger"><div class="label">Koneksi Bermasalah</div><div class="value">${netBad}</div><div class="sub">terputus, tertunda, atau sempat putus</div></div>` : ''}
         </div>
 
         <div class="card">
@@ -1495,7 +1531,7 @@
         </div>
 
         <div class="card">
-          <div class="card-header">${UI.secHead('👥', `Status Peserta (${students.length})`, 'Kartu merah menandai pelanggaran tinggi')}</div>
+          <div class="card-header">${UI.secHead('👥', `Status Peserta (${students.length})`, netOn ? 'Kartu merah: pelanggaran tinggi atau peserta tidak terhubung. Status koneksi diperbarui ±15–50 detik.' : 'Kartu merah menandai pelanggaran tinggi')}</div>
           ${students.length === 0 ? emptyState('Belum ada peserta yang ditargetkan ujian ini.', '👥') : `
           <div class="mon-grid">
             ${students.map(s => {
@@ -1505,7 +1541,9 @@
               let statusBadge = '<span class="badge badge-gray">Belum Mulai</span>';
               if (a && a.submittedAt) statusBadge = `<span class="badge badge-success">Selesai • ${a.score ?? 0}</span>`;
               else if (a) statusBadge = '<span class="badge badge-warning">Mengerjakan</span>';
-              return `<div class="mon-card ${risk} ${a && a.submittedAt ? 'done' : ''}">
+              const cn = nets.get(s.id);
+              const netHtml = cn ? `<div class="mon-net is-${cn.cls}">${NET_IC[cn.cls]}<span>${UI.esc(cn.text)}${cn.sub ? `<small>${UI.esc(cn.sub)}</small>` : ''}</span></div>` : '';
+              return `<div class="mon-card ${risk} ${a && a.submittedAt ? 'done' : ''} ${cn && cn.cls === 'bad' ? 'net-bad' : ''}">
                 <div class="mc-top">
                   <div class="avatar">${UI.initials(s.name)}</div>
                   <div style="flex:1;min-width:0;">
@@ -1515,6 +1553,8 @@
                 </div>
                 ${statusBadge}
                 ${a ? `<div class="muted small mt-1">Mulai ${UI.fmtDateTime(a.startedAt)}${a.currentSection != null ? ` • bagian ${a.currentSection + 1}` : ''}</div>` : ''}
+                ${netHtml}
+                ${a && a.submittedAt && a.net && a.net.drops ? `<div class="muted small mt-1">Sempat terputus ${a.net.drops}× selama ujian (total ${fmtDur(a.net.offlineMs)}); jawaban tetap terkirim.</div>` : ''}
                 ${vios.length ? `
                   <div class="mt-1"><span class="badge badge-warning">${vios.length} pelanggaran</span></div>
                   <div class="vio-list">

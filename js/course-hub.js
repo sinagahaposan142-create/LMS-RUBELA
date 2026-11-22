@@ -32,6 +32,12 @@
   let view = { mode: 'catalog', courseId: null, lessonId: null, tab: 'mine' };
   let readTimer = null;
   const stopTimer = () => { if (readTimer) { clearInterval(readTimer); readTimer = null; } };
+  // Jawaban kuis yang sedang dikerjakan: disimpan di perangkat tiap detik (js/safe-save.js).
+  let quizSaver = null, quizNetOff = null;
+  const stopQuizSave = () => {
+    if (quizSaver) { quizSaver.stop(); quizSaver = null; }
+    if (quizNetOff) { quizNetOff(); quizNetOff = null; }
+  };
 
   const lessonsOf = (c) => DB.hubLessons(c);
   const totalMin = (c) => lessonsOf(c).filter(l => l.active !== false).reduce((n, l) => n + (Number(l.durationMin) || 0), 0);
@@ -98,6 +104,7 @@
    * ===================================================================*/
   function render(container, user) {
     stopTimer();
+    stopQuizSave();
     const me = DB.getUser(user.id) || user;
     sweep(me);
     if (view.mode === 'player' && view.courseId) return renderPlayer(container, me);
@@ -275,6 +282,11 @@
     const answers = {};
     if (qr && Array.isArray(qr.answers)) qs.forEach((q, i) => { if (qr.answers[i] != null) answers[q.id] = clone(qr.answers[i]); });
     const passed = !!(qr && qr.passed);
+    // Jawaban yang belum dikirim tersimpan di perangkat (js/safe-save.js), termasuk saat sinyal putus.
+    const safeId = c.id + ':' + l.id;
+    const draft = l.type === 'quiz' && !passed && global.SafeSave ? SafeSave.get('hub', safeId) : null;
+    const restored = !!(draft && draft.data && draft.data.answers && (!qr || !qr.at || draft.at > qr.at));
+    if (restored) qs.forEach(q => { if (draft.data.answers[q.id] != null) answers[q.id] = clone(draft.data.answers[q.id]); });
 
     let content = '';
     if (l.locked) content = `<div class="hp-locked">${HubPay.lockedIcon}<div><strong>Isi pelajaran terkunci</strong>
@@ -301,7 +313,8 @@
             ${passed ? keyReviewHtml(q) : ''}
           </div>`;
         }).join('')}</div>
-        <div class="flex-gap hub-quiz-foot"><button class="btn btn-primary" type="submit">${qr ? 'Kirim ulang' : 'Kirim jawaban'}</button></div>
+        ${restored ? '<div class="alert alert-info small">Jawaban yang belum terkirim dipulihkan dari perangkat ini.</div>' : ''}
+        <div class="flex-gap hub-quiz-foot"><button class="btn btn-primary" type="submit">${qr ? 'Kirim ulang' : 'Kirim jawaban'}</button>${!passed ? '<span id="hubQuizNet" role="status"></span>' : ''}</div>
       </form>`;
     }
 
@@ -379,7 +392,14 @@
     const qf = container.querySelector('#hubQuiz');
     if (qf) {
       const box = qf.querySelector('#hubQuizQs');
-      if (QUI()) QUI().bindAnswerInputs(box, answers, () => box.querySelectorAll('.hub-q.is-missing').forEach(el => el.classList.remove('is-missing')));
+      if (!passed && global.SafeSave) {
+        quizSaver = SafeSave.autosave({ scope: 'hub', id: safeId, urgent: false, read: () => ({ courseId: c.id, lessonId: l.id, answers: clone(answers) }) });
+        quizNetOff = SafeSave.mountStatus(qf.querySelector('#hubQuizNet'));
+      }
+      if (QUI()) QUI().bindAnswerInputs(box, answers, () => {
+        box.querySelectorAll('.hub-q.is-missing').forEach(el => el.classList.remove('is-missing'));
+        if (quizSaver) quizSaver.mark();
+      });
       // Setelah lulus: tandai pilihan kunci & pilihan yang salah (format pilihan)
       if (passed && qr.answers) qs.forEach((q, i) => {
         const t = q.questionType;
@@ -403,6 +423,8 @@
         }
         try {
           const r = DB.hubCompleteLesson(c.id, l.id, user.id, { answers: arr });
+          stopQuizSave();
+          if (global.SafeSave) SafeSave.dropWhenSynced('hub', safeId);
           UI.toast(r.passed ? `Lulus dengan skor ${r.score}! 🎉` : `Skor ${r.score}. Belum mencapai ${l.passScore || 70}, coba lagi.`, r.passed ? 'success' : 'info');
           go(container, user, {});
         } catch (ex) { UI.toast(ex.message, 'error'); }
@@ -1068,6 +1090,6 @@
     render, renderAdmin, renderParent,
     /** Jalankan pengeluaran otomatis peserta tidak aktif (dipanggil saat dashboard dibuka). */
     sweep: (user) => sweep(user),
-    reset: () => { view = { mode: 'catalog', tab: 'mine' }; adm = { mode: 'list' }; stopTimer(); }
+    reset: () => { view = { mode: 'catalog', tab: 'mine' }; adm = { mode: 'list' }; stopTimer(); stopQuizSave(); }
   };
 })(window);

@@ -782,6 +782,9 @@
       stopPresenceBadge = Presence.subscribe(renderPresenceBadge);
     }
 
+    // Jawaban aman saat sinyal putus: pulihkan jurnal perangkat & siapkan salinan halaman offline.
+    if (window.SafeSave) { try { SafeSave.init(user); } catch (e) { console.warn('[LMS] simpan aman', e); } }
+
     navigate('overview');
     // Notifikasi perangkat (Web Push): daftarkan service worker, pulihkan langganan, ajakan aktifkan.
     if (window.PushNotif) { try { PushNotif.init(user); } catch (e) { console.warn('[LMS] notifikasi perangkat', e); } }

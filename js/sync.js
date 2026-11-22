@@ -505,6 +505,8 @@
    * ----------------------------------------------------------------*/
   let pushTimer = null, pollTimer = null, inflight = null, again = false, errorCount = 0, repushRounds = 0;
   let started = false, lastLocalEdit = 0, lastActivity = now();
+  // Mode mendesak (ujian/kuis berjalan): coba kirim ulang tiap 3 detik saat koneksi putus.
+  let urgent = 0;
 
   function schedulePush() {
     lastLocalEdit = now();
@@ -514,7 +516,7 @@
   }
 
   function pollDelay() {
-    if (errorCount) return Math.min(60000, 4000 * Math.pow(2, errorCount - 1));
+    if (errorCount) return urgent && countPending() ? 3000 : Math.min(60000, 4000 * Math.pow(2, errorCount - 1));
     if (document.visibilityState === 'hidden') return 60000;
     if (status.realtime) return 25000;
     return now() - lastActivity > 120000 ? 15000 : 7000;
@@ -533,15 +535,20 @@
   }
   let presenceSentAt = 0, presenceSentKey = '';
   /** Status online tab ini; dikirim paling sering tiap 20 detik kecuali halaman/visibilitas berubah. */
-  function presencePayload(force) {
+  /** sending: jumlah perubahan yang ikut permintaan ini (tidak dihitung sebagai tertunda). */
+  function presencePayload(force, sending) {
     if (!global.Presence || typeof Presence.localRecord !== 'function') return null;
     const r = Presence.localRecord();
     if (!r) return null;
-    const key = r.page + '|' + r.visibility;
+    const net = r.net || null;
+    // Jumlah putus koneksi ikut kunci: status langsung terkirim begitu tersambung kembali.
+    const key = r.page + '|' + r.visibility + '|' + (net ? net.drops : 0);
     if (!force && key === presenceSentKey && now() - presenceSentAt < 20000) return null;
     presenceSentAt = now();
     presenceSentKey = key;
-    return { tab: r.tabId, page: r.page, visibility: r.visibility, idle: Math.max(0, now() - (r.lastActivity || now())), browser: r.browser, os: r.os, device: r.device };
+    const out = { tab: r.tabId, page: r.page, visibility: r.visibility, idle: Math.max(0, now() - (r.lastActivity || now())), browser: r.browser, os: r.os, device: r.device };
+    if (net) out.net = { pending: Math.max(0, countPending() - (sending || 0)), drops: net.drops || 0, offlineMs: net.offlineMs || 0, lastDropAt: net.lastDropAt || 0 };
+    return out;
   }
 
   function applyPresence(list, serverNow) {
@@ -556,7 +563,8 @@
       const cur = map[p.tabId];
       if (cur && cur.lastSeen >= lastSeen) return;
       map[p.tabId] = { tabId: p.tabId, userId: p.userId, page: p.page || 'overview', lastSeen, lastActivity: lastSeen - (Number(p.idle) || 0),
-        visibility: p.visibility || 'visible', browser: p.browser || 'Browser', os: p.os || 'Perangkat', device: p.device || 'Perangkat', remote: true };
+        visibility: p.visibility || 'visible', browser: p.browser || 'Browser', os: p.os || 'Perangkat', device: p.device || 'Perangkat', remote: true,
+        net: p.net && typeof p.net === 'object' ? p.net : null };
       changed = true;
     });
     if (!changed) return;
@@ -671,7 +679,7 @@
         let resp;
         if (!chunks.length) chunks.push([]);
         for (let i = 0; i < chunks.length; i++) {
-          resp = await api('sync', { cursor, changes: chunks[i].map(x => x.wire), presence: i === 0 ? presencePayload() : null });
+          resp = await api('sync', { cursor, changes: chunks[i].map(x => x.wire), presence: i === 0 ? presencePayload(false, ops.length) : null }, urgent ? { timeout: 20000 } : undefined);
           if (resp.reset) { await fullResync(); return; }
           handleSyncResponse(resp, chunks[i]).forEach(k => changedAll.add(k));
           if (resp.nudge) nudge = mergeNudge(nudge, resp.nudge);
@@ -693,6 +701,8 @@
         if (countPending() && repushRounds < 3) { repushRounds++; again = true; } else repushRounds = 0;
       } catch (e) {
         errorCount = Math.min(errorCount + 1, 6);
+        // Status online yang gagal terkirim diulang pada permintaan berikutnya.
+        presenceSentKey = '';
         setStatus({ error: e.message || String(e) });
         if (e.status === 401) return;
       } finally {
@@ -717,6 +727,25 @@
       else await syncNow('flush');
       if (!status.online || (status.error && errorCount > 1)) return;
     }
+  }
+
+  /**
+   * Simpan sekarang tanpa menunggu jeda: hitung selisih, tulis antrean ke IndexedDB,
+   * lalu kirim bila perangkat online. Dipanggil tiap detik oleh js/safe-save.js.
+   */
+  function saveNow() {
+    if (!isServer() || !ready) return;
+    if (pushTimer) { clearTimeout(pushTimer); pushTimer = null; }
+    flushDiff();
+    if (!countPending()) return;
+    if (navigator.onLine === false) { setStatus({ online: false }); return; }
+    // Saat galat, percobaan ulang mengikuti jadwal poll (3 detik di mode mendesak).
+    if (!errorCount || inflight) syncNow('save');
+  }
+  /** Aktifkan mode mendesak selama ada ujian/kuis berjalan (boleh bertumpuk). */
+  function setUrgent(on) {
+    urgent = Math.max(0, urgent + (on ? 1 : -1));
+    if (on && errorCount && started) schedulePoll(1000);
   }
 
   function mergeNudge(a, b) {
@@ -1199,7 +1228,7 @@
       if (PAGE !== 'dashboard') { readyResolve(); return readyPromise; }
       return bootDashboard();
     },
-    api, ApiError, syncNow, flush,
+    api, ApiError, syncNow, flush, saveNow, setUrgent,
     status: () => Object.assign({}, status, { cursor, pending: countPending(), tab: TAB }),
     onStatus(fn) { statusListeners.push(fn); return () => { const i = statusListeners.indexOf(fn); if (i >= 0) statusListeners.splice(i, 1); }; },
     login, quiz, register, verifyPassword, logout, saveSession, healthCheck, detectMode,
