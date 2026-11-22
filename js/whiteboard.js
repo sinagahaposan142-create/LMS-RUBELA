@@ -80,6 +80,19 @@
   const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
   const r1 = (n) => Math.round(n * 10) / 10;
   const stamp = (o) => o.updatedAt || o.createdAt || 0;
+  /** Gabungan dua kotak {x,y,w,h}. */
+  const union = (a, b) => {
+    const x = Math.min(a.x, b.x), y = Math.min(a.y, b.y);
+    return { x, y, w: Math.max(a.x + a.w, b.x + b.w) - x, h: Math.max(a.y + a.h, b.y + b.h) - y };
+  };
+  /**
+   * Papan sebuah halaman: tiap halaman memakai latarnya sendiri. Latar PDF/gambar
+   * (bgImage) tidak boleh terbawa dari halaman lain — itu yang dulu membuat halaman
+   * PDF tampil penyok di halaman lain.
+   */
+  const pageBoard = (base, own) => Object.assign(
+    { w: base.w, h: base.h, bg: base.bg || '#ffffff', template: base.template || 'plain' },
+    own || {}, { bgImage: (own && own.bgImage) || null });
 
   /** Seed deterministik agar tekstur pensil identik di semua layar. */
   function seeded(str) {
@@ -206,13 +219,21 @@
       if (container) container.innerHTML = '<div class="alert alert-error">Anda tidak memiliki akses ke whiteboard kelas ini.</div>';
       return null;
     }
+    const boardId = o.boardId;
+    let record = DB.getWhiteboardBoard(boardId);
+    if (!record || record.courseId !== course.id) {
+      container.innerHTML = '<div class="alert alert-error">Papan tidak ditemukan. Mungkin sudah dihapus.</div>';
+      return null;
+    }
     const editable = DB.canEditWhiteboard(user, course);
     const prefKey = 'lms_wb_pref:' + user.id;
     const pref = (() => { try { return JSON.parse(localStorage.getItem(prefKey) || '{}') || {}; } catch (e) { return {}; } })();
     const savePref = () => { try { localStorage.setItem(prefKey, JSON.stringify(pref)); } catch (e) { /* abaikan */ } };
 
-    let record = DB.getWhiteboard(course.id) || { courseId: course.id, strokes: [], revision: 0, updatedAt: 0 };
     let { board, objects } = migrate(record);
+    let media = clone(record.media || []);   // berkas PDF/gambar papan ini {key, bytes, at}
+    let thumb = record.thumb || '';
+    let thumbAt = 0;
     /* Halaman: halaman aktif = objects/board di atas (disinkronkan seperti biasa);
      * halaman lain disimpan sebagai cuplikan di pageData. */
     let pages = Array.isArray(record.pages) && record.pages.length ? clone(record.pages) : [{ id: 'pg_1', name: 'Halaman 1' }];
@@ -226,7 +247,10 @@
     const undoStack = [];
     const redoStack = [];
     let dirty = false, lastSave = 0, saveTimer = null, raf = 0, destroyed = false;
-    let lastVersionAt = (DB.getWhiteboardSaves(course.id, 'version')[0] || {}).createdAt || 0;
+    let lastVersionAt = (DB.getWhiteboardSaves(course.id, 'version', boardId)[0] || {}).createdAt || 0;
+    // Penonton (mentee/orang tua) dapat membuka halaman lain sendiri; "ikuti" = selalu di halaman yang dibuka tutor.
+    let follow = true;
+    let viewPage = activePage;
     let editsSinceVersion = 0;
     const origin = Math.random().toString(36).slice(2);
     let channel = null;
@@ -242,12 +266,13 @@
     let userView = false;    // true setelah pengguna zoom/geser manual
 
     let current = null;      // goresan/bentuk yang sedang dibuat
-    let selection = null;    // id objek terpilih
+    let selected = new Set(); // id objek terpilih (bisa banyak: blok/kelompok)
     let drag = null;         // operasi pindah/resize/geser
     let lasers = [];         // jejak laser {pts:[[x,y,t]], local}
     let laserSend = 0;
     let textEditor = null;
     const images = new Map();
+    const objectUrls = [];    // URL blob gambar/PDF, dilepas saat papan ditutup
     let spaceDown = false;
 
     /* ============================ markup ============================ */
@@ -256,13 +281,13 @@
 
     container.innerHTML = `
       <div class="card whiteboard-card wb-pro" id="wbCard">
-        <div class="wb-head">
-          <div class="wb-title">
-            <h3>🖍️ Whiteboard Kelas</h3>
-            <span class="muted small">${UI.esc(DB.courseTitle(course))} • ${editable ? 'admin/tutor dapat menggambar' : 'mode lihat saja'}</span>
-          </div>
+        <div class="wb-bar">
+          <span class="wb-save" id="wbSave">${record.updatedAt ? 'Tersimpan ' + UI.fmtRelative(record.updatedAt) : (editable ? 'Belum ada coretan' : 'Mode lihat')}</span>
+          <strong class="wb-fs-title">${UI.esc(DB.boardTitle(record))}</strong>
           <div class="wb-head-actions">
-            <span class="wb-save" id="wbSave">${record.updatedAt ? 'Tersimpan ' + UI.fmtRelative(record.updatedAt) : 'Belum ada coretan'}</span>
+            ${editable ? `<label class="wb-ibtn wb-import" title="PDF menjadi halaman baru (ukuran asli); gambar disisipkan dan dapat dipindah" aria-label="Impor PDF atau gambar">
+              <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 15V3M7 8l5-5 5 5"/><path d="M5 15v4a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-4"/></svg>
+              <span>PDF / Gambar</span><input type="file" id="wbImport" accept="application/pdf,image/png,image/jpeg,image/webp,image/gif" multiple hidden /></label>` : ''}
             <div class="wb-zoom" role="group" aria-label="Zoom">
               <button type="button" class="wb-ibtn" data-wb-zoom="out" title="Perkecil (−)" aria-label="Perkecil">－</button>
               <button type="button" class="wb-ibtn wb-zoom-val" data-wb-zoom="reset" title="Zoom 100%" aria-label="Zoom 100%">100%</button>
@@ -270,7 +295,7 @@
               <button type="button" class="wb-ibtn" data-wb-zoom="fit" title="Muat ke layar (0)" aria-label="Muat ke layar">⤢</button>
             </div>
             <button type="button" class="wb-ibtn" data-wb-panel="board" title="Ukuran, latar & template" aria-label="Pengaturan papan">📐</button>
-            ${editable ? '<button type="button" class="wb-ibtn" data-wb-panel="saves" title="Simpan, buka & riwayat versi" aria-label="Simpan dan riwayat versi">🗂️</button>' : ''}
+            ${editable ? '<button type="button" class="wb-ibtn" data-wb-panel="saves" title="Salinan & riwayat versi" aria-label="Salinan dan riwayat versi">🗂️</button>' : ''}
             <button type="button" class="wb-ibtn" data-wb-panel="export" title="Ekspor PNG / PDF" aria-label="Ekspor">⬇️</button>
             <button type="button" class="wb-ibtn" id="wbFull" title="Layar penuh (F)" aria-label="Layar penuh">⛶</button>
             <button type="button" class="wb-ibtn" id="wbMin" title="Minimalkan" aria-label="Minimalkan whiteboard">▁</button>
@@ -288,6 +313,8 @@
               <button type="button" class="wb-tool" id="wbUndo" title="Undo (Ctrl+Z)" aria-label="Undo">↶</button>
               <button type="button" class="wb-tool" id="wbRedo" title="Redo (Ctrl+Y)" aria-label="Redo">↷</button>
               <button type="button" class="wb-tool" id="wbDelSel" title="Hapus objek terpilih (Del)" aria-label="Hapus objek terpilih">🗑️</button>
+              <button type="button" class="wb-tool wb-tool-txt" id="wbGroup" title="Kelompokkan objek terpilih (Ctrl+G)" aria-label="Kelompokkan" hidden>⧉</button>
+              <button type="button" class="wb-tool wb-tool-txt" id="wbUngroup" title="Pisahkan kelompok (Ctrl+Shift+G)" aria-label="Pisahkan kelompok" hidden>⧈</button>
               <button type="button" class="wb-tool" data-wb-panel="tools" title="Pengaturan alat" aria-label="Pengaturan alat">⚙️</button>
               <button type="button" class="wb-tool" id="wbDock" title="${st.dock ? 'Lepas toolbar' : 'Tempel toolbar di atas'}" aria-label="Tempel atau lepas toolbar">📌</button>
             </div>` : ''}
@@ -296,10 +323,6 @@
           </div>
           <div class="wb-min-bar hidden" id="wbMinBar">Whiteboard diminimalkan — <button type="button" class="btn btn-sm btn-primary" id="wbRestore">Tampilkan</button></div>
         </div>
-        <div class="muted small wb-foot">${editable
-          ? 'Autosave ≤1 detik • Ctrl+Z/Ctrl+Y undo/redo • Ctrl+scroll untuk zoom • Spasi+seret untuk geser papan.'
-          : 'Whiteboard tersinkron otomatis dalam mode baca. Gunakan ✋ atau tombol zoom untuk melihat detail.'}
-          Sinkron antar-tab/jendela pada browser yang sama; lintas perangkat memerlukan backend realtime.</div>
       </div>`;
 
     const card = container.querySelector('#wbCard');
@@ -322,11 +345,19 @@
     }
 
     /* ============================ view ============================ */
+    /** Papan + semua isi (tulisan boleh keluar dari ukuran papan). */
+    function contentBounds(pad) {
+      let b = { x: 0, y: 0, w: board.w, h: board.h };
+      objects.forEach(ob => { const o = bbox(ob); if (o) b = union(b, o); });
+      if (pad && (b.x < 0 || b.y < 0 || b.x + b.w > board.w || b.y + b.h > board.h)) b = { x: b.x - pad, y: b.y - pad, w: b.w + pad * 2, h: b.h + pad * 2 };
+      return b;
+    }
     function fit() {
       const w = stage.clientWidth || 600, h = stage.clientHeight || 400;
-      view.zoom = clamp(Math.min((w - 24) / board.w, (h - 24) / board.h), 0.05, 8);
-      view.panX = (w - board.w * view.zoom) / 2;
-      view.panY = (h - board.h * view.zoom) / 2;
+      const b = contentBounds(16);
+      view.zoom = clamp(Math.min((w - 24) / b.w, (h - 24) / b.h), 0.05, 8);
+      view.panX = (w - b.w * view.zoom) / 2 - b.x * view.zoom;
+      view.panY = (h - b.h * view.zoom) / 2 - b.y * view.zoom;
       viewChanged();
     }
     function zoomAt(factor, sx, sy) {
@@ -362,33 +393,66 @@
     /* ============================ render ============================ */
     function applyView(c) { c.setTransform(dpr * view.zoom, 0, 0, dpr * view.zoom, dpr * view.panX, dpr * view.panY); }
 
-    function drawTemplate(c) {
+    /** Letak latar PDF/gambar: ukuran asli halaman (tidak diregangkan), mulai dari pojok kiri atas papan. */
+    function bgRect(brd) {
+      const bi = brd && brd.bgImage;
+      if (!bi) return null;
+      if (bi.w > 0 && bi.h > 0) return { x: 0, y: 0, w: bi.w, h: bi.h };
+      const img = imageFor(bi);
+      if (!img.naturalWidth) return null;
+      return { x: 0, y: 0, w: brd.w, h: brd.w * img.naturalHeight / img.naturalWidth };
+    }
+    /** Area dunia yang terlihat di layar. */
+    function visibleRect() {
+      return { x: -view.panX / view.zoom, y: -view.panY / view.zoom, w: canvas.width / dpr / view.zoom, h: canvas.height / dpr / view.zoom };
+    }
+    /**
+     * Latar, halaman PDF, dan template diisi di seluruh `area` (bawaan: papan), sehingga
+     * tidak ada "kotak putih" di tengah layar abu-abu; papan tampak menyatu dengan layar.
+     */
+    function drawTemplate(c, area) {
+      const a = area || { x: 0, y: 0, w: board.w, h: board.h };
       c.save();
       c.fillStyle = board.bg || '#ffffff';
-      c.fillRect(0, 0, board.w, board.h);
+      c.fillRect(a.x, a.y, a.w, a.h);
       const dark = board.bg === '#1e293b';
+      // Halaman PDF/gambar impor menjadi latar: di bawah lapisan tinta, jadi penghapus tidak menghapusnya.
+      const br = bgRect(board);
+      if (br) {
+        const img = imageFor(board.bgImage);
+        if (img.complete && img.naturalWidth) c.drawImage(img, br.x, br.y, br.w, br.h);
+        c.strokeStyle = dark ? 'rgba(255,255,255,.18)' : 'rgba(15,23,42,.14)';
+        c.lineWidth = 1 / view.zoom;
+        c.strokeRect(br.x, br.y, br.w, br.h);
+      }
       const line = dark ? 'rgba(255,255,255,.12)' : 'rgba(15,23,42,.10)';
       const strong = dark ? 'rgba(255,255,255,.22)' : 'rgba(15,23,42,.18)';
       c.lineWidth = 1 / view.zoom;
+      const x0 = a.x, y0 = a.y, x1 = a.x + a.w, y1 = a.y + a.h;
+      const from = (v, step, off) => Math.ceil((v - (off || 0)) / step) * step + (off || 0);
       if (board.template === 'grid' || board.template === 'mm') {
-        const step = board.template === 'mm' ? 10 : 40;
-        for (let x = 0; x <= board.w; x += step) {
-          c.strokeStyle = board.template === 'mm' && x % 50 === 0 ? strong : line;
-          c.beginPath(); c.moveTo(x, 0); c.lineTo(x, board.h); c.stroke();
+        // Garis yang terlalu rapat pada zoom kecil dilewati agar tetap ringan & terbaca.
+        let step = board.template === 'mm' ? 10 : 40;
+        if (step * view.zoom < 4) step = board.template === 'mm' ? 50 : 0;
+        if (step) {
+          for (let x = from(x0, step); x <= x1; x += step) {
+            c.strokeStyle = board.template === 'mm' && x % 50 === 0 ? strong : line;
+            c.beginPath(); c.moveTo(x, y0); c.lineTo(x, y1); c.stroke();
+          }
+          for (let y = from(y0, step); y <= y1; y += step) {
+            c.strokeStyle = board.template === 'mm' && y % 50 === 0 ? strong : line;
+            c.beginPath(); c.moveTo(x0, y); c.lineTo(x1, y); c.stroke();
+          }
         }
-        for (let y = 0; y <= board.h; y += step) {
-          c.strokeStyle = board.template === 'mm' && y % 50 === 0 ? strong : line;
-          c.beginPath(); c.moveTo(0, y); c.lineTo(board.w, y); c.stroke();
-        }
-      } else if (board.template === 'dots') {
+      } else if (board.template === 'dots' && 40 * view.zoom >= 6) {
         c.fillStyle = strong;
         const rr = Math.max(1.4, 1.2 / view.zoom);
-        for (let x = 40; x < board.w; x += 40) for (let y = 40; y < board.h; y += 40) c.fillRect(x - rr / 2, y - rr / 2, rr, rr);
-      } else if (board.template === 'lines') {
+        for (let x = from(x0, 40); x <= x1; x += 40) for (let y = from(y0, 40); y <= y1; y += 40) c.fillRect(x - rr / 2, y - rr / 2, rr, rr);
+      } else if (board.template === 'lines' && 48 * view.zoom >= 4) {
         c.strokeStyle = line;
-        for (let y = 64; y < board.h; y += 48) { c.beginPath(); c.moveTo(0, y); c.lineTo(board.w, y); c.stroke(); }
+        for (let y = from(y0, 48, 64); y <= y1; y += 48) { c.beginPath(); c.moveTo(x0, y); c.lineTo(x1, y); c.stroke(); }
         c.strokeStyle = dark ? 'rgba(248,113,113,.35)' : 'rgba(220,38,38,.25)';
-        c.beginPath(); c.moveTo(96, 0); c.lineTo(96, board.h); c.stroke();
+        c.beginPath(); c.moveTo(96, y0); c.lineTo(96, y1); c.stroke();
       }
       if (st.guides) {
         c.strokeStyle = dark ? 'rgba(96,165,250,.5)' : 'rgba(37,99,235,.35)';
@@ -517,18 +581,28 @@
       c.restore();
     }
 
-    function imageFor(src) {
-      let img = images.get(src);
+    /** ref: data URL lama, atau { blob: "wb:…" } berkas di BlobStore (server + cache IndexedDB). */
+    function imageFor(ref) {
+      const key = ref && typeof ref === 'object' ? (ref.blob ? 'blob:' + ref.blob : ref.src || '') : String(ref || '');
+      let img = images.get(key);
       if (!img) {
         img = new Image();
         img.onload = () => { inkDirty = true; scheduleDraw(); };
-        img.src = src;
-        images.set(src, img);
+        images.set(key, img);
+        if (key.startsWith('blob:')) {
+          img.loading = true;
+          (global.BlobStore ? BlobStore.get(ref.blob) : Promise.resolve(null)).then(b => {
+            img.loading = false;
+            if (destroyed) return;
+            if (b) { const url = URL.createObjectURL(b); objectUrls.push(url); img.src = url; }
+            else { img.failed = true; scheduleDraw(); }
+          }).catch(() => { img.loading = false; img.failed = true; });
+        } else img.src = key;
       }
       return img;
     }
     function drawImageObj(c, o) {
-      const img = imageFor(o.src);
+      const img = imageFor(o.blob ? { blob: o.blob } : o.src);
       if (img.complete && img.naturalWidth) c.drawImage(img, o.x, o.y, o.w, o.h);
       else { c.save(); c.strokeStyle = '#94a3b8'; c.setLineDash([6, 6]); c.strokeRect(o.x, o.y, o.w, o.h); c.restore(); }
     }
@@ -587,11 +661,8 @@
       ctx.setTransform(1, 0, 0, 1, 0, 0);
       ctx.clearRect(0, 0, canvas.width, canvas.height);
       applyView(ctx);
-      ctx.save();
-      ctx.shadowColor = 'rgba(15,23,42,.18)'; ctx.shadowBlur = 18 / view.zoom;
-      ctx.fillStyle = board.bg || '#fff'; ctx.fillRect(0, 0, board.w, board.h);
-      ctx.restore();
-      drawTemplate(ctx);
+      drawTemplate(ctx, visibleRect());
+      if (stage.dataset.bg !== board.bg) { stage.dataset.bg = board.bg || '#ffffff'; stage.style.background = board.bg || '#ffffff'; }
       ctx.setTransform(1, 0, 0, 1, 0, 0);
       ctx.drawImage(ink, 0, 0);
       applyView(ctx);
@@ -601,18 +672,72 @@
       if (alive) scheduleDraw();
     }
 
+    /* ---- pilihan (satu, banyak, atau kelompok) ---- */
+    const selectedObjs = () => objects.filter(ob => selected.has(ob.id));
+    function selBounds() {
+      let b = null;
+      selectedObjs().forEach(ob => { const o = bbox(ob); if (o) b = b ? union(b, o) : o; });
+      return b;
+    }
+    /** Objek sekelompok (groupId sama) selalu terpilih bersama. */
+    function withGroups(ids) {
+      const groups = new Set(objects.filter(ob => ids.has(ob.id) && ob.groupId).map(ob => ob.groupId));
+      if (groups.size) objects.forEach(ob => { if (ob.groupId && groups.has(ob.groupId)) ids.add(ob.id); });
+      return ids;
+    }
+    function setSelection(ids) { selected = withGroups(new Set(ids)); updateButtons(); scheduleDraw(); }
+    function marqueeRect(d) {
+      return { x: Math.min(d.x0, d.x1), y: Math.min(d.y0, d.y1), w: Math.abs(d.x1 - d.x0), h: Math.abs(d.y1 - d.y0) };
+    }
+    /** Kelompokkan pilihan (satu groupId) atau pisahkan kembali; satu langkah undo. */
+    function setGroup(on) {
+      if (!guard()) return;
+      const list = selectedObjs();
+      if (on && list.length < 2) { flashHint('Pilih minimal dua objek untuk dikelompokkan.'); return; }
+      if (!on && !list.some(ob => ob.groupId)) return;
+      const gid = on ? 'grp_' + rid().slice(4) : null;
+      const befores = clone(list);
+      list.forEach(ob => { if (gid) ob.groupId = gid; else delete ob.groupId; touch(ob); });
+      actUpdateMany(befores, clone(list));
+      flush();
+      flashHint(on ? `${list.length} objek dikelompokkan — dipindah & diubah ukurannya bersama` : 'Kelompok dipisahkan');
+    }
+    /** Geser pilihan dengan tombol panah (Shift = 10 px). */
+    function nudge(dx, dy) {
+      if (!guard() || !selected.size) return;
+      const list = selectedObjs();
+      const befores = clone(list);
+      list.forEach(ob => { translate(ob, dx, dy); touch(ob); });
+      actUpdateMany(befores, clone(list));
+      clearTimeout(nudge.t); nudge.t = setTimeout(flush, 400);
+    }
+    function handleRect(b) {
+      const hs = 10 / view.zoom, off = 4 / view.zoom;
+      return { x: b.x + b.w - hs / 2 + off, y: b.y + b.h - hs / 2 + off, s: hs };
+    }
+
     function drawSelection() {
-      const ob = selection && objects.find(x => x.id === selection);
-      if (!ob) return;
-      const b = bbox(ob);
+      const pad = 4 / view.zoom;
       ctx.save();
-      ctx.strokeStyle = '#2563eb'; ctx.lineWidth = 1.5 / view.zoom; ctx.setLineDash([6 / view.zoom, 4 / view.zoom]);
-      ctx.strokeRect(b.x - 4 / view.zoom, b.y - 4 / view.zoom, b.w + 8 / view.zoom, b.h + 8 / view.zoom);
-      ctx.setLineDash([]);
-      const hs = 10 / view.zoom;
-      ctx.fillStyle = '#fff'; ctx.strokeStyle = '#2563eb';
-      ctx.fillRect(b.x + b.w - hs / 2 + 4 / view.zoom, b.y + b.h - hs / 2 + 4 / view.zoom, hs, hs);
-      ctx.strokeRect(b.x + b.w - hs / 2 + 4 / view.zoom, b.y + b.h - hs / 2 + 4 / view.zoom, hs, hs);
+      if (drag && drag.mode === 'marquee') {
+        const r = marqueeRect(drag);
+        ctx.fillStyle = 'rgba(37,99,235,.08)'; ctx.fillRect(r.x, r.y, r.w, r.h);
+        ctx.strokeStyle = '#2563eb'; ctx.lineWidth = 1 / view.zoom; ctx.setLineDash([4 / view.zoom, 3 / view.zoom]);
+        ctx.strokeRect(r.x, r.y, r.w, r.h);
+      }
+      const list = selectedObjs();
+      if (list.length) {
+        ctx.setLineDash([6 / view.zoom, 4 / view.zoom]);
+        ctx.strokeStyle = 'rgba(37,99,235,.55)'; ctx.lineWidth = 1 / view.zoom;
+        if (list.length > 1) list.forEach(ob => { const b = bbox(ob); if (b) ctx.strokeRect(b.x - pad / 2, b.y - pad / 2, b.w + pad, b.h + pad); });
+        const b = selBounds();
+        ctx.strokeStyle = '#2563eb'; ctx.lineWidth = 1.5 / view.zoom;
+        ctx.strokeRect(b.x - pad, b.y - pad, b.w + pad * 2, b.h + pad * 2);
+        ctx.setLineDash([]);
+        const h = handleRect(b);
+        ctx.fillStyle = '#fff';
+        ctx.fillRect(h.x, h.y, h.s, h.s); ctx.strokeRect(h.x, h.y, h.s, h.s);
+      }
       ctx.restore();
     }
 
@@ -690,13 +815,15 @@
       else if (ob.kind === 'shape') { ob.x1 += dx; ob.x2 += dx; ob.y1 += dy; ob.y2 += dy; }
       else { ob.x += dx; ob.y += dy; }
     }
+    /** Skala terhadap titik `from` (pojok kiri atas pilihan) — posisi ikut berskala agar kelompok tetap utuh. */
     function scale(ob, from, sx, sy) {
-      if (ob.kind === 'stroke') ob.pts = ob.pts.map(q => [r1(from.x + (q[0] - from.x) * sx), r1(from.y + (q[1] - from.y) * sy), q[2]]);
-      else if (ob.kind === 'shape') {
-        ob.x1 = from.x + (ob.x1 - from.x) * sx; ob.x2 = from.x + (ob.x2 - from.x) * sx;
-        ob.y1 = from.y + (ob.y1 - from.y) * sy; ob.y2 = from.y + (ob.y2 - from.y) * sy;
-      } else if (ob.kind === 'text') ob.size = clamp(Math.round((Number(ob.size) || 32) * Math.max(sx, sy)), 8, 400);
-      else { ob.w = Math.max(20, ob.w * sx); ob.h = Math.max(20, ob.h * sy); }
+      const X = (x) => from.x + (x - from.x) * sx, Y = (y) => from.y + (y - from.y) * sy;
+      if (ob.kind === 'stroke') ob.pts = ob.pts.map(q => [r1(X(q[0])), r1(Y(q[1])), q[2]]);
+      else if (ob.kind === 'shape') { ob.x1 = X(ob.x1); ob.x2 = X(ob.x2); ob.y1 = Y(ob.y1); ob.y2 = Y(ob.y2); }
+      else if (ob.kind === 'text') {
+        ob.x = r1(X(ob.x)); ob.y = r1(Y(ob.y));
+        ob.size = clamp(Math.round((Number(ob.size) || 32) * Math.max(sx, sy)), 8, 400);
+      } else { ob.x = r1(X(ob.x)); ob.y = r1(Y(ob.y)); ob.w = Math.max(20, ob.w * sx); ob.h = Math.max(20, ob.h * sy); }
     }
 
     /* ============================ perubahan & undo ============================ */
@@ -720,8 +847,7 @@
       const set = new Set(ids);
       const gone = objects.filter(ob => set.has(ob.id));
       objects = objects.filter(ob => !set.has(ob.id));
-      ids.forEach(id => deletedIds.add(id));
-      if (selection && set.has(selection)) selection = null;
+      ids.forEach(id => { deletedIds.add(id); selected.delete(id); });
       return gone;
     }
     function replaceObj(next) {
@@ -750,10 +876,13 @@
         redo() { const live = restoredIds.map(resolve); gone = clone(objects.filter(x => live.includes(x.id))); removeIds(live); }
       });
     }
-    function actUpdate(before, after) {
+    function actUpdate(before, after) { actUpdateMany([before], [after]); }
+    /** Satu langkah undo untuk banyak objek sekaligus (pindah/ubah ukuran/kelompok). */
+    function actUpdateMany(befores, afters) {
+      if (!befores.length) return;
       pushAction({
-        undo() { replaceObj(before); },
-        redo() { replaceObj(after); }
+        undo() { befores.forEach(replaceObj); },
+        redo() { afters.forEach(replaceObj); }
       });
     }
     function actClear() {
@@ -768,7 +897,7 @@
     }
     function doClear() {
       objects.forEach(ob => deletedIds.add(ob.id));
-      objects = []; selection = null; clearEpoch = Date.now();
+      objects = []; selected = new Set(); clearEpoch = Date.now();
     }
     function undo() {
       if (!guard() || !undoStack.length) return;
@@ -791,8 +920,11 @@
     }
 
     function reconcile(remote) {
-      if (!remote || remote.courseId !== course.id || remote.origin === origin) return;
+      if (!remote || remote.id !== boardId || remote.origin === origin) return;
       clearEpoch = Math.max(clearEpoch, Number(remote.clearEpoch) || 0);
+      const known = new Set(media.map(m => m.key));
+      (remote.media || []).forEach(m => { if (m && m.key && !known.has(m.key)) { media.push(m); known.add(m.key); } });
+      if (remote.thumb) thumb = remote.thumb;
       (remote.deletedIds || []).forEach(id => deletedIds.add(id));
       if ((Number(remote.pagesUpdatedAt) || 0) > pagesUpdatedAt && Array.isArray(remote.pages) && remote.pages.length) {
         pages = clone(remote.pages);
@@ -803,7 +935,7 @@
       }
       const incoming = migrate({ strokes: remote.strokes || [], board: remote.board || board });
       if (remote.board && (Number(remote.board.updatedAt) || 0) > (Number(board.updatedAt) || 0)) {
-        board = Object.assign({}, board, remote.board);
+        board = pageBoard(board, remote.board);
       }
       const map = new Map();
       objects.concat(incoming.objects).forEach(ob => {
@@ -812,7 +944,7 @@
         if (!prev || stamp(ob) > stamp(prev)) map.set(ob.id, ob);
       });
       objects = Array.from(map.values()).sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0));
-      if (selection && !map.has(selection)) selection = null;
+      selected.forEach(id => { if (!map.has(id)) selected.delete(id); });
       record = Object.assign({}, record, {
         revision: Math.max(Number(record.revision) || 0, Number(remote.revision) || 0),
         updatedAt: Math.max(Number(record.updatedAt) || 0, Number(remote.updatedAt) || 0)
@@ -824,6 +956,7 @@
       return {
         strokes: clone(objects), board: clone(board), schemaVersion: 2,
         pages: clone(pages), pageData: clone(pageData), activePage, pagesUpdatedAt,
+        media: clone(media), thumb: thumb || null,
         // Tombstone dipangkas agar data tidak tumbuh tanpa batas.
         deletedIds: Array.from(deletedIds).slice(-3000), clearEpoch, revision: record.revision || 0
       };
@@ -834,11 +967,12 @@
       saveTimer = null;
       if (!dirty || destroyed) return;
       try {
-        const latest = DB.getWhiteboard(course.id);
+        const latest = DB.getWhiteboardBoard(boardId);
         if (latest && (latest.revision || 0) > (record.revision || 0)) {
           reconcile(Object.assign({ origin: 'storage-latest' }, latest));
         }
-        record = DB.saveWhiteboard(course.id, snapshotState(), user);
+        makeThumb();
+        record = DB.saveWhiteboard(boardId, snapshotState(), user);
         lastSave = Date.now(); dirty = false;
         setStatus('Tersimpan sekarang', 'is-saved');
         broadcast({ type: 'state' });
@@ -855,22 +989,36 @@
     function autoVersion() {
       if (!editable || editsSinceVersion < 5 || Date.now() - lastVersionAt < 5 * 60 * 1000 || !objects.length) return;
       try {
-        DB.addWhiteboardSave(course.id, { type: 'version', auto: true, name: 'Versi otomatis ' + UI.fmtDateTime(Date.now()), objects, board }, user);
+        DB.addWhiteboardSave(course.id, { type: 'version', auto: true, boardId, name: 'Versi otomatis ' + UI.fmtDateTime(Date.now()), objects, board }, user);
         lastVersionAt = Date.now(); editsSinceVersion = 0;
       } catch (e) { /* versi otomatis bersifat best-effort */ }
+    }
+
+    /** Gambar mini halaman pertama untuk daftar papan (≤320 px, JPEG ±10 KB), paling sering tiap 15 detik. */
+    function makeThumb(force) {
+      if (!editable || (!force && Date.now() - thumbAt < 15000)) return;
+      thumbAt = Date.now();
+      try {
+        const first = pages[0] && pages[0].id !== activePage ? (pageData[pages[0].id] || { objects: [], board: null }) : { objects, board };
+        const brd = first.board === board ? board : pageBoard(board, first.board);
+        const out = renderPageCanvas(first.objects || [], brd, '', null, null, 320);
+        const url = out.toDataURL('image/jpeg', 0.62);
+        if (url.length < 58000) thumb = url;
+      } catch (e) { /* gambar mini bersifat opsional */ }
     }
 
     function broadcast(extra) {
       if (!channel) return;
       try {
-        if (extra.type === 'laser') { channel.postMessage(Object.assign({ origin, courseId: course.id }, extra)); return; }
-        channel.postMessage(Object.assign({ origin, courseId: course.id, revision: record.revision, updatedAt: record.updatedAt },
-          snapshotState(), extra));
+        if (extra.type === 'laser') { channel.postMessage(Object.assign({ origin, id: boardId }, extra)); return; }
+        channel.postMessage(Object.assign({ origin, revision: record.revision, updatedAt: record.updatedAt },
+          snapshotState(), extra, { id: boardId }));
       } catch (e) { /* kanal tertutup */ }
     }
 
     function mergeRemote(remote) {
-      if (!remote || remote.courseId !== course.id || remote.origin === origin) return;
+      if (!remote || remote.id !== boardId || remote.origin === origin) return;
+      if (!editable && remote.type !== 'laser') { viewerLoad(remote); return; }
       if (remote.type === 'laser') {
         let l = lasers.find(x => x.from === remote.origin && x.stroke === remote.stroke);
         if (!l) { l = { from: remote.origin, stroke: remote.stroke, pts: [], last: 0 }; lasers.push(l); }
@@ -890,8 +1038,35 @@
 
     function onStorage(e) {
       if (e.key !== 'lms_whiteboards') return;
-      const fresh = DB.getWhiteboard(course.id);
+      const fresh = DB.getWhiteboardBoard(boardId);
       if (fresh) mergeRemote(Object.assign({ origin: 'storage' }, fresh));
+    }
+    /* Perubahan dari perangkat lain (sinkron server) tiba lewat lms:remote-change. */
+    function onRemote(e) {
+      const keys = (e.detail && e.detail.keys) || [];
+      if (!keys.includes('lms_whiteboards')) return;
+      const fresh = DB.getWhiteboardBoard(boardId);
+      if (fresh && (fresh.revision || 0) > (record.revision || 0)) mergeRemote(Object.assign({ origin: 'server' }, fresh));
+    }
+
+    /* Penonton: isi kanvas selalu diturunkan ulang dari rekaman terbaru (tidak pernah disimpan). */
+    function viewerLoad(rec) {
+      record = Object.assign({}, record, rec);
+      pages = Array.isArray(rec.pages) && rec.pages.length ? clone(rec.pages) : [{ id: 'pg_1', name: 'Halaman 1' }];
+      pageData = clone(rec.pageData || {});
+      activePage = pages.some(pg => pg.id === rec.activePage) ? rec.activePage : pages[0].id;
+      if (follow || !pages.some(pg => pg.id === viewPage)) viewPage = activePage;
+      const cur = migrate(rec);
+      if (viewPage === activePage) { board = cur.board; objects = cur.objects; }
+      else {
+        const pd = pageData[viewPage] || {};
+        board = pageBoard(cur.board, pd.board);
+        objects = (pd.objects || []).slice();
+      }
+      inkDirty = true;
+      if (!userView) fit(); else scheduleDraw();
+      if (rec.updatedAt) setStatus('Diperbarui ' + UI.fmtRelative(rec.updatedAt), 'is-saved');
+      paintPages();
     }
 
     function drainPending() {
@@ -903,7 +1078,13 @@
       const u = container.querySelector('#wbUndo'), r = container.querySelector('#wbRedo'), d = container.querySelector('#wbDelSel');
       if (u) u.disabled = !undoStack.length;
       if (r) r.disabled = !redoStack.length;
-      if (d) d.disabled = !selection;
+      if (d) d.disabled = !selected.size;
+      const g = container.querySelector('#wbGroup'), ug = container.querySelector('#wbUngroup');
+      const list = selectedObjs();
+      const grouped = list.some(ob => ob.groupId);
+      const oneGroup = grouped && new Set(list.map(ob => ob.groupId || '')).size === 1;
+      if (g) g.hidden = !(list.length > 1 && !oneGroup);
+      if (ug) ug.hidden = !grouped;
     }
 
     /* ============================ pointer ============================ */
@@ -936,18 +1117,29 @@
       lastPt = { x: p.x, y: p.y, t: e.timeStamp };
       const t = st.tool;
       if (t === 'select') {
-        const sel = selection && objects.find(x => x.id === selection);
-        if (sel) {
-          const b = bbox(sel), hs = 14 / view.zoom;
-          if (Math.abs(p.x - (b.x + b.w + 4 / view.zoom)) < hs && Math.abs(p.y - (b.y + b.h + 4 / view.zoom)) < hs) {
-            drag = { mode: 'resize', id: sel.id, before: clone(sel), from: { x: b.x, y: b.y }, bw: b.w, bh: b.h };
+        const sb = selected.size ? selBounds() : null;
+        if (sb) {
+          const h = handleRect(sb), tol = 7 / view.zoom;
+          if (p.x >= h.x - tol && p.x <= h.x + h.s + tol && p.y >= h.y - tol && p.y <= h.y + h.s + tol) {
+            drag = { mode: 'resize', before: clone(selectedObjs()), from: { x: sb.x, y: sb.y }, bw: sb.w, bh: sb.h, moved: false };
             return;
           }
         }
         const target = topHit(p);
-        selection = target ? target.id : null;
-        if (target) drag = { mode: 'move', id: target.id, before: clone(target), sx: p.x, sy: p.y, moved: false };
+        if (!target) {
+          // Seret di area kosong = blok (marquee); Shift menambah ke pilihan.
+          if (!e.shiftKey) selected = new Set();
+          drag = { mode: 'marquee', x0: p.x, y0: p.y, x1: p.x, y1: p.y, base: new Set(selected) };
+          updateButtons(); scheduleDraw();
+          return;
+        }
+        const ids = withGroups(new Set([target.id]));
+        if (e.shiftKey) {
+          const all = [...ids].every(id => selected.has(id));
+          ids.forEach(id => (all ? selected.delete(id) : selected.add(id)));
+        } else if (!selected.has(target.id)) selected = ids;
         updateButtons(); scheduleDraw();
+        if (selected.has(target.id)) drag = { mode: 'move', before: clone(selectedObjs()), sx: p.x, sy: p.y, moved: false };
         return;
       }
       if (t === 'eraser' && st.eraser === 'object') {
@@ -998,18 +1190,38 @@
         if (target) actRemove([target.id]);
         return;
       }
-      if (drag && (drag.mode === 'move' || drag.mode === 'resize')) {
-        const ob = objects.find(x => x.id === drag.id);
-        if (!ob) { drag = null; return; }
+      if (drag && drag.mode === 'marquee') {
         const p = toWorld(e);
-        const fresh = clone(drag.before);
-        if (drag.mode === 'move') { translate(fresh, p.x - drag.sx, p.y - drag.sy); drag.moved = true; }
-        else {
-          const sx = Math.max(0.05, (p.x - drag.from.x) / Math.max(1, drag.bw));
-          const sy = Math.max(0.05, (p.y - drag.from.y) / Math.max(1, drag.bh));
-          scale(fresh, drag.from, sx, e.shiftKey ? sx : sy); drag.moved = true;
+        drag.x1 = p.x; drag.y1 = p.y;
+        const r = marqueeRect(drag);
+        const ids = new Set(drag.base);
+        objects.forEach(ob => {
+          const b = bbox(ob);
+          if (b && !(ob.kind === 'stroke' && ob.tool === 'eraser') && b.x < r.x + r.w && b.x + b.w > r.x && b.y < r.y + r.h && b.y + b.h > r.y) ids.add(ob.id);
+        });
+        selected = withGroups(ids);
+        scheduleDraw(); return;
+      }
+      if (drag && (drag.mode === 'move' || drag.mode === 'resize')) {
+        const p = toWorld(e);
+        let sx = 1, sy = 1;
+        if (drag.mode === 'resize') {
+          sx = Math.max(0.05, (p.x - drag.from.x) / Math.max(1, drag.bw));
+          sy = Math.max(0.05, (p.y - drag.from.y) / Math.max(1, drag.bh));
+          // Gambar, teks, tabel, dan pilihan banyak objek berskala seragam agar tidak penyok; Shift = bebas.
+          const uniform = drag.before.length > 1 || drag.before.some(ob => ['image', 'text', 'table'].includes(ob.kind));
+          if (uniform !== !!e.shiftKey) { const s = Math.abs(sx - 1) > Math.abs(sy - 1) ? sx : sy; sx = s; sy = s; }
         }
-        Object.assign(ob, fresh);
+        drag.before.forEach(b0 => {
+          const ob = objects.find(x => x.id === resolve(b0.id));
+          if (!ob) return;
+          const fresh = clone(b0);
+          fresh.id = ob.id;
+          if (drag.mode === 'move') translate(fresh, p.x - drag.sx, p.y - drag.sy);
+          else scale(fresh, drag.from, sx, sy);
+          Object.assign(ob, fresh);
+        });
+        drag.moved = drag.moved || drag.mode === 'resize' || Math.hypot(p.x - drag.sx, p.y - drag.sy) > 0.5 / view.zoom;
         inkDirty = true; scheduleDraw(); return;
       }
       if (!current) return;
@@ -1038,11 +1250,16 @@
       if (drag) {
         const d = drag; drag = null;
         if ((d.mode === 'move' || d.mode === 'resize') && d.moved) {
-          const ob = objects.find(x => x.id === d.id);
-          if (ob) { touch(ob); actUpdate(d.before, clone(ob)); }
+          const befores = [], afters = [];
+          d.before.forEach(b0 => {
+            const ob = objects.find(x => x.id === resolve(b0.id));
+            if (ob) { touch(ob); befores.push(Object.assign(clone(b0), { id: ob.id })); afters.push(clone(ob)); }
+          });
+          actUpdateMany(befores, afters);
         }
+        if (d.mode === 'marquee' && selected.size > 1) flashHint(`${selected.size} objek dipilih — seret untuk memindahkan, Ctrl+G untuk mengelompokkan`);
         drainPending(); scheduleDraw(); updateButtons();
-        if (d.mode !== 'pan' && d.mode !== 'laser') flush();
+        if (d.mode !== 'pan' && d.mode !== 'laser' && d.mode !== 'marquee') flush();
         return;
       }
       if (!current) return;
@@ -1089,7 +1306,11 @@
     }
     function closeTextEditor() {
       if (!textEditor) return;
-      const el = textEditor.el; textEditor = null; el.remove();
+      const el = textEditor.el; textEditor = null;
+      const hadFocus = document.activeElement === el;
+      el.remove();
+      // Fokus kembali ke kanvas agar pintasan (V, P, Ctrl+Z, …) tetap berfungsi setelah mengetik.
+      if (hadFocus && card.isConnected) canvas.focus({ preventScroll: true });
     }
     function commitText() {
       if (!textEditor) return;
@@ -1127,34 +1348,194 @@
       actAdd([{ id: rid(), kind: 'table', x: r1(c.x - w / 2), y: r1(c.y - h / 2), w, h, rows, cols,
         cells: Array.from({ length: rows }, () => Array.from({ length: cols }, () => '')),
         color: st.color, width: 2, size: 22, font: st.font, createdAt: Date.now() }]);
-      st.tool = 'select'; syncTools(); selection = objects[objects.length - 1].id; updateButtons(); flush();
+      st.tool = 'select'; syncTools(); setSelection([objects[objects.length - 1].id]); flush();
       flashHint('Klik dua kali pada sel untuk mengisi tabel.');
     }
 
-    async function insertImage(file) {
+    /* ============================ berkas PDF & gambar ============================
+     * Berkas tidak disimpan di dalam rekaman papan (data URL membuat tiap sinkron berat),
+     * melainkan sebagai berkas "wb:<kelas>:<papan>:<id>" di BlobStore (server + cache IndexedDB).
+     * Batas: tiap halaman/gambar ≤ 900 KB setelah dikompres, total 8 MB per kelas
+     * (juga ditegakkan server), berkas masukan ≤ 10 MB, ≤ 15 halaman PDF per impor. */
+    const FILE_MAX = 900 * 1024, INPUT_MAX = 10 * 1024 * 1024, IMPORT_PAGES = 15, PAGE_SIDE = 1600;
+    const fmtMB = (n) => (n / 1048576).toFixed(1).replace('.', ',') + ' MB';
+    const sumBytes = (list) => (list || []).reduce((m, x) => m + (Number(x.bytes) || 0), 0);
+    function mediaUsed() {
+      return DB.getCourseBoards(course.id).filter(b => b.id !== boardId).reduce((n, b) => n + sumBytes(b.media), 0) + sumBytes(media);
+    }
+    function fileToImage(file) {
+      return new Promise((resolve, reject) => {
+        const url = URL.createObjectURL(file);
+        const img = new Image();
+        img.onload = () => { URL.revokeObjectURL(url); resolve(img); };
+        img.onerror = () => { URL.revokeObjectURL(url); reject(new Error(`"${file.name}" bukan gambar yang dapat dibaca.`)); };
+        img.src = url;
+      });
+    }
+    function imageToCanvas(img, maxSide) {
+      const k = Math.min(1, maxSide / Math.max(img.naturalWidth || img.width, img.naturalHeight || img.height));
+      const cv = document.createElement('canvas');
+      cv.width = Math.max(1, Math.round((img.naturalWidth || img.width) * k));
+      cv.height = Math.max(1, Math.round((img.naturalHeight || img.height) * k));
+      cv.getContext('2d').drawImage(img, 0, 0, cv.width, cv.height);
+      return cv;
+    }
+    const toBlob = (cv, type, q) => new Promise(r => cv.toBlob(r, type, q));
+    /** Kanvas → berkas ≤ FILE_MAX: PNG bila cukup kecil (menjaga transparansi), selain itu JPEG bermutu menurun lalu diperkecil. */
+    async function compress(cv, keepPng) {
+      if (keepPng) { const png = await toBlob(cv, 'image/png'); if (png && png.size <= FILE_MAX) return png; }
+      let c = cv, q = 0.82;
+      for (let i = 0; i < 10; i++) {
+        if (keepPng && i === 0) { const flat = document.createElement('canvas'); flat.width = c.width; flat.height = c.height;
+          const fc = flat.getContext('2d'); fc.fillStyle = '#ffffff'; fc.fillRect(0, 0, flat.width, flat.height); fc.drawImage(c, 0, 0); c = flat; }
+        const b = await toBlob(c, 'image/jpeg', q);
+        if (b && b.size <= FILE_MAX) return b;
+        if (q > 0.56) q -= 0.08;
+        else { const s = document.createElement('canvas'); s.width = Math.round(c.width * 0.8); s.height = Math.round(c.height * 0.8); s.getContext('2d').drawImage(c, 0, 0, s.width, s.height); c = s; }
+      }
+      throw new Error('Gambar terlalu rumit untuk dikompres di bawah 900 KB.');
+    }
+    async function storeMedia(blob) {
+      if (!global.BlobStore || !BlobStore.available()) throw new Error('Browser ini tidak dapat menyimpan berkas (IndexedDB tidak tersedia).');
+      const left = DB.WB_MEDIA_LIMIT - mediaUsed();
+      if (blob.size > left) throw new Error(`Ruang berkas whiteboard kelas ini tersisa ${fmtMB(Math.max(0, left))} dari ${fmtMB(DB.WB_MEDIA_LIMIT)}. Hapus papan berisi PDF/gambar lama terlebih dahulu.`);
+      const key = `wb:${course.id}:${boardId}:${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
+      await BlobStore.put(key, blob, { courseId: course.id, boardId });
+      media.push({ key, bytes: blob.size, at: Date.now() });
+      return key;
+    }
+
+    /** Hapus berkas yang tidak lagi dipakai halaman mana pun maupun salinan/versi papan ini (membebaskan kuota kelas). */
+    function pruneMedia() {
+      if (!editable || !media.length) return;
+      const used = new Set();
+      const scan = (objs, brd) => {
+        if (brd && brd.bgImage && brd.bgImage.blob) used.add(brd.bgImage.blob);
+        (objs || []).forEach(ob => { if (ob && ob.blob) used.add(ob.blob); });
+      };
+      scan(objects, board);
+      Object.values(pageData).forEach(pd => scan(pd && pd.objects, pd && pd.board));
+      DB.getWhiteboardSaves(course.id, null, boardId).forEach(s => scan(s.objects, s.board));
+      const drop = media.filter(m => !used.has(m.key));
+      if (!drop.length) return;
+      media = media.filter(m => used.has(m.key));
+      dirty = true; flush();
+      drop.forEach(m => { if (global.BlobStore) BlobStore.remove(m.key).catch(() => {}); });
+    }
+
+    /** Sisipkan gambar sebagai objek yang dapat dipindah & diubah ukurannya (alat Pilih). `nth` menggeser posisi bila banyak. */
+    async function insertImage(file, nth) {
       if (!guard() || !file) return;
       if (!/^image\/(png|jpe?g|webp|gif)$/i.test(file.type)) { UI.toast('Gunakan gambar PNG, JPG, WEBP, atau GIF.', 'error'); return; }
+      if (file.size > INPUT_MAX) { UI.toast(`Gambar maksimal ${fmtMB(INPUT_MAX)}.`, 'error'); return; }
       try {
-        setStatus('Memproses gambar…', 'is-saving');
-        const src = global.Editor && Editor.compressImage ? await Editor.compressImage(file) : await new Promise((res, rej) => {
-          const fr = new FileReader(); fr.onload = () => res(fr.result); fr.onerror = rej; fr.readAsDataURL(file);
-        });
-        const img = imageFor(src);
-        await new Promise(res => { if (img.complete && img.naturalWidth) res(); else { img.onload = () => { inkDirty = true; res(); }; img.onerror = res; } });
-        const ratio = img.naturalWidth && img.naturalHeight ? img.naturalHeight / img.naturalWidth : 0.75;
-        const w = Math.min(board.w * 0.6, img.naturalWidth || 600), h = w * ratio;
-        const c = centerWorld();
-        actAdd([{ id: rid(), kind: 'image', x: r1(c.x - w / 2), y: r1(c.y - h / 2), w, h, src, createdAt: Date.now() }]);
-        st.tool = 'select'; syncTools(); selection = objects[objects.length - 1].id; updateButtons(); flush();
+        setStatus('Mengunggah gambar…', 'is-saving');
+        const img = await fileToImage(file);
+        const cv = imageToCanvas(img, PAGE_SIDE);
+        const key = await storeMedia(await compress(cv, /png|gif|webp/i.test(file.type)));
+        const vis = visibleRect();
+        const w = Math.min(board.w * 0.6, vis.w * 0.7, cv.width), h = w * (cv.height / cv.width);
+        const c = centerWorld(), off = (nth || 0) * 28;
+        actAdd([{ id: rid(), kind: 'image', x: r1(c.x - w / 2 + off), y: r1(c.y - h / 2 + off), w, h, blob: key, createdAt: Date.now() }]);
+        st.tool = 'select'; syncTools(); setSelection([objects[objects.length - 1].id]); flush();
+        flashHint('Gambar dapat diseret untuk dipindah; tarik pojok kanan bawah untuk mengubah ukuran.');
       } catch (err) {
-        setStatus('Gagal memuat gambar', 'is-error');
+        setStatus('Gagal mengunggah gambar', 'is-error');
         UI.toast(err.message || 'Gagal membaca gambar.', 'error');
       }
     }
 
+    /** Halaman baru berlatar berkas impor. Halaman pertama yang masih kosong dipakai ulang. */
+    function addBgPage(key, w, h, name) {
+      const brd = { w, h, bg: '#ffffff', template: 'plain', bgImage: { blob: key, w, h } };
+      const cur = pages[pageIndex()];
+      if (pages.length === 1 && !objects.length && !board.bgImage) {
+        board = Object.assign({}, board, brd, { updatedAt: Date.now() });
+        cur.name = name;
+        return cur.id;
+      }
+      const id = 'pg_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 5);
+      const after = pages.findIndex(pg => pg.id === (addBgPage.last || activePage));
+      pages.splice(after + 1, 0, { id, name });
+      pageData[id] = { objects: [], board: brd };
+      addBgPage.last = id;
+      return id;
+    }
+    async function importPdf(file, room) {
+      if (!global.DocImport || !DocImport.loadPdfjs) throw new Error('Pembaca PDF belum dimuat. Muat ulang halaman lalu coba lagi.');
+      const pdfjs = await DocImport.loadPdfjs();
+      let doc;
+      try { doc = await pdfjs.getDocument({ data: new Uint8Array(await file.arrayBuffer()), isEvalSupported: false }).promise; }
+      catch (e) { throw new Error(e && e.name === 'PasswordException' ? 'PDF dikunci kata sandi. Buka kuncinya terlebih dahulu.' : `"${file.name}" tidak dapat dibaca sebagai PDF.`); }
+      const n = Math.min(doc.numPages, room);
+      if (doc.numPages > n) UI.toast(`Diimpor ${n} dari ${doc.numPages} halaman "${file.name}" (maks. ${IMPORT_PAGES} halaman sekali impor, ${MAX_PAGES} halaman per papan).`, 'info');
+      const base = file.name.replace(/\.pdf$/i, '').slice(0, 40);
+      const first = [];
+      try {
+        for (let p = 1; p <= n; p++) {
+          setStatus(`Mengimpor halaman ${p}/${n}…`, 'is-saving');
+          const page = await doc.getPage(p);
+          const v1 = page.getViewport({ scale: 1 });
+          const vp = page.getViewport({ scale: PAGE_SIDE / Math.max(v1.width, v1.height) });
+          const cv = document.createElement('canvas');
+          cv.width = Math.round(vp.width); cv.height = Math.round(vp.height);
+          const c = cv.getContext('2d');
+          c.fillStyle = '#ffffff'; c.fillRect(0, 0, cv.width, cv.height);
+          await page.render({ canvasContext: c, viewport: vp }).promise;
+          page.cleanup();
+          const key = await storeMedia(await compress(cv, false));
+          first.push(addBgPage(key, cv.width, cv.height, n > 1 ? `${base} • ${p}` : base));
+        }
+      } finally { doc.destroy(); }
+      return first;
+    }
+    /**
+     * Impor berkas: tiap halaman PDF menjadi halaman papan (ukuran asli, tidak diregangkan);
+     * gambar disisipkan di halaman ini sebagai objek yang dapat dipindah & diubah ukurannya.
+     */
+    async function importFiles(files) {
+      if (!guard()) return;
+      const all = Array.from(files || []).filter(Boolean);
+      if (!all.length) return;
+      const big = all.find(f => f.size > INPUT_MAX);
+      if (big) { UI.toast(`"${big.name}" lebih dari ${fmtMB(INPUT_MAX)}. Perkecil atau pisahkan berkasnya terlebih dahulu.`, 'error'); return; }
+      const isPdf = (f) => /pdf$/i.test(f.type) || /\.pdf$/i.test(f.name);
+      const bad = all.find(f => !isPdf(f) && !/^image\/(png|jpe?g|webp|gif)$/i.test(f.type));
+      if (bad) { UI.toast(`"${bad.name}" bukan PDF atau gambar PNG/JPG/WEBP.`, 'error'); return; }
+      if (textEditor) commitText();
+      const imgs = all.filter(f => !isPdf(f));
+      for (let i = 0; i < imgs.length; i++) await insertImage(imgs[i], i);
+      const list = all.filter(isPdf);
+      if (!list.length) return;
+      const room0 = Math.min(IMPORT_PAGES, MAX_PAGES - pages.length + (pages.length === 1 && !objects.length && !board.bgImage ? 1 : 0));
+      if (room0 <= 0) { UI.toast(`Papan ini sudah ${MAX_PAGES} halaman. Buat papan baru untuk materi berikutnya.`, 'info'); return; }
+      const importBtn = container.querySelector('.wb-import');
+      if (importBtn) importBtn.classList.add('is-busy');
+      addBgPage.last = null;
+      const made = [];
+      try {
+        for (const f of list) {
+          const room = room0 - made.length;
+          if (room <= 0) break;
+          made.push(...await importPdf(f, room));
+        }
+      } catch (e) {
+        UI.toast(e.message || 'Impor gagal.', 'error');
+      } finally {
+        if (importBtn) importBtn.classList.remove('is-busy');
+        addBgPage.last = null;
+      }
+      if (!made.length) { setStatus('Impor dibatalkan', 'is-error'); return; }
+      // Simpan dulu daftar halaman & berkas, lalu buka halaman impor pertama.
+      undoStack.length = 0; redoStack.length = 0;
+      inkDirty = true; pagesUpdatedAt = Date.now(); dirty = true; flush();
+      if (made[0] !== activePage) switchPage(made[0], { quiet: true }); else { paintPages(); fit(); }
+      UI.toast(`${made.length} halaman ditambahkan. Ruang berkas kelas terpakai ${fmtMB(mediaUsed())} dari ${fmtMB(DB.WB_MEDIA_LIMIT)}.`);
+    }
+
     function deleteSelected() {
-      if (!selection || !guard()) return;
-      actRemove([selection]); flush();
+      if (!selected.size || !guard()) return;
+      actRemove([...selected]); flush();
     }
 
     /* ============================ panel (sheet) ============================ */
@@ -1201,10 +1582,14 @@
             <input type="number" id="wbCols" class="input" min="1" max="12" value="3" aria-label="Jumlah kolom" />
             <button type="button" class="btn btn-sm btn-primary" id="wbTableOk">Sisipkan</button></div></div>`;
       } else if (k === 'board') {
+        const onBg = !!board.bgImage;
         sheet.innerHTML = sheetHead('Papan') + `
           <div class="muted small">Ukuran saat ini: ${board.w} × ${board.h} px</div>
+          ${editable && onBg ? `<div class="wb-row"><span>Latar</span><div class="wb-inline">
+            <span class="muted small">Halaman PDF tampil dengan ukuran aslinya; tulisan boleh di luar halaman.</span>
+            <button type="button" class="btn btn-sm btn-secondary" id="wbDropBg">Lepas latar PDF</button></div></div>` : ''}
           ${editable ? `<div class="wb-row"><span>Ukuran</span><div class="wb-seg wrap">${PRESETS.map(p =>
-            `<button type="button" class="${board.w === p.w && board.h === p.h ? 'is-on' : ''}" data-wb-preset="${p.key}">${p.label}</button>`).join('')}</div></div>
+            `<button type="button" class="${board.w === p.w && board.h === p.h ? 'is-on' : ''}" data-wb-preset="${p.key}" ${onBg ? 'disabled title="Ukuran mengikuti halaman PDF"' : ''}>${p.label}</button>`).join('')}</div></div>
           <div class="wb-row"><span>Perluas</span><div class="wb-inline">
             <button type="button" class="btn btn-sm btn-secondary" data-wb-grow="down">⬇ Tambah ke bawah</button>
             <button type="button" class="btn btn-sm btn-secondary" data-wb-grow="right">➡ Tambah ke kanan</button></div></div>
@@ -1226,19 +1611,19 @@
           <p class="muted small">${wm.enabled ? `🔏 Watermark "${UI.esc(wm.text || 'logo')}" ${wm.logo ? '+ logo ' : ''}otomatis ditambahkan` : 'Watermark sedang dimatikan admin'}${wm.pageNumbers ? ' • nomor halaman dicetak di bawah' : ''}. Diatur admin di Pengaturan.</p>
           <p class="muted small">PDF dibuat lewat dialog cetak browser: pilih "Simpan sebagai PDF". PNG banyak halaman diunduh satu per satu.</p>`;
       } else if (k === 'saves') {
-        const boards = DB.getWhiteboardSaves(course.id, 'board');
-        const versions = DB.getWhiteboardSaves(course.id, 'version');
+        const boards = DB.getWhiteboardSaves(course.id, 'board', boardId);
+        const versions = DB.getWhiteboardSaves(course.id, 'version', boardId);
         const row = (x) => `<div class="wb-save-row">
           <div><strong>${UI.esc(x.name)}</strong><div class="muted small">${UI.esc(UI.fmtDateTime(x.createdAt))} • ${(x.objects || []).length} objek${x.auto ? ' • otomatis' : ''}</div></div>
           <div class="wb-inline"><button type="button" class="btn btn-sm btn-primary" data-wb-open="${x.id}">${x.type === 'board' ? 'Buka' : 'Pulihkan'}</button>
           <button type="button" class="btn btn-sm btn-ghost" data-wb-del="${x.id}" aria-label="Hapus ${UI.esc(x.name)}">🗑️</button></div></div>`;
-        sheet.innerHTML = sheetHead('Simpan, Buka & Riwayat') + `
-          <form class="wb-inline" id="wbSaveForm"><input class="input" id="wbSaveName" maxlength="80" placeholder="Nama papan, mis. Pembahasan PU Bab 3" aria-label="Nama papan" />
-            <button type="submit" class="btn btn-sm btn-primary">💾 Simpan papan</button></form>
-          <div class="wb-inline"><button type="button" class="btn btn-sm btn-secondary" id="wbSnap">📸 Simpan versi sekarang</button>
-            <button type="button" class="btn btn-sm btn-secondary" id="wbNew">🆕 Papan baru</button></div>
-          <div class="wb-list-title">Papan tersimpan (${boards.length}/20)</div>
-          ${boards.length ? boards.map(row).join('') : '<div class="muted small">Belum ada papan tersimpan.</div>'}
+        sheet.innerHTML = sheetHead('Salinan & Riwayat') + `
+          <p class="muted small" style="margin:0;">Salinan menyimpan isi halaman ini agar dapat dibuka lagi. Untuk materi/pertemuan baru, buat papan baru dari daftar papan.</p>
+          <form class="wb-inline" id="wbSaveForm"><input class="input" id="wbSaveName" maxlength="80" placeholder="Nama salinan, mis. Pembahasan nomor 5" aria-label="Nama salinan" />
+            <button type="submit" class="btn btn-sm btn-primary">Simpan salinan</button></form>
+          <div class="wb-inline"><button type="button" class="btn btn-sm btn-secondary" id="wbSnap">Simpan versi sekarang</button></div>
+          <div class="wb-list-title">Salinan tersimpan (${boards.length}/20)</div>
+          ${boards.length ? boards.map(row).join('') : '<div class="muted small">Belum ada salinan.</div>'}
           <div class="wb-list-title">Riwayat versi (${versions.length}/15)</div>
           ${versions.length ? versions.map(row).join('') : '<div class="muted small">Versi otomatis dibuat tiap ±5 menit saat papan diubah.</div>'}`;
       }
@@ -1312,6 +1697,10 @@
         setBoard(next); fit();
       });
       on('[data-wb-template]', 'click', (e) => setBoard({ template: e.currentTarget.dataset.wbTemplate }));
+      if (q('#wbDropBg')) q('#wbDropBg').addEventListener('click', () => {
+        if (!UI.confirmDialog('Lepas latar PDF dari halaman ini? Tulisan tetap ada; dapat dibatalkan dengan Undo.')) return;
+        setBoard({ bgImage: null });
+      });
       on('[data-wb-bg]', 'click', (e) => setBoard({ bg: e.currentTarget.dataset.wbBg }));
       if (q('#wbGuides')) q('#wbGuides').addEventListener('change', (e) => { st.guides = e.target.checked; persist(); scheduleDraw(); });
       // ekspor
@@ -1327,29 +1716,20 @@
         if (!guard()) return;
         if (!objects.length) { UI.toast('Papan masih kosong.', 'info'); return; }
         try {
-          DB.addWhiteboardSave(course.id, { type: 'board', name: q('#wbSaveName').value, objects, board }, user);
-          UI.toast('Papan disimpan.'); paintSheet();
+          DB.addWhiteboardSave(course.id, { type: 'board', boardId, name: q('#wbSaveName').value, objects, board }, user);
+          UI.toast('Salinan disimpan.'); paintSheet();
         } catch (err) { UI.toast(/quota/i.test(String(err && err.name) + err.message) ? 'Penyimpanan browser penuh. Hapus simpanan lama.' : err.message, 'error'); }
       });
       if (q('#wbSnap')) q('#wbSnap').addEventListener('click', () => {
         if (!guard()) return;
         try {
-          DB.addWhiteboardSave(course.id, { type: 'version', name: 'Versi manual ' + UI.fmtDateTime(Date.now()), objects, board }, user);
+          DB.addWhiteboardSave(course.id, { type: 'version', boardId, name: 'Versi manual ' + UI.fmtDateTime(Date.now()), objects, board }, user);
           lastVersionAt = Date.now(); editsSinceVersion = 0;
           UI.toast('Versi disimpan.'); paintSheet();
         } catch (err) { UI.toast(err.message, 'error'); }
       });
-      if (q('#wbNew')) q('#wbNew').addEventListener('click', () => {
-        if (!guard()) return;
-        if (objects.length) {
-          if (!UI.confirmDialog('Mulai papan baru? Isi saat ini disimpan dulu sebagai versi.')) return;
-          try { DB.addWhiteboardSave(course.id, { type: 'version', name: 'Sebelum papan baru ' + UI.fmtDateTime(Date.now()), objects, board }, user); } catch (err) { /* lanjut */ }
-        }
-        loadObjects([], null, 'Papan baru siap. Gunakan Undo bila ingin kembali.');
-        paintSheet();
-      });
       on('[data-wb-open]', 'click', (e) => {
-        const rec = DB.getWhiteboardSaves(course.id).find(x => x.id === e.currentTarget.dataset.wbOpen);
+        const rec = DB.getWhiteboardSaves(course.id, null, boardId).find(x => x.id === e.currentTarget.dataset.wbOpen);
         if (!rec) return;
         if (objects.length && !UI.confirmDialog(`${rec.type === 'board' ? 'Buka' : 'Pulihkan'} "${rec.name}"? Isi papan saat ini akan diganti (bisa dibatalkan dengan Undo).`)) return;
         loadObjects(rec.objects, rec.board, `"${rec.name}" dibuka.`);
@@ -1363,15 +1743,23 @@
 
     /* ============================ halaman ============================ */
     const pagesBar = container.querySelector('#wbPages');
-    function pageIndex() { return Math.max(0, pages.findIndex(pg => pg.id === activePage)); }
+    const shownPage = () => (editable ? activePage : viewPage);
+    function pageIndex() { return Math.max(0, pages.findIndex(pg => pg.id === shownPage())); }
     function paintPages() {
       const i = pageIndex();
+      const on = shownPage();
       pagesBar.innerHTML = `
-        <span class="wb-pages-label">📄 Halaman</span>
-        <div class="wb-pages-list">${pages.map((pg, k) => `<button type="button" class="wb-page ${pg.id === activePage ? 'is-on' : ''}"
-            data-wb-page="${UI.esc(pg.id)}" ${editable ? '' : 'disabled'} title="${UI.esc(pg.name || 'Halaman ' + (k + 1))}"
-            aria-pressed="${pg.id === activePage}">${k + 1}</button>`).join('')}</div>
+        <span class="wb-pages-label">Halaman</span>
+        <div class="wb-pages-list">${pages.map((pg, k) => `<button type="button" class="wb-page ${pg.id === on ? 'is-on' : ''} ${!editable && pg.id === activePage ? 'is-live' : ''}"
+            data-wb-page="${UI.esc(pg.id)}" title="${UI.esc(pg.name || 'Halaman ' + (k + 1))}${!editable && pg.id === activePage ? ' • sedang dibuka tutor' : ''}"
+            aria-pressed="${pg.id === on}">${k + 1}</button>`).join('')}</div>
         <span class="wb-page-name">${UI.esc(pages[i].name || 'Halaman ' + (i + 1))} <span class="muted small">(${i + 1}/${pages.length})</span></span>
+        ${!editable ? `<div class="wb-pages-act">
+          <button type="button" class="btn btn-sm btn-secondary" id="wbPgPrev" ${i ? '' : 'disabled'} aria-label="Halaman sebelumnya">‹</button>
+          <button type="button" class="btn btn-sm btn-secondary" id="wbPgNext" ${i < pages.length - 1 ? '' : 'disabled'} aria-label="Halaman berikutnya">›</button>
+          ${follow ? '<span class="wb-follow is-on" title="Halaman berpindah mengikuti tutor">● Mengikuti tutor</span>'
+            : '<button type="button" class="btn btn-sm btn-primary" id="wbFollow">Ikuti tutor</button>'}
+        </div>` : ''}
         ${editable ? `<div class="wb-pages-act">
           <button type="button" class="btn btn-sm btn-secondary" id="wbPgPrev" ${i ? '' : 'disabled'} aria-label="Halaman sebelumnya">‹</button>
           <button type="button" class="btn btn-sm btn-secondary" id="wbPgNext" ${i < pages.length - 1 ? '' : 'disabled'} aria-label="Halaman berikutnya">›</button>
@@ -1380,8 +1768,17 @@
           <button type="button" class="btn btn-sm btn-ghost" id="wbPgLeft" ${i ? '' : 'disabled'} title="Pindahkan ke kiri">⇤</button>
           <button type="button" class="btn btn-sm btn-ghost" id="wbPgRight" ${i < pages.length - 1 ? '' : 'disabled'} title="Pindahkan ke kanan">⇥</button>
           <button type="button" class="btn btn-sm btn-ghost" id="wbPgDel" ${pages.length > 1 ? '' : 'disabled'} title="Hapus halaman ini">🗑️</button>
-        </div>` : '<span class="muted small">mengikuti halaman yang dibuka tutor</span>'}`;
-      if (!editable) return;
+        </div>` : ''}`;
+      if (!editable) {
+        const go = (id) => { follow = follow && id === activePage; viewPage = id; viewerLoad(record); userView = false; fit(); };
+        pagesBar.querySelectorAll('[data-wb-page]').forEach(b => b.addEventListener('click', () => go(b.dataset.wbPage)));
+        const k = pageIndex();
+        const pv = pagesBar.querySelector('#wbPgPrev'), nx = pagesBar.querySelector('#wbPgNext'), fl = pagesBar.querySelector('#wbFollow');
+        if (pv) pv.addEventListener('click', () => { if (k > 0) go(pages[k - 1].id); });
+        if (nx) nx.addEventListener('click', () => { if (k < pages.length - 1) go(pages[k + 1].id); });
+        if (fl) fl.addEventListener('click', () => { follow = true; viewPage = activePage; viewerLoad(record); userView = false; fit(); });
+        return;
+      }
       pagesBar.querySelectorAll('[data-wb-page]').forEach(b => b.addEventListener('click', () => switchPage(b.dataset.wbPage)));
       const q = (id) => pagesBar.querySelector(id);
       q('#wbPgPrev').addEventListener('click', () => { const k = pageIndex(); if (k > 0) switchPage(pages[k - 1].id); });
@@ -1397,12 +1794,12 @@
       if (!guard() || id === activePage || !pages.some(pg => pg.id === id)) return;
       if (textEditor) commitText();
       pageData[activePage] = { objects: clone(objects), board: clone(board) };
-      const target = pageData[id] || { objects: [], board: { w: board.w, h: board.h, bg: board.bg, template: board.template } };
+      const target = pageData[id] || { objects: [], board: null };
       delete pageData[id];
       activePage = id;
       doClear();
       addObjs((target.objects || []).map(freshCopy));
-      board = Object.assign({}, board, target.board || {}, { updatedAt: Date.now() });
+      board = Object.assign(pageBoard(board, target.board), { updatedAt: Date.now() });
       // Riwayat undo milik halaman sebelumnya tidak berlaku di halaman ini.
       undoStack.length = 0; redoStack.length = 0;
       inkDirty = true; editsSinceVersion++;
@@ -1449,38 +1846,41 @@
       pages = pages.filter(x => x.id !== pg.id);
       delete pageData[pg.id];
       pagesChanged();
+      pruneMedia();
       UI.toast('Halaman dihapus.');
     }
     paintPages();
 
     /* ============================ ekspor ============================ */
     /** Render satu halaman ke kanvas (objek & papan halaman tersebut). */
-    function renderPageCanvas(objs, brd, footer, wm, logo) {
+    function renderPageCanvas(objs, brd, footer, wm, logo, maxSide) {
       const savedBoard = board, savedObjects = objects;
       board = brd; objects = objs;
       try {
-        const out = renderFull();
+        const out = renderFull(maxSide);
         const oc = out.getContext('2d');
         const dark = brd.bg === '#1e293b';
-        drawWatermark(oc, out.width, out.height, wm, logo, dark);
+        if (wm) drawWatermark(oc, out.width, out.height, wm, logo, dark);
         if (footer) drawPageFooter(oc, out.width, out.height, footer, dark);
         return out;
       } finally { board = savedBoard; objects = savedObjects; }
     }
-    function renderFull() {
-      const k = Math.min(2, 8192 / Math.max(board.w, board.h));
+    /** Ekspor papan + tulisan yang keluar dari ukuran papan (tidak terpotong). maxSide: sisi terpanjang (px), mis. gambar mini. */
+    function renderFull(maxSide) {
+      const r = contentBounds(24);
+      const k = maxSide ? maxSide / Math.max(r.w, r.h) : Math.min(2, 8192 / Math.max(r.w, r.h));
       const out = document.createElement('canvas');
-      out.width = Math.round(board.w * k); out.height = Math.round(board.h * k);
+      out.width = Math.max(1, Math.round(r.w * k)); out.height = Math.max(1, Math.round(r.h * k));
       const oc = out.getContext('2d');
       const layer = document.createElement('canvas');
       layer.width = out.width; layer.height = out.height;
       const lc = layer.getContext('2d');
       const saved = Object.assign({}, view);
-      view.zoom = k; view.panX = 0; view.panY = 0;
+      view.zoom = k; view.panX = -r.x * k; view.panY = -r.y * k;
       const savedDpr = dpr; dpr = 1;
       const guides = st.guides; st.guides = false;
-      oc.setTransform(k, 0, 0, k, 0, 0); drawTemplate(oc);
-      lc.setTransform(k, 0, 0, k, 0, 0); objects.forEach(ob => drawObj(lc, ob));
+      oc.setTransform(k, 0, 0, k, -r.x * k, -r.y * k); drawTemplate(oc, r);
+      lc.setTransform(k, 0, 0, k, -r.x * k, -r.y * k); objects.forEach(ob => drawObj(lc, ob));
       oc.setTransform(1, 0, 0, 1, 0, 0); oc.drawImage(layer, 0, 0);
       Object.assign(view, saved); dpr = savedDpr; st.guides = guides;
       return out;
@@ -1489,19 +1889,23 @@
     function pageList(scope) {
       const all = pages.map(pg => pg.id === activePage
         ? { id: pg.id, name: pg.name, objects, board }
-        : { id: pg.id, name: pg.name, objects: ((pageData[pg.id] || {}).objects) || [], board: Object.assign({}, board, ((pageData[pg.id] || {}).board) || {}) });
+        : { id: pg.id, name: pg.name, objects: ((pageData[pg.id] || {}).objects) || [], board: pageBoard(board, (pageData[pg.id] || {}).board) });
       return scope === 'current' ? all.filter(x => x.id === activePage) : all;
     }
     /** Pastikan semua gambar halaman sudah termuat sebelum dirender. */
     async function preloadImages(list) {
-      const srcs = new Set();
-      list.forEach(pg => (pg.objects || []).forEach(ob => { if (ob && ob.kind === 'image' && ob.src) srcs.add(ob.src); }));
-      await Promise.all([...srcs].map(src => new Promise(res => {
-        const img = imageFor(src);
-        if (img.complete) { res(); return; }
+      const refs = new Map();
+      const want = (ref) => { const k = typeof ref === 'object' ? 'blob:' + ref.blob : ref; if (!refs.has(k)) refs.set(k, ref); };
+      list.forEach(pg => {
+        if (pg.board && pg.board.bgImage) want({ blob: pg.board.bgImage.blob });
+        (pg.objects || []).forEach(ob => { if (ob && ob.kind === 'image') { if (ob.blob) want({ blob: ob.blob }); else if (ob.src) want(ob.src); } });
+      });
+      await Promise.all([...refs.values()].map(ref => new Promise(res => {
+        const img = imageFor(ref);
+        if (img.failed || img.naturalWidth) { res(); return; }
         img.addEventListener('load', res, { once: true });
         img.addEventListener('error', res, { once: true });
-        setTimeout(res, 4000);
+        setTimeout(res, 8000);    // berkas dari server mungkin perlu diunduh dulu
       })));
     }
     async function renderPages(scope) {
@@ -1516,7 +1920,7 @@
       });
     }
     function fileBase() {
-      return ('whiteboard-' + DB.courseTitle(course) + '-' + UI.todayYMD()).replace(/[^\w\-]+/g, '_').slice(0, 80);
+      return ('whiteboard-' + DB.courseTitle(course) + '-' + DB.boardTitle(record) + '-' + UI.todayYMD()).replace(/[^\w\-]+/g, '_').slice(0, 100);
     }
     async function exportPng(scope) {
       try {
@@ -1577,7 +1981,7 @@
         b.classList.toggle('is-on', on); b.setAttribute('aria-pressed', on);
       });
       canvas.dataset.tool = st.tool;
-      if (st.tool !== 'select') { selection = null; updateButtons(); scheduleDraw(); }
+      if (st.tool !== 'select') { selected = new Set(); updateButtons(); scheduleDraw(); }
     }
     function setTool(t) {
       if (!editable && t !== 'hand') return;
@@ -1588,11 +1992,14 @@
     }
 
     if (editable) {
+      container.querySelector('#wbImport').addEventListener('change', (e) => { const fs = Array.from(e.target.files || []); e.target.value = ''; importFiles(fs); });
       container.querySelectorAll('[data-wb-tool]').forEach(b => b.addEventListener('click', () => setTool(b.dataset.wbTool)));
       container.querySelector('#wbColor').addEventListener('input', e => setColor(e.target.value));
       container.querySelector('#wbUndo').addEventListener('click', undo);
       container.querySelector('#wbRedo').addEventListener('click', redo);
       container.querySelector('#wbDelSel').addEventListener('click', deleteSelected);
+      container.querySelector('#wbGroup').addEventListener('click', () => setGroup(true));
+      container.querySelector('#wbUngroup').addEventListener('click', () => setGroup(false));
       const palette = container.querySelector('#wbPalette');
       container.querySelector('#wbDock').addEventListener('click', () => {
         st.dock = !st.dock; palette.classList.toggle('is-docked', st.dock);
@@ -1665,7 +2072,7 @@
       const p = toWorld(e);
       const ob = topHit(p);
       if (!ob || !guard()) return;
-      if (ob.kind === 'text') { selection = ob.id; openTextEditor({ x: ob.x, y: ob.y }, ob); }
+      if (ob.kind === 'text') { setSelection([ob.id]); openTextEditor({ x: ob.x, y: ob.y }, ob); }
       else if (ob.kind === 'table') {
         const c = clamp(Math.floor((p.x - ob.x) / (ob.w / ob.cols)), 0, ob.cols - 1);
         const r = clamp(Math.floor((p.y - ob.y) / (ob.h / ob.rows)), 0, ob.rows - 1);
@@ -1694,9 +2101,24 @@
       if (e.key === ' ') { spaceDown = true; canvas.classList.add('can-pan'); e.preventDefault(); return; }
       if ((e.ctrlKey || e.metaKey) && k === 'z') { e.preventDefault(); if (e.shiftKey) redo(); else undo(); return; }
       if ((e.ctrlKey || e.metaKey) && k === 'y') { e.preventDefault(); redo(); return; }
+      if (editable && (e.ctrlKey || e.metaKey) && k === 'a') {
+        e.preventDefault();
+        if (st.tool !== 'select') setTool('select');
+        setSelection(objects.filter(ob => !(ob.kind === 'stroke' && ob.tool === 'eraser')).map(ob => ob.id));
+        if (selected.size) flashHint(`${selected.size} objek dipilih`);
+        return;
+      }
+      if (editable && (e.ctrlKey || e.metaKey) && k === 'g') { e.preventDefault(); setGroup(!e.shiftKey); return; }
       if (e.ctrlKey || e.metaKey || e.altKey) return;
-      if ((e.key === 'Delete' || e.key === 'Backspace') && selection) { e.preventDefault(); deleteSelected(); return; }
-      if (e.key === 'Escape') { if (sheetKind) closeSheet(); else if (selection) { selection = null; updateButtons(); scheduleDraw(); } return; }
+      if ((e.key === 'Delete' || e.key === 'Backspace') && selected.size) { e.preventDefault(); deleteSelected(); return; }
+      if (e.key === 'Escape') { if (sheetKind) closeSheet(); else if (selected.size) setSelection([]); return; }
+      const arrows = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] };
+      if (editable && arrows[e.key] && selected.size) {
+        e.preventDefault();
+        const step = e.shiftKey ? 10 : 1;
+        nudge(arrows[e.key][0] * step, arrows[e.key][1] * step);
+        return;
+      }
       const map = { v: 'select', h: 'hand', p: 'pen', e: 'eraser', l: 'laser', s: 'shape', t: 'text' };
       if (map[k] && (editable || map[k] === 'hand')) { setTool(map[k]); return; }
       if (k === 'f') { toggleFull(); return; }
@@ -1712,9 +2134,10 @@
     if ('ResizeObserver' in global) { ro = new ResizeObserver(() => resize()); ro.observe(stage); }
     else global.addEventListener('resize', resize);
     global.addEventListener('storage', onStorage);
+    global.addEventListener('lms:remote-change', onRemote);
     global.addEventListener('pagehide', flush);
     if ('BroadcastChannel' in global) {
-      try { channel = new BroadcastChannel('lms-whiteboard-' + course.id); channel.addEventListener('message', e => mergeRemote(e.data)); }
+      try { channel = new BroadcastChannel('lms-whiteboard-' + boardId); channel.addEventListener('message', e => mergeRemote(e.data)); }
       catch (e) { channel = null; }
     }
 
@@ -1724,12 +2147,16 @@
       container,
       destroy() {
         if (textEditor) commitText();
+        if (dirty) thumbAt = 0;      // gambar mini terakhir dibuat saat papan ditutup
         flush();
+        try { pruneMedia(); } catch (e) { /* pembersihan berkas bersifat best-effort */ }
         destroyed = true;
         if (saveTimer) clearTimeout(saveTimer);
         if (raf) cancelAnimationFrame(raf);
         if (ro) ro.disconnect(); else global.removeEventListener('resize', resize);
         global.removeEventListener('storage', onStorage);
+        global.removeEventListener('lms:remote-change', onRemote);
+        objectUrls.forEach(u => URL.revokeObjectURL(u));
         global.removeEventListener('pagehide', flush);
         document.removeEventListener('fullscreenchange', onFsChange);
         document.removeEventListener('keydown', onKey);
@@ -1739,8 +2166,8 @@
         if (channel) channel.close();
         active = null;
       },
-      flush,
-      getState: () => ({ objects: clone(objects), board: clone(board), record: clone(record), editable, view: Object.assign({}, view) })
+      flush, importFiles,
+      getState: () => ({ objects: clone(objects), board: clone(board), record: clone(record), editable, view: Object.assign({}, view), selected: [...selected] })
     };
     container.__whiteboardDispose = active.destroy;
     return active;

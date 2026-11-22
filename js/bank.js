@@ -15,13 +15,16 @@
  * saat soal disimpan (js/topics.js).
  * Kunci: huruf (A/B/C…) untuk pilihan ganda, beberapa huruf dipisah koma
  * untuk pilihan lebih dari satu, "Benar"/"Salah" untuk benar-salah, dan teks
- * jawaban untuk isian singkat.
+ * jawaban untuk isian singkat. Menjodohkan: kolom A–H berisi "kiri = kanan".
+ * Urutan: kolom A–H berisi langkah; Kunci kosong berarti urutan kolom sudah
+ * benar, atau tulis urutan huruf yang benar (mis. "C, A, B").
+ * Impor dari PDF/Word (dibantu AI) ada di js/doc-import.js.
  */
 (function (global) {
 
   /* Kolom F–H dipakai bila soal Majemuk berisi lebih dari 5 pernyataan.
    * "Kolom" = nama kolom jawaban Majemuk Kompleks, dipisah | (mis. Benar | Salah | Tidak diketahui). */
-  const COLS = ['Subtest', 'Format', 'Tingkat', 'Materi', 'Sub Materi', 'Pertanyaan', 'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'Kolom', 'Kunci', 'Pembahasan', 'Poin'];
+  const COLS = ['Subtest', 'Format', 'Tingkat', 'Materi', 'Sub Materi', 'Pertanyaan', 'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'Kolom', 'Kunci', 'Pembahasan', 'Poin', 'Judul Teks', 'Teks Bacaan'];
   const LETTERS = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H'];
 
   function esc(s) { return UI.esc(s); }
@@ -52,6 +55,8 @@
     if (/benar|salah|b\/s/.test(v)) return 'Benar/Salah';
     if (/isian|singkat|short/.test(v)) return 'Isian Singkat';
     if (/esai|essay|uraian/.test(v)) return 'Esai';
+    if (/jodoh|pasang|match/.test(v)) return 'Menjodohkan';
+    if (/urut|order|sequence/.test(v)) return 'Urutan';
     return 'Pilihan Ganda';
   }
 
@@ -84,6 +89,10 @@
     const tName = String(row.Materi == null ? (d.topic || '') : row.Materi).replace(/\s+/g, ' ').trim().slice(0, 80);
     const sName = String(row['Sub Materi'] == null ? (row.Materi == null ? (d.subtopic || '') : '') : row['Sub Materi']).replace(/\s+/g, ' ').trim().slice(0, 80);
     if (tName) { base._topic = tName; if (sName) base._subtopic = sName; }
+    // Teks bacaan (opsional): baris dengan isi teks yang sama memakai satu teks bersama.
+    const psgText = String(row['Teks Bacaan'] == null ? (row.Bacaan == null ? '' : row.Bacaan) : row['Teks Bacaan']).trim();
+    if (psgText) base._passage = { title: String(row['Judul Teks'] == null ? (row['Judul Teks Bacaan'] || '') : row['Judul Teks']).trim().slice(0, 120), html: wrapParagraph(psgText) };
+    else if (d.passage && d.passage.html) base._passage = d.passage;
     // Kolom "Poin" opsional (sistem Poin Manual). Kosong → poin bawaan 1.
     const ptsRaw = row.Poin == null ? '' : String(row.Poin).trim().replace(',', '.');
     if (ptsRaw !== '') {
@@ -135,6 +144,33 @@
       if (bad >= 0) return { error: `Kunci pernyataan ${bad + 1} ("${keys[bad]}") tidak cocok dengan nama kolom` };
       base.columns = cols.map(c => c.replace(/[<>]/g, '').slice(0, 40));
       base.statements = stmts.map((t, i) => ({ text: wrapParagraph(t), correct: idx[i] }));
+      base.correctIndex = null;
+      return { question: base };
+    }
+
+    if (format === 'Menjodohkan') {
+      // Kolom A–H: "kiri = kanan" (juga => -> → atau |), satu pasangan benar per kolom.
+      const cells = LETTERS.map(L => String(row[L] == null ? '' : row[L]).trim()).filter(Boolean);
+      const pairs = cells.map(c => { const m = /^(.+?)\s*(?:=>|->|→|=|\|)\s*(.+)$/.exec(c); return m ? { left: wrapParagraph(m[1]), right: wrapParagraph(m[2]) } : null; });
+      if (pairs.length < 2 || pairs.some(p => !p)) return { error: 'Menjodohkan: isi kolom A, B, … dengan "kiri = kanan" (minimal 2 pasangan)' };
+      if (new Set(pairs.map(p => RichText.plain(p.right).toLowerCase())).size !== pairs.length) return { error: 'Menjodohkan: jawaban kanan tidak boleh sama' };
+      base.pairs = pairs;
+      base.correctIndex = null;
+      return { question: base };
+    }
+
+    if (format === 'Urutan') {
+      // Kolom A–H berisi langkah. Kunci opsional = urutan huruf yang benar (mis. "C, A, B"); kosong = sudah urut.
+      let items = LETTERS.map(L => String(row[L] == null ? '' : row[L]).trim()).filter(Boolean);
+      if (items.length < 2) return { error: 'Urutan: isi minimal 2 langkah di kolom A, B, …' };
+      if (keyRaw) {
+        const order = keyRaw.split(/[,;|/\s]+/).filter(Boolean).map(k => LETTERS.indexOf(k.toUpperCase()));
+        if (order.length !== items.length || order.some(i => i < 0 || i >= items.length) || new Set(order).size !== order.length) {
+          return { error: `Kunci Urutan harus memuat ${items.length} huruf berbeda, mis. "${LETTERS.slice(0, items.length).reverse().join(', ')}"` };
+        }
+        items = order.map(i => items[i]);
+      }
+      base.orderItems = items.map(wrapParagraph);
       base.correctIndex = null;
       return { question: base };
     }
@@ -203,12 +239,15 @@
     row['Sub Materi'] = tl ? tl.sub : '';
     row.Pertanyaan = RichText.plain(q.text, 4000);
     const isMx = fmt === 'Majemuk Kompleks' || fmt === 'Benar/Salah Majemuk';
-    const src = isMx ? (q.statements || []).map(x => x && x.text) : (q.options || []);
+    const src = isMx ? (q.statements || []).map(x => x && x.text)
+      : fmt === 'Menjodohkan' ? (q.pairs || []).map(p => p && (RichText.plain(p.left, 400) + ' = ' + RichText.plain(p.right, 400)))
+      : fmt === 'Urutan' ? (q.orderItems || []) : (q.options || []);
     LETTERS.forEach((L, i) => {
       row[L] = src[i] ? RichText.plain(src[i], 800) : '';
     });
     row.Kolom = fmt === 'Majemuk Kompleks' ? DB.qMatrixColumns(q).join(' | ') : '';
     if (isMx) row.Kunci = DB.qKeyText(q);
+    else if (fmt === 'Menjodohkan' || fmt === 'Urutan') row.Kunci = '';
     else if (fmt === 'Esai') row.Kunci = (q.keywords || []).join(', ');
     else if (fmt === 'Isian Singkat') row.Kunci = (q.answers || []).join(', ');
     else if (fmt === 'Benar/Salah') row.Kunci = q.correctIndex === 0 ? 'Benar' : 'Salah';
@@ -216,8 +255,53 @@
     else row.Kunci = LETTERS[q.correctIndex] || '';
     row.Pembahasan = RichText.plain(q.explanation || '', 2000);
     row.Poin = q.points != null ? q.points : '';
+    const ps = global.Passages ? Passages.of(q) : null;
+    row['Judul Teks'] = ps ? ps.title || '' : '';
+    row['Teks Bacaan'] = ps ? RichText.plain(ps.html, 30000) : '';
     return row;
   }
+
+  /* =====================================================================
+   * Simpan hasil impor / buat massal
+   * ===================================================================*/
+  /**
+   * Simpan daftar soal (hasil rowToQuestion). Teks bacaan `_passage` dibuat
+   * sekali (atau memakai teks yang isinya sama di Bank Soal) lalu ditautkan.
+   */
+  function saveQuestions(list, user, source) {
+    const cache = new Map();
+    const key = (h) => RichText.plain(h || '', 20000).toLowerCase().replace(/\s+/g, ' ').trim();
+    let n = 0;
+    list.forEach(q0 => {
+      let q = JSON.parse(JSON.stringify(q0));
+      if (global.Topics && (q._topic || q._subtopic)) q = Topics.applyImportNames(q, user);
+      const ps = q._passage;
+      ['_passage', '_topic', '_subtopic', '_num', '_dup', 'id'].forEach(k => delete q[k]);
+      if (ps && ps.html) {
+        const k = key(ps.html) + '|' + (q.subject || '');
+        if (!cache.has(k)) { const p = DB.findOrCreatePassage({ title: ps.title, html: ps.html, subject: q.subject, source }, user.id); cache.set(k, p ? p.id : null); }
+        if (cache.get(k)) q.passageId = cache.get(k);
+      }
+      DB.addQuestion(Object.assign({ authorId: user.id, source }, q));
+      n++;
+    });
+    return n;
+  }
+  /** Tandai baris yang sama/mirip dengan Bank Soal atau dengan baris lain di berkas yang sama. */
+  function markDuplicates(parsed) {
+    if (!global.Duplicates) return 0;
+    const check = Duplicates.importChecker();
+    let n = 0;
+    parsed.forEach(p => {
+      if (!p.question) return;
+      p.question._num = p.line;
+      p.dup = check(p.question);
+      if (p.dup) n++;
+    });
+    return n;
+  }
+  const dupText = (d) => (!d ? '' : d.where === 'bank' ? `${d.sim === 1 ? 'Sama' : 'Mirip'} dengan soal di Bank Soal` : `Sama dengan baris ${d.num}`);
+  const dupOptionHtml = (n) => (n ? `<label class="check-row small" style="margin-top:8px;"><input type="checkbox" id="bkKeepDup" /> Tetap simpan ${n} soal yang terdeteksi ganda</label>` : '');
 
   /* =====================================================================
    * 1. EKSPOR
@@ -278,6 +362,20 @@
         Pertanyaan: 'Berdasarkan teks, tentukan status setiap pernyataan.', A: 'Penulis setuju dengan kebijakan tersebut.',
         B: 'Kebijakan berlaku mulai tahun depan.', C: 'Semua siswa menolak kebijakan.', D: '', E: '',
         Kolom: 'Benar | Salah | Tidak dapat ditentukan', Kunci: 'Benar; Tidak dapat ditentukan; Salah', Pembahasan: '' },
+      { Subtest: 'PPU', Format: 'Menjodohkan', Tingkat: 'sedang',
+        Pertanyaan: 'Pasangkan provinsi dengan ibu kotanya.', A: 'Jawa Barat = Bandung', B: 'Jawa Tengah = Semarang', C: 'Jawa Timur = Surabaya', D: '', E: '',
+        Kunci: '', Pembahasan: '' },
+      { Subtest: 'PBM', Format: 'Urutan', Tingkat: 'sedang',
+        Pertanyaan: 'Urutkan langkah menulis paragraf.', A: 'Menentukan topik', B: 'Menyusun kerangka', C: 'Mengembangkan kalimat', D: '', E: '',
+        Kunci: '', Pembahasan: 'Kunci kosong berarti urutan kolom A, B, C sudah benar.' },
+      { Subtest: 'LBIND', Format: 'Pilihan Ganda', Tingkat: 'sedang', 'Judul Teks': 'Teks 1 — Hutan Mangrove',
+        'Teks Bacaan': 'Hutan mangrove menahan abrasi dan menjadi tempat berkembang biak ikan. Luasnya terus berkurang karena alih fungsi lahan.',
+        Pertanyaan: 'Gagasan utama teks tersebut adalah …', A: 'Manfaat dan ancaman hutan mangrove', B: 'Cara menanam mangrove', C: 'Jenis ikan di pesisir', D: 'Penyebab abrasi', E: '',
+        Kunci: 'A', Pembahasan: 'Teks membahas manfaat mangrove lalu ancamannya.' },
+      { Subtest: 'LBIND', Format: 'Benar/Salah', Tingkat: 'mudah', 'Judul Teks': 'Teks 1 — Hutan Mangrove',
+        'Teks Bacaan': 'Hutan mangrove menahan abrasi dan menjadi tempat berkembang biak ikan. Luasnya terus berkurang karena alih fungsi lahan.',
+        Pertanyaan: 'Menurut teks, luas hutan mangrove terus bertambah.', A: '', B: '', C: '', D: '', E: '',
+        Kunci: 'Salah', Pembahasan: 'Baris dengan Teks Bacaan yang sama memakai satu teks bersama.' },
       { Subtest: 'LBIND', Format: 'Esai', Tingkat: 'sulit',
         Pertanyaan: 'Jelaskan ciri kalimat efektif.', A: '', B: '', C: '', D: '', E: '',
         Kunci: 'kesatuan, kehematan, kepaduan', Pembahasan: 'Kata kunci penilaian.' }
@@ -341,6 +439,7 @@
               const res = rowToQuestion(r, defaults);
               return { line: i + 2, row: r, question: res.question, error: res.error };
             });
+            markDuplicates(parsed);
             renderReport();
           } catch (err) {
             report.innerHTML = `<div class="alert alert-error">${esc(err.message || 'Berkas tidak dapat dibaca.')}</div>`;
@@ -353,11 +452,13 @@
       function renderReport() {
         const good = parsed.filter(p => p.question);
         const bad = parsed.filter(p => p.error);
+        const dups = good.filter(p => p.dup);
+        const psgN = new Set(good.filter(p => p.question._passage).map(p => RichText.plain(p.question._passage.html, 400))).size;
         okBtn.disabled = good.length === 0;
         report.innerHTML = `
           <div class="alert ${bad.length ? 'alert-error' : 'alert-info'}">
-            <strong>${good.length} soal siap diimpor</strong>${bad.length ? ` • ${bad.length} baris dilewati` : ''}
-          </div>
+            <strong>${good.length} soal siap diimpor</strong>${bad.length ? ` • ${bad.length} baris dilewati` : ''}${dups.length ? ` • ${dups.length} terdeteksi ganda (tidak disimpan kecuali dicentang)` : ''}${psgN ? ` • ${psgN} teks bacaan` : ''}
+          </div>${dupOptionHtml(dups.length)}
           ${bad.length ? `
             <div class="table-wrap" style="max-height:200px;overflow:auto;">
               <table class="table"><thead><tr><th>Baris</th><th>Masalah</th><th>Pertanyaan</th></tr></thead>
@@ -368,29 +469,25 @@
             </div>` : ''}
           ${good.length ? `
             <div class="table-wrap mt-1" style="max-height:220px;overflow:auto;">
-              <table class="table"><thead><tr><th>#</th><th>Subtest</th><th>Materi</th><th>Format</th><th>Pertanyaan</th><th>Kunci</th></tr></thead>
+              <table class="table"><thead><tr><th>#</th><th>Subtest</th><th>Materi</th><th>Format</th><th>Pertanyaan</th><th>Kunci</th><th>Catatan</th></tr></thead>
               <tbody>${good.slice(0, 40).map((g, i) => `<tr>
                 <td>${i + 1}</td>
                 <td class="muted small">${esc(g.question.subject)}</td>
                 <td class="muted small">${esc(g.question._topic ? g.question._topic + (g.question._subtopic ? ' › ' + g.question._subtopic : '') : '-')}</td>
                 <td class="muted small">${esc(g.question.questionType)}</td>
-                <td>${esc(RichText.plain(g.question.text, 70))}</td>
+                <td>${g.question._passage ? '📖 ' : ''}${esc(RichText.plain(g.question.text, 70))}</td>
                 <td>${esc(keyLabel(g.question))}</td>
+                <td class="small" style="color:${g.dup ? 'var(--warning)' : 'var(--success)'};">${esc(g.dup ? dupText(g.dup) : 'OK')}</td>
               </tr>`).join('')}</tbody></table>
               ${good.length > 40 ? `<p class="muted small">…dan ${good.length - 40} soal lainnya.</p>` : ''}
             </div>` : ''}`;
       }
 
       okBtn.addEventListener('click', () => {
-        const good = parsed.filter(p => p.question);
-        if (!good.length) return;
-        let added = 0;
-        good.forEach(g => {
-          const q = global.Topics ? Topics.applyImportNames(g.question, user) : g.question;
-          delete q._topic; delete q._subtopic;
-          DB.addQuestion(Object.assign({ authorId: user.id, source: 'impor' }, q));
-          added++;
-        });
+        const keepDup = !!(back.querySelector('#bkKeepDup') || {}).checked;
+        const good = parsed.filter(p => p.question && (keepDup || !p.dup));
+        if (!good.length) { UI.toast('Semua soal terdeteksi ganda. Centang "Tetap simpan" bila memang ingin menyimpannya.', 'info'); return; }
+        const added = saveQuestions(good.map(g => g.question), user, 'impor');
         close();
         UI.toast(`${added} soal berhasil diimpor ke Bank Soal.`, 'success');
         if (typeof onDone === 'function') onDone(added);
@@ -472,6 +569,7 @@
         <button type="button" class="subtab-btn active" data-bmode="baris">📝 Satu Baris Satu Soal</button>
         <button type="button" class="subtab-btn" data-bmode="tabel">📋 Tempel dari Excel</button>
         <button type="button" class="subtab-btn" data-bmode="ai">🤖 Buat dengan AI</button>
+        ${global.DocImport ? '<button type="button" class="subtab-btn" id="bkDocImport" title="Baca soal & teks bacaan dari PDF / Word">📄 Impor PDF / Word</button>' : ''}
       </div>
 
       <div id="bkPanel"></div>
@@ -591,13 +689,21 @@
           panel.innerHTML = `
             <div class="form-group">
               <label for="bkLines">Daftar soal — satu soal per baris</label>
-              <textarea id="bkLines" rows="9" placeholder="Pertanyaan | pilihan A | pilihan B | pilihan C | pilihan D | kunci
+              <textarea id="bkLines" rows="11" placeholder="Pertanyaan | pilihan A | pilihan B | pilihan C | pilihan D | kunci
 Hasil 12 + 8 | 18 | 20 | 22 | 24 | B
-Manakah bilangan prima | 2 | 3 | 4 | 9 | A,C"></textarea>
+Manakah bilangan prima | 2 | 3 | 4 | 9 | A,C
+
+TEKS: Teks 1 — Hutan Mangrove
+Hutan mangrove menahan abrasi dan menjadi tempat berkembang biak ikan.
+Gagasan utama teks tersebut adalah … | Manfaat mangrove | Cara menanam | Jenis ikan | Penyebab abrasi | A
+Menurut teks, mangrove menahan abrasi | Benar
+---"></textarea>
               <div class="muted small">
                 Pemisah tanda <code>|</code>. Bagian terakhir adalah kunci: huruf pilihan
                 (<code>B</code>), beberapa huruf untuk jawaban ganda (<code>A,C</code>),
                 <code>Benar</code>/<code>Salah</code>, atau jawaban isian singkat bila tanpa pilihan.
+                <br><strong>Teks bacaan:</strong> tulis <code>TEKS: Judul</code> lalu paragraf bacaannya (tanpa <code>|</code>).
+                Soal-soal sesudahnya memakai teks itu sampai <code>TEKS:</code> berikutnya atau baris <code>---</code>.
               </div>
             </div>`;
         } else {
@@ -607,8 +713,9 @@ Manakah bilangan prima | 2 | 3 | 4 | 9 | A,C"></textarea>
               <textarea id="bkPaste" rows="9" placeholder="Salin beberapa kolom dari Excel lalu tempel di sini (Ctrl+V).
 Urutan kolom: Pertanyaan, A, B, C, D, Kunci, Pembahasan (opsional)"></textarea>
               <div class="muted small">
-                Kolom dipisah tab — cukup salin sel dari Excel dan tempel.
-                Baris pertama boleh berupa judul kolom, akan diabaikan bila dikenali.
+                Kolom dipisah tab — cukup salin sel dari Excel dan tempel. Bila baris pertama berisi judul kolom
+                (mis. <code>Pertanyaan</code>, <code>A</code>, <code>Kunci</code>, <code>Teks Bacaan</code>, <code>Judul Teks</code>),
+                kolom dibaca sesuai namanya — soal dengan isi <code>Teks Bacaan</code> yang sama memakai satu teks.
               </div>
             </div>`;
         }
@@ -618,6 +725,12 @@ Urutan kolom: Pertanyaan, A, B, C, D, Kunci, Pembahasan (opsional)"></textarea>
         if (mode !== 'ai') aiRows = [];
       }
 
+      const docBtn = back.querySelector('#bkDocImport');
+      if (docBtn) docBtn.addEventListener('click', () => {
+        const subject = back.querySelector('#bkSub').value;
+        close();
+        DocImport.open(user, onDone, { subtest: subject });
+      });
       back.querySelectorAll('[data-bmode]').forEach(b => b.addEventListener('click', () => {
         back.querySelectorAll('[data-bmode]').forEach(x => x.classList.remove('active'));
         b.classList.add('active');
@@ -642,39 +755,39 @@ Urutan kolom: Pertanyaan, A, B, C, D, Kunci, Pembahasan (opsional)"></textarea>
           return { line: i + 1, row: r, question: res.question, error: res.error };
         });
 
+        markDuplicates(parsed);
         const good = parsed.filter(p => p.question);
         const bad = parsed.filter(p => p.error);
+        const dups = good.filter(p => p.dup);
+        const psgN = new Set(good.filter(p => p.question._passage).map(p => RichText.plain(p.question._passage.html, 400))).size;
         okBtn.disabled = good.length === 0;
         preview.innerHTML = !parsed.length
           ? '<div class="alert alert-error">Belum ada yang bisa dibaca. Periksa kembali isinya.</div>'
           : `<div class="alert ${bad.length ? 'alert-error' : 'alert-info'}">
-               <strong>${good.length} soal siap disimpan</strong>${bad.length ? ` • ${bad.length} baris bermasalah` : ''}
-             </div>
+               <strong>${good.length - dups.length} soal baru siap disimpan</strong>${dups.length ? ` • ${dups.length} terdeteksi ganda (dilewati)` : ''}${bad.length ? ` • ${bad.length} baris bermasalah` : ''}${psgN ? ` • ${psgN} teks bacaan` : ''}
+             </div>${dupOptionHtml(dups.length)}
              <div class="table-wrap" style="max-height:220px;overflow:auto;">
                <table class="table"><thead><tr><th>#</th><th>Format</th><th>Materi</th><th>Pertanyaan</th><th>Kunci</th><th>Catatan</th></tr></thead>
                <tbody>${parsed.slice(0, 50).map(pp => `<tr>
                  <td>${pp.line}</td>
                  <td class="muted small">${esc(pp.question ? pp.question.questionType : '-')}</td>
                  <td class="muted small">${esc(pp.question && pp.question._topic ? pp.question._topic + (pp.question._subtopic ? ' › ' + pp.question._subtopic : '') : '-')}</td>
-                 <td>${esc(String(pp.row.Pertanyaan || '').slice(0, 60))}</td>
+                 <td>${pp.question && pp.question._passage ? '📖 ' : ''}${esc(String(pp.row.Pertanyaan || '').slice(0, 60))}</td>
                  <td>${esc(pp.question ? keyLabel(pp.question) : '-')}</td>
-                 <td class="small" style="color:${pp.error ? 'var(--danger)' : 'var(--success)'};">${esc(pp.error || 'OK')}</td>
+                 <td class="small" style="color:${pp.error ? 'var(--danger)' : pp.dup ? 'var(--warning)' : 'var(--success)'};">${esc(pp.error || (pp.dup ? dupText(pp.dup) : 'OK'))}</td>
                </tr>`).join('')}</tbody></table>
              </div>`;
       });
 
       back.querySelector('[data-cancel]').addEventListener('click', close);
       okBtn.addEventListener('click', () => {
-        const good = parsed.filter(p => p.question);
-        if (!good.length) return;
-        good.forEach(g => {
-          const q = global.Topics ? Topics.applyImportNames(g.question, user) : g.question;
-          delete q._topic; delete q._subtopic;
-          DB.addQuestion(Object.assign({ authorId: user.id, source: mode === 'ai' ? 'ai' : 'massal' }, q));
-        });
+        const keepDup = !!(back.querySelector('#bkKeepDup') || {}).checked;
+        const good = parsed.filter(p => p.question && (keepDup || !p.dup));
+        if (!good.length) { UI.toast('Semua soal terdeteksi ganda. Centang "Tetap simpan" bila memang ingin menyimpannya.', 'info'); return; }
+        const n = saveQuestions(good.map(g => g.question), user, mode === 'ai' ? 'ai' : 'massal');
         close();
-        UI.toast(`${good.length} soal ditambahkan ke Bank Soal.`, 'success');
-        if (typeof onDone === 'function') onDone(good.length);
+        UI.toast(`${n} soal ditambahkan ke Bank Soal.`, 'success');
+        if (typeof onDone === 'function') onDone(n);
       });
 
       paintPanel();
@@ -696,31 +809,58 @@ Urutan kolom: Pertanyaan, A, B, C, D, Kunci, Pembahasan (opsional)"></textarea>
     return 'Pilihan Ganda';
   }
 
-  /** "Pertanyaan | A | B | C | D | kunci" -> baris tabel. */
+  /**
+   * "Pertanyaan | A | B | C | D | kunci" -> baris tabel.
+   * Teks bacaan: baris "TEKS: Judul" lalu paragraf bacaan (tanpa tanda |). Soal
+   * sesudahnya memakai teks itu sampai "TEKS:" berikutnya atau baris "---".
+   */
   function linesToRows(text) {
-    return String(text || '').split('\n').map(l => l.trim()).filter(Boolean).map(line => {
+    const rows = [];
+    let psg = null;
+    const psgHtml = (p) => p.paras.filter(x => x.trim()).map(x => '<p>' + UI.esc(x.trim()) + '</p>').join('');
+    String(text || '').split('\n').forEach(raw => {
+      const line = raw.trim();
+      const head = /^(?:teks(?:\s*bacaan)?|bacaan|wacana|stimulus)\s*:\s*(.*)$/i.exec(line);
+      if (head) { psg = head[1].trim() === '-' ? null : { title: head[1].trim(), paras: [''], started: false }; return; }
+      if (/^-{3,}$/.test(line)) { psg = null; return; }
+      if (psg && !psg.started && !line.includes('|')) {
+        if (!line) psg.paras.push('');
+        else psg.paras[psg.paras.length - 1] += (psg.paras[psg.paras.length - 1] ? ' ' : '') + line;
+        return;
+      }
+      if (!line) return;
       const parts = line.split('|').map(x => x.trim());
       const row = { Pertanyaan: parts.shift() || '' };
       const key = parts.length ? parts.pop() : '';
       parts.forEach((p, i) => { if (LETTERS[i]) row[LETTERS[i]] = p; });
       row.Kunci = key;
       row.Format = inferFormat(key, parts.length);
-      return row;
+      if (psg && psgHtml(psg)) { psg.started = true; row['Teks Bacaan'] = psgHtml(psg); row['Judul Teks'] = psg.title; }
+      rows.push(row);
     });
+    return rows;
   }
 
-  /** Tempelan Excel (dipisah tab) -> baris tabel. */
+  /** Tempelan Excel (dipisah tab) -> baris tabel. Baris judul berisi nama kolom dipetakan per nama. */
   function pastedToRows(text) {
     const lines = String(text || '').split('\n').map(l => l.replace(/\s+$/, '')).filter(l => l.trim());
     if (!lines.length) return [];
     const split = (l) => l.split('\t').map(x => x.trim());
     let rows = lines.map(split);
-    // Buang baris judul bila jelas berupa header
     const first = rows[0].map(x => x.toLowerCase());
+    const named = first.map(h => COLS.find(c => c.toLowerCase() === h) || (h === 'soal' ? 'Pertanyaan' : null));
+    if (named.filter(Boolean).length >= 2 && named.includes('Pertanyaan')) {
+      return rows.slice(1).map(cells => {
+        const row = {};
+        named.forEach((c, i) => { if (c) row[c] = cells[i] || ''; });
+        if (!row.Format) row.Format = inferFormat(row.Kunci, LETTERS.filter(L => row[L]).length);
+        return row;
+      });
+    }
+    // Tanpa judul kolom: Pertanyaan, A, B, …, Kunci, Pembahasan (opsional)
     if (first.includes('pertanyaan') || first.includes('soal')) rows = rows.slice(1);
     return rows.map(cells => {
       const row = { Pertanyaan: cells[0] || '' };
-      // Kolom terakhir dianggap pembahasan bila ada 7 kolom atau lebih
       let key, expl = '';
       if (cells.length >= 7) { expl = cells[cells.length - 1]; key = cells[cells.length - 2]; }
       else key = cells[cells.length - 1];
@@ -734,7 +874,7 @@ Urutan kolom: Pertanyaan, A, B, C, D, Kunci, Pembahasan (opsional)"></textarea>
   }
 
   global.BankTools = {
-    openBulk, openImport, exportQuestions, downloadTemplate,
+    openBulk, openImport, exportQuestions, downloadTemplate, saveQuestions, markDuplicates,
     rowToQuestion, questionToRow, parseCsv, linesToRows, pastedToRows, keyLabel,
     inferFormat, COLS
   };

@@ -37,7 +37,6 @@
     material: svg('<path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20V3H6.5A2.5 2.5 0 0 0 4 5.5Z"/><path d="M8 7h8M8 11h6"/>', 18),
     announcement: svg('<path d="M3 11v2a1 1 0 0 0 1 1h2l5 4V6L6 10H4a1 1 0 0 0-1 1Z"/><path d="M15.5 8.5a5 5 0 0 1 0 7M18.5 5.5a9 9 0 0 1 0 13"/>', 18),
     back: svg('<path d="M19 12H5M11 18l-6-6 6-6"/>', 18),
-    dots: svg('<circle cx="12" cy="5" r="1.4"/><circle cx="12" cy="12" r="1.4"/><circle cx="12" cy="19" r="1.4"/>', 18),
     search: svg('<circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/>')
   };
 
@@ -174,6 +173,7 @@
   /* ============================ halaman ============================ */
   const st = { groupId: null, q: '' };
   let liveHandler = null;
+  let menuOutside = null;    // penutup menu "+" saat klik di luar (dipasang ulang tiap ganti grup)
 
   function render(container, user) {
     const list = forUser(user).sort((a, b) => (a.archived - b.archived) || lastAt(b) - lastAt(a));
@@ -305,7 +305,13 @@
     if (add) {
       const close = () => { menu.hidden = true; add.setAttribute('aria-expanded', 'false'); };
       add.addEventListener('click', (e) => { e.stopPropagation(); menu.hidden = !menu.hidden; add.setAttribute('aria-expanded', String(!menu.hidden)); });
-      document.addEventListener('click', (e) => { if (!menu.hidden && !menu.contains(e.target)) close(); });
+      // Satu pendengar dokumen saja (paintMain dipanggil setiap ganti grup).
+      if (menuOutside) document.removeEventListener('click', menuOutside);
+      menuOutside = (e) => {
+        if (!menu.isConnected) { document.removeEventListener('click', menuOutside); menuOutside = null; return; }
+        if (!menu.hidden && !menu.contains(e.target)) close();
+      };
+      document.addEventListener('click', menuOutside);
       menu.querySelectorAll('[data-make]').forEach(b => b.addEventListener('click', () => {
         close();
         const done = () => { markRead(g.id); paintList(root, user); refreshFeed(root, user, true); };
@@ -363,8 +369,8 @@
     if (staff) items.push(['pin', p.pinned ? 'Lepas sematan' : 'Sematkan']);
     if (mine || staff) items.push(['del', 'Hapus']);
     if (!items.length) return '';
-    return `<details class="gr-more"><summary aria-label="Aksi pesan">${ICON.dots}</summary>
-      <div class="gr-more-menu">${items.map(([a, l]) => `<button type="button" data-act="${a}" data-id="${esc(p.id)}">${l}</button>`).join('')}</div></details>`;
+    // Menu bersama (UI.actionMenu): panel fixed sehingga tidak terpotong daftar pesan yang digulir.
+    return `<span class="gr-more">${UI.actionMenu(items.map(([a, l]) => ({ label: l, danger: a === 'del', attrs: `data-act="${a}" data-id="${esc(p.id)}"` })), 'Aksi pesan')}</span>`;
   }
   function postHtml(p, g, user, staff, nReplies) {
     const mine = p.authorId === user.id;
@@ -550,6 +556,10 @@
   function snapshot(q) {
     const c = JSON.parse(JSON.stringify(q));
     META_FIELDS.forEach(f => delete c[f]);
+    // Teks bacaan ikut disalin agar kuis tetap utuh walau teks di Bank Soal diubah/dihapus.
+    const ps = global.Passages && Passages.snapshotOf(q);
+    if (ps) c.passage = ps;
+    delete c.passageId;
     return c;
   }
   function openQuizForm(g, user, done, editing) {
@@ -661,6 +671,11 @@
     const prev = staff ? null : answer(p.id, user.id);
     const submitted = !!(prev && prev.submittedAt);
     const answers = Object.assign({}, prev ? prev.answers : {});
+    // Draf di perangkat lebih baru daripada di server (sinyal sempat putus): pakai draf perangkat.
+    const local = !staff && !submitted && global.SafeSave ? SafeSave.get('group', p.id) : null;
+    if (local && local.data && local.data.answers && !local.data.submittedAt && (Number(local.data.savedAt) || 0) > (Number(prev && prev.savedAt) || 0)) {
+      Object.assign(answers, local.data.answers);
+    }
     const showKey = staff || keyVisible(p, prev);
     const readOnly = staff || submitted || quizClosed(p);
     const QUI = global.QuestionUI;
@@ -673,7 +688,7 @@
         ${submitted && !showKey ? '<p class="muted small">Kunci jawaban dan pembahasan tampil setelah batas waktu berakhir.</p>' : ''}</div>
       ${qs.map((q, i) => {
         const res = submitted && showKey ? grade(q) : null;
-        return `<div class="gr-q ${res ? (res.correct ? 'is-right' : 'is-wrong') : ''}" data-qid="${esc(q.id)}">
+        return `${global.Passages ? Passages.inlineHtml(q, qs[i - 1]) : ''}<div class="gr-q ${res ? (res.correct ? 'is-right' : 'is-wrong') : ''}" data-qid="${esc(q.id)}">
           <div class="gr-q-head"><span class="gr-q-n">${i + 1}</span><span class="muted small">${esc(q.questionType || 'Pilihan Ganda')}</span>${res ? `<span class="gr-q-res">${res.correct ? 'Benar' : 'Salah'}</span>` : ''}</div>
           <div class="rt-content gr-q-text">${RichText.render(q.text || '')}</div>
           <div class="asg-q-answer">${QUI ? QUI.answerInputHtml(q, answers[q.id]) : '<p class="muted small">Komponen jawaban belum termuat.</p>'}</div>
@@ -681,34 +696,39 @@
         </div>`;
       }).join('')}
       <div class="flex-gap gr-quiz-foot">${readOnly ? '<button type="button" class="btn btn-secondary" data-cancel>Tutup</button>'
-        : '<span class="muted small" id="grQuizSaved">Jawaban tersimpan otomatis.</span><button type="button" class="btn btn-secondary" data-cancel>Tutup</button><button type="submit" class="btn btn-primary">Kirim jawaban</button>'}</div>
+        : '<span id="grQuizNet" role="status"></span><button type="button" class="btn btn-secondary" data-cancel>Tutup</button><button type="submit" class="btn btn-primary">Kirim jawaban</button>'}</div>
     </form>`, { fullscreenToggle: true, fullKey: 'grp-quiz-take', autofocus: false });
     const f = document.getElementById('grQuiz');
     if (readOnly) f.querySelectorAll('.asg-q-answer input, .asg-q-answer select, .asg-q-answer textarea, .asg-q-answer button').forEach(el => { el.disabled = true; });
     f.querySelector('[data-cancel]').addEventListener('click', () => UI.modal.close());
     if (readOnly || !QUI) return;
-    let timer = null;
-    const draft = () => {
-      clearTimeout(timer);
-      timer = setTimeout(() => {
-        if (quizClosed(p)) return;
-        saveAnswer({ id: p.id + ':' + user.id, postId: p.id, groupId: g.id, userId: user.id, answers: Object.assign({}, answers), startedAt: (prev && prev.startedAt) || Date.now(), submittedAt: null });
-        const s = document.getElementById('grQuizSaved');
-        if (s) s.textContent = 'Tersimpan ' + timeOf(Date.now());
-      }, 800);
-    };
-    QUI.bindAnswerInputs(f, answers, draft);
+    const startedAt = (prev && prev.startedAt) || Date.now();
+    const record = (extra) => Object.assign({ id: p.id + ':' + user.id, postId: p.id, groupId: g.id, userId: user.id,
+      answers: JSON.parse(JSON.stringify(answers)), startedAt, submittedAt: null, savedAt: Date.now() }, extra || {});
+    // Draf: ke server + jurnal perangkat tiap detik yang ada perubahan (js/safe-save.js).
+    const saver = global.SafeSave ? SafeSave.autosave({
+      scope: 'group', id: p.id, urgent: true, alive: () => f.isConnected,
+      read: () => (quizClosed(p) ? null : record()),
+      write: (rec) => saveAnswer(rec)
+    }) : null;
+    const netOff = global.SafeSave ? SafeSave.mountStatus(f.querySelector('#grQuizNet')) : null;
+    if (saver) saver.onStop(() => { if (netOff) netOff(); });
+    QUI.bindAnswerInputs(f, answers, () => { if (saver) saver.mark(); else saveAnswer(record()); });
     f.addEventListener('submit', (x) => {
       x.preventDefault();
-      clearTimeout(timer);
-      if (quizClosed(p)) { UI.toast('Waktu kuis sudah habis.', 'error'); UI.modal.close(); done(); return; }
+      if (quizClosed(p)) { if (saver) saver.cancel(); UI.toast('Waktu kuis sudah habis.', 'error'); UI.modal.close(); done(); return; }
       const empty = qs.filter(q => !(global.Exam ? Exam.isAnswered(q, answers[q.id]) : answers[q.id] != null)).length;
       if (empty && !UI.confirmDialog(`${empty} soal belum dijawab. Kirim sekarang? Jawaban tidak dapat diubah setelah dikirim.`)) return;
       if (!empty && !UI.confirmDialog('Kirim jawaban? Jawaban tidak dapat diubah setelah dikirim.')) return;
       const correct = qs.filter(q => grade(q).correct).length;
-      saveAnswer({ id: p.id + ':' + user.id, postId: p.id, groupId: g.id, userId: user.id, answers: Object.assign({}, answers),
-        score: { correct, total: qs.length }, startedAt: (prev && prev.startedAt) || Date.now(), submittedAt: Date.now() });
-      UI.toast(`Jawaban terkirim: ${correct}/${qs.length} benar.`, 'success');
+      if (saver) saver.cancel();
+      const final = record({ score: { correct, total: qs.length }, submittedAt: Date.now() });
+      saveAnswer(final);
+      // Bila sinyal putus, kiriman akhir menunggu di perangkat dan terkirim otomatis saat online.
+      if (global.SafeSave) { SafeSave.put('group', p.id, final); SafeSave.dropWhenSynced('group', p.id); }
+      const offline = !!(global.SafeSave && !SafeSave.net().online);
+      UI.toast(offline ? `Jawaban tersimpan di perangkat ini (${correct}/${qs.length} benar) dan terkirim otomatis saat sinyal kembali.`
+        : `Jawaban terkirim: ${correct}/${qs.length} benar.`, offline ? 'info' : 'success');
       UI.modal.close();
       done();
       setTimeout(() => openQuiz(g, post(p.id) || p, user, done), 200);
@@ -734,7 +754,7 @@
             return `<tr><td>${esc(m.name)}<div class="muted small">${esc(m.kelas || '')}</div></td>
               <td>${a && a.submittedAt ? '<span class="badge badge-success">Terkirim</span>' : a ? '<span class="badge badge-info">Mengerjakan</span>' : '<span class="badge badge-gray">Belum</span>'}</td>
               <td class="num">${a && a.score ? `${a.score.correct}/${a.score.total}` : '—'}</td>
-              <td class="muted small">${a && a.submittedAt ? esc(UI.fmtDateTime(a.submittedAt)) : '—'}</td>
+              <td class="muted small">${a && a.submittedAt ? esc(UI.fmtDateTime(a.submittedAt)) : '—'}${a && a.syncedLate ? `<div class="gr-late">Dikirim saat offline, baru sampai server ${esc(UI.fmtDateTime(a.syncedLate))}</div>` : ''}</td>
               <td class="actions">${a ? `<button type="button" class="btn btn-sm btn-ghost" data-reset="${esc(a.id)}">Atur ulang</button>` : ''}</td></tr>`; }).join('') || '<tr><td colspan="5" class="muted">Grup belum punya anggota.</td></tr>'}</tbody></table></div>
         ${sent.length ? `<h4 class="gr-res-h">Persentase benar per soal</h4><ol class="gr-perq">${qs.map((q, i) => `<li><span class="gr-perq-t">${esc(RichText.plain(q.text || '', 90))}</span>
           <span class="gr-perq-bar" aria-hidden="true"><span style="width:${perQ[i] || 0}%"></span></span><strong>${perQ[i]}%</strong></li>`).join('')}</ol>` : ''}
@@ -751,7 +771,7 @@
   /* ============================ anggota & pengaturan grup ============================ */
   function openMembers(g, user) {
     const people = (ids) => ids.map(id => DB.getUser(id)).filter(Boolean).sort((a, b) => a.name.localeCompare(b.name, 'id'));
-    const row = (u) => `<li class="gr-person">${avatar(u.id, 34)}<span><strong>${esc(u.name)}</strong><small>${esc(u.role === 'guru' ? (u.subject || 'Tutor') : (u.kelas || 'Mentee'))}</small></span></li>`;
+    const row = (u) => `<li class="gr-person">${avatar(u.id, 34)}<span><strong>${esc(u.name)}</strong><small>${esc(u.role === 'guru' ? (DB.userSubjectsLabel(u) || 'Tutor') : (u.kelas || 'Mentee'))}</small></span></li>`;
     UI.modal.open('Anggota ' + g.name, `<div class="gr-people">
       ${g.description ? `<p class="gr-desc">${esc(g.description)}</p>` : ''}
       <h4>Tutor (${(g.tutorIds || []).length})</h4><ul>${people(g.tutorIds || []).map(row).join('') || '<li class="muted small">Belum ada tutor.</li>'}</ul>
@@ -772,7 +792,7 @@
       <div class="form-group"><label for="ggDesc">Deskripsi <span class="muted">(opsional)</span></label><textarea id="ggDesc" rows="2" maxlength="500">${esc(e.description || '')}</textarea></div>
       <fieldset class="gr-fs"><legend>Warna</legend><div class="gr-colors">${COLORS.map(c => `<label class="gr-color"><input type="radio" name="ggColor" value="${c}" ${(e.color || COLORS[0]) === c ? 'checked' : ''} /><span style="--c:${c}" aria-label="Warna ${c}"></span></label>`).join('')}</div></fieldset>
       <fieldset class="gr-fs"><legend>Tutor <span class="gr-count" id="ggTCount"></span></legend>
-        <div class="gr-pick is-short">${guru.map(u => `<label class="gr-pick-item"><input type="checkbox" data-tutor value="${esc(u.id)}" ${tutors.has(u.id) ? 'checked' : ''} /><span>${esc(u.name)}<small>${esc(u.subject || '')}</small></span></label>`).join('') || '<p class="muted small">Belum ada akun tutor.</p>'}</div>
+        <div class="gr-pick is-short">${guru.map(u => `<label class="gr-pick-item"><input type="checkbox" data-tutor value="${esc(u.id)}" ${tutors.has(u.id) ? 'checked' : ''} /><span>${esc(u.name)}<small>${esc(DB.userSubjectsLabel(u))}</small></span></label>`).join('') || '<p class="muted small">Belum ada akun tutor.</p>'}</div>
         <p class="muted small">Tutor grup dapat mengirim kuis, bahan diskusi, materi, dan pengumuman, serta melihat hasil kuis.</p></fieldset>
       <fieldset class="gr-fs"><legend>Anggota (mentee) <span class="gr-count" id="ggMCount"></span></legend>
         <div class="gr-qfilter"><select id="ggKelas" aria-label="Filter kelas"><option value="">Semua kelas</option>${classes.map(c => `<option>${esc(c)}</option>`).join('')}</select>
@@ -827,6 +847,18 @@
       done(out);
     });
   }
+
+  /* Jurnal kuis grup di perangkat (js/safe-save.js): kirim ulang draf/kiriman yang belum sampai server. */
+  if (global.SafeSave) SafeSave.registerRecovery('group', (entry) => {
+    const j = entry.data;
+    if (!j || typeof j !== 'object' || !j.postId || !j.userId || j.id !== j.postId + ':' + j.userId) return 'drop';
+    const ps = post(j.postId);
+    if (!ps || ps.deleted || ps.kind !== 'quiz') return 'drop';
+    const cur = answer(j.postId, j.userId);
+    if (cur && cur.submittedAt) return j.submittedAt ? 'synced' : 'drop';
+    if (!cur || (Number(j.savedAt) || 0) > (Number(cur.savedAt) || 0)) saveAnswer(j);
+    return j.submittedAt ? 'synced' : 'keep';
+  });
 
   global.Groups = { render, unreadTotal, roleIn, forUser, _data: { all, posts, answersOf } };
 })(window);

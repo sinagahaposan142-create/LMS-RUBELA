@@ -31,7 +31,9 @@
     lms_enrollments: { type: RECORDS },
     lms_questions: { type: RECORDS },
     lms_topics: { type: RECORDS },                         // Materi & Sub Materi per subtest (js/topics.js)
+    lms_passages: { type: RECORDS },                       // Teks Bacaan bersama beberapa soal (js/passages.js)
     lms_cbts: { type: RECORDS },
+    lms_cbt_contribs: { type: RECORDS },                   // setoran soal tutor untuk CBT Tryout (js/tryout.js), hanya staf
     lms_cbt_attempts: { type: RECORDS },
     lms_attendance: { type: RECORDS },
     lms_payments: { type: RECORDS },
@@ -39,6 +41,7 @@
     lms_salaries: { type: RECORDS },
     lms_notifications: { type: RECORDS, quiet: false, target: ['userId'] },
     lms_class_plans: { type: RECORDS },
+    lms_material_plans: { type: RECORDS },                 // Rencana Materi per minggu tiap kelas subtest (js/jadwal.js)
     lms_whiteboards: { type: RECORDS },
     lms_whiteboard_boards: { type: RECORDS, quiet: true },
     lms_motivations: { type: RECORDS },
@@ -74,6 +77,11 @@
     lms_game_questions: { type: RECORDS },                  // soal khusus Game Battle (js/games-admin.js)
     lms_game_battles: { type: RECORDS, target: ['p1Id', 'p2Id'] },   // battle 1 lawan 1 (js/games.js)
     lms_game_scores: { type: RECORDS, quiet: true },        // riwayat skor game per siswa
+    lms_game_rooms: { type: RECORDS, target: ['hostId', 'playerIds'] },   // ruang Main Bareng Kelas (js/game-room.js)
+    lms_game_players: { type: RECORDS, target: ['hostId'] },             // pemain Main Bareng: peran, jawaban, posisi mobil
+    lms_study_sessions: { type: RECORDS, quiet: true },     // Ruang Belajar: sesi fokus & waktu di LMS (hanya pemilik)
+    lms_study_goals: { type: RECORDS, quiet: true },        // Ruang Belajar: tujuan belajar (hanya pemilik)
+    lms_study_stats: { type: RECORDS, idField: 'userId', quiet: true },   // ringkasan jam belajar + status langsung (terlihat semua)
     lms_settings: { type: MAP },
     lms_birthday_notified: { type: MAP, quiet: true },
     lms_class_options: { type: DOC }

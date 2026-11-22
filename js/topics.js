@@ -105,7 +105,8 @@
   }
 
   /** Data yang memakai sebuah materi/sub materi. */
-  const REFS = [['lms_questions', 'soal'], ['lms_materials', 'materi kelas'], ['lms_modules', 'modul']];
+  const REFS = [['lms_questions', 'soal'], ['lms_materials', 'materi kelas'], ['lms_modules', 'modul'],
+    ['lms_material_plans', 'rencana materi'], ['lms_class_plans', 'rencana kelas']];
   function readKey(k) { try { const v = JSON.parse(localStorage.getItem(k) || '[]'); return Array.isArray(v) ? v : []; } catch (e) { return []; } }
   function usage(id) {
     const ids = new Set([id].concat(subsOf(id).map(s => s.id)));
@@ -478,7 +479,7 @@
       const st = DB.subtestByName(active);
       host.innerHTML = `
         <p class="muted small tp-intro">Kelompokkan soal per <strong>materi</strong> dan <strong>sub materi</strong>. Dipakai untuk memfilter Bank Soal,
-          menyusun ujian khusus materi tertentu, dan melihat penguasaan siswa per materi.</p>
+          menyusun ujian khusus materi tertentu, dan melihat penguasaan mentee per materi.</p>
         <div class="tp-subtabs" role="tablist" aria-label="Subtest">
           ${DB.SUBTESTS.map(s => `<button type="button" role="tab" aria-selected="${s.name === active}" class="tp-subtab ${s.name === active ? 'is-on' : ''}" data-tp-st="${esc(s.name)}">${esc(s.short)}
             <span class="tp-count">${topicsOf(s.name).length}</span></button>`).join('')}

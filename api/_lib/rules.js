@@ -14,12 +14,15 @@ const ADMIN_ONLY = new Set(['lms_payments', 'lms_expenses', 'lms_salaries', 'lms
   'lms_news', 'lms_ptn_campuses', 'lms_ptn_faculties', 'lms_ptn_majors', 'lms_admission_events', 'lms_groups']);
 const STAFF_ONLY = new Set(['lms_courses', 'lms_materials', 'lms_modules', 'lms_recordings', 'lms_assignments', 'lms_questions',
   'lms_cbts', 'lms_attendance', 'lms_class_plans', 'lms_whiteboards', 'lms_whiteboard_boards', 'lms_events', 'lms_announcements',
-  'lms_game_questions', 'lms_topics']);
+  'lms_game_questions', 'lms_topics', 'lms_passages']);
 // Tutor tidak boleh mengubah pengaturan global di server (termasuk kunci AI):
 // sebelumnya tutor dapat menimpa/mengosongkan kunci & model Gemini milik admin.
 const GURU_SETTINGS = new Set([]);
 // batchId menentukan konten yang dirilis untuk mentee — hanya admin yang boleh mengubahnya.
-const USER_PROTECTED = ['id', 'role', 'username', 'status', 'childIds', 'salaryRate', 'createdAt', 'batchId'];
+// kelas (kelas utama) menentukan kelas subtest yang diikuti otomatis — mentee tidak boleh memindahkan dirinya sendiri.
+// eduStatus (status pendidikan) menentukan batas ketidakhadiran & denda — hanya admin yang mengisinya.
+const EDU_STATUSES = ['sma12', 'gapyear', 'gapyear_kerja', 'semi_gapyear'];
+const USER_PROTECTED = ['id', 'role', 'username', 'status', 'childIds', 'salaryRate', 'createdAt', 'batchId', 'kelas', 'eduStatus'];
 
 function makeCtx(user, extra) {
   return Object.assign({
@@ -76,6 +79,53 @@ function hubCourseAccessProblem(c) {
   return null;
 }
 
+/* ============================ TUTOR COURSE MANDIRI ============================
+ * Admin menetapkan tutorIds pada course. Tutor hanya boleh mengubah isi course
+ * (kurikulum, deskripsi, subjudul, tujuan, persyaratan) dan menulis penilaian esai
+ * (review) pada progres peserta course itu — tidak judul, akses, harga, atau sasaran. */
+const HUB_TUTOR_FIELDS = ['sections', 'description', 'subtitle', 'outcomes', 'requirements', 'updatedAt'];
+const isHubTutor = (ctx, course) => ctx.role === 'guru' && !!course && Array.isArray(course.tutorIds) && course.tutorIds.includes(ctx.id);
+function hubTutorCourseProblem(after) {
+  if (after.contentLocked) return 'Isi course belum termuat penuh. Muat ulang halaman lalu coba lagi.';
+  if (!Array.isArray(after.sections) || after.sections.length > 60) return 'Kurikulum tidak valid (maks. 60 bab).';
+  if (typeof after.description === 'string' && (after.description.length > 100000 || richUnsafe(after.description))) return 'Deskripsi course memuat skrip atau terlalu panjang.';
+  if (!optStr(after.subtitle, 240)) return 'Subjudul maksimal 240 karakter.';
+  for (const sec of after.sections) {
+    const ls = sec && Array.isArray(sec.lessons) ? sec.lessons : null;
+    if (!ls || ls.length > 200 || !strOk(sec.title, 120, 1)) return 'Bab tidak valid (judul 1–120 karakter, maks. 200 pelajaran).';
+    for (const l of ls) {
+      if (!l || !['article', 'video', 'pdf', 'link', 'quiz'].includes(l.type) || !strOk(l.title, 200, 1)) return 'Pelajaran tidak valid.';
+      if (l.url && !/^https:\/\/[^\s<>"']+$/i.test(String(l.url))) return 'Tautan pelajaran harus diawali https://';
+      if (typeof l.content === 'string' && richUnsafe(l.content)) return 'Isi pelajaran memuat skrip atau atribut yang tidak diizinkan.';
+      if (l.questions != null && (!Array.isArray(l.questions) || l.questions.length > 60)) return 'Kuis maksimal 60 soal.';
+    }
+  }
+  if (JSON.stringify(after.sections).length > 2000000) return 'Isi course terlalu besar (maks. ±2 MB).';
+  return null;
+}
+function hubReviewProblem(review) {
+  if (review == null) return null;
+  if (typeof review !== 'object' || Array.isArray(review) || Object.keys(review).length > 300) return 'Penilaian esai tidak valid.';
+  for (const r of Object.values(review)) {
+    if (!r || typeof r !== 'object' || Array.isArray(r)) return 'Penilaian esai tidak valid.';
+    if (!optStr(r.feedback, 2000)) return 'Umpan balik maksimal 2.000 karakter.';
+    const s = r.scores;
+    if (s != null && (typeof s !== 'object' || Array.isArray(s) || Object.keys(s).length > 60
+      || Object.values(s).some(v => !(typeof v === 'number' && Number.isFinite(v) && v >= 0 && v <= 100)))) return 'Nilai esai harus angka 0–100.';
+  }
+  return null;
+}
+/** Cap penilai & waktu dari server pada entri penilaian yang berubah. */
+function stampReview(ctx, before, after) {
+  const prev = (before && before.review) || {};
+  const out = {};
+  Object.keys(after || {}).forEach(k => {
+    const r = after[k];
+    out[k] = JSON.stringify(r) === JSON.stringify(prev[k]) ? r : Object.assign({}, r, { gradedBy: ctx.id, gradedAt: Date.now() });
+  });
+  return out;
+}
+
 /** Siswa boleh mulai course? Gratis selalu boleh; berbayar perlu pembayaran disetujui. */
 function hubAccessOk(ctx, courseId) {
   const refs = ctx.refs || {};
@@ -106,7 +156,7 @@ function checkHubPayment(ctx, op, before, after) {
     if (op === 'create' && after.status !== 'pending') { out.decidedBy = me; out.decidedAt = out.decidedAt || Date.now(); }
     return allow(out);
   }
-  if (ctx.role !== 'siswa') return deny('Hanya siswa yang dapat mengirim bukti pembayaran.');
+  if (ctx.role !== 'siswa') return deny('Hanya mentee yang dapat mengirim bukti pembayaran.');
   if (op !== 'create') return deny('Pembayaran yang sudah dikirim tidak dapat diubah. Hubungi admin.');
   if (after.studentId !== me) return deny('Pembayaran hanya untuk akun sendiri.');
   const course = refs.courses && refs.courses.get(after.courseId);
@@ -196,6 +246,7 @@ function toolsProblem(k, id, r, me) {
  * ctx.groupAccess (Map groupId → 'staff' | 'member') dan ctx.refs.groups / groupPosts diisi handler. */
 const GROUP_KINDS = ['message', 'discussion', 'quiz', 'material', 'announcement'];
 const GROUP_QUIZ_GRACE = 10 * 60 * 1000;
+const GROUP_QUIZ_OFFLINE_MAX = 2 * 60 * 60 * 1000;   // kiriman offline yang dibuat sebelum batas waktu
 const idList = (a, max) => Array.isArray(a) && a.length <= max && a.every(x => typeof x === 'string' && x.length > 0 && x.length <= 200);
 function richUnsafe(html) {
   return /<\s*(script|iframe|object|embed|style)\b/i.test(html) || /<[^>]*\son[a-z]+\s*=/i.test(html) ||
@@ -288,9 +339,182 @@ function checkGroupAnswer(ctx, op, id, before, after) {
   if (!post || post.kind !== 'quiz' || post.deleted || post.groupId !== after.groupId) return deny('Kuis tidak ditemukan atau sudah dihapus.');
   if (before && before.submittedAt) return deny('Jawaban kuis sudah dikirim dan tidak dapat diubah.');
   if (after.answers == null || typeof after.answers !== 'object' || Array.isArray(after.answers) || JSON.stringify(after.answers).length > 200000) return deny('Isi jawaban kuis tidak valid.');
-  // Waktu server (bukan submittedAt kiriman perangkat) yang menentukan batas waktu.
-  if (after.submittedAt && post.dueAt && Date.now() > post.dueAt + GROUP_QUIZ_GRACE) return deny('Batas waktu kuis sudah lewat.');
+  const out = clone(after);
+  delete out.syncedLate;
+  // Waktu server menentukan batas waktu. Kiriman yang dibuat perangkat sebelum batas tetapi baru
+  // tersinkron sesudahnya (sinyal putus) diterima paling lama GROUP_QUIZ_OFFLINE_MAX dan diberi
+  // cap syncedLate (waktu server) agar tutor dapat menilainya sendiri.
+  if (after.submittedAt && post.dueAt) {
+    const t = Date.now();
+    if (t > post.dueAt + GROUP_QUIZ_GRACE) {
+      const claimed = Number(after.submittedAt) || 0;
+      if (!(claimed > 0 && claimed <= post.dueAt + GROUP_QUIZ_GRACE && t <= post.dueAt + GROUP_QUIZ_OFFLINE_MAX)) return deny('Batas waktu kuis sudah lewat.');
+      out.syncedLate = t;
+    }
+  }
+  return allow(out);
+}
+
+/* ============================ RUANG BELAJAR ============================
+ * lms_study_goals    : tujuan belajar milik mentee (judul, target menit, warna).
+ * lms_study_sessions : sesi fokus (timer, tidak dapat diubah setelah tercatat) & waktu aktif di LMS
+ *                      per perangkat per hari (id web:<user>:<hari>:<perangkat>). Hanya pemilik.
+ * lms_study_stats    : ringkasan jam belajar per mentee (id = userId), terlihat semua peran.
+ * Admin hanya dapat menghapus (mis. data tidak wajar), tidak dapat menulis atas nama mentee. */
+const STUDY_DAY = 86400000;
+const STUDY_MAX_FOCUS = 12 * 3600000;
+const HEX6 = /^#[0-9a-f]{6}$/i;
+function studyDayOk(ymd, now, back) {
+  if (!YMD.test(ymd || '')) return false;
+  const t = Date.parse(ymd + 'T00:00:00Z');
+  return Number.isFinite(t) && t <= now + 2 * STUDY_DAY && t >= now - back;
+}
+function checkStudy(ctx, op, k, id, before, after) {
+  const me = ctx.id;
+  const owner = (before && before.userId) || (after && after.userId);
+  if (op === 'delete') return owner === me || ctx.isAdmin ? allow(null) : deny('Data Ruang Belajar milik pengguna lain.');
+  if (after.userId !== me || (before && before.userId !== me)) return deny('Data Ruang Belajar hanya dapat ditulis pemiliknya.');
+  if (ctx.role !== 'siswa') return deny('Ruang Belajar mencatat jam belajar mentee.');
+  const now = Date.now();
+  const n = (v, lo, hi) => typeof v === 'number' && Number.isFinite(v) && v >= lo && v <= hi;
+  if (k === 'lms_study_goals') {
+    if (!strOk(after.title, 80, 2) || !n(after.targetMin, 5, 600) || (after.color != null && !HEX6.test(after.color))) return deny('Tujuan belajar tidak valid.');
+    return allow(after);
+  }
+  if (k === 'lms_study_sessions') {
+    const ms = after.durationMs;
+    if (after.kind === 'web') {
+      if (!/^[a-z0-9]{6,20}$/.test(after.dev || '') || id !== `web:${me}:${after.day}:${after.dev}`) return deny('Catatan waktu di LMS tidak valid.');
+      if (!studyDayOk(after.day, now, 8 * STUDY_DAY) || !n(ms, 0, STUDY_DAY)) return deny('Catatan waktu di LMS di luar batas.');
+      return allow(after);
+    }
+    if (after.kind !== 'focus') return deny('Jenis sesi belajar tidak dikenal.');
+    if (before) {
+      const fixed = ['kind', 'durationMs', 'startedAt', 'endedAt', 'day'].every(f => same(before[f], after[f]));
+      return fixed ? allow(after) : deny('Sesi belajar yang sudah tercatat tidak dapat diubah.');
+    }
+    const s = after.startedAt, e = after.endedAt;
+    if (!n(s, now - 3 * STUDY_DAY, now + 5 * 60000) || !n(e, s, now + 5 * 60000)) return deny('Waktu sesi belajar tidak valid.');
+    if (!n(ms, 0, STUDY_MAX_FOCUS) || ms > e - s + 60000) return deny('Durasi sesi melebihi rentang mulai–selesai.');
+    if (!studyDayOk(after.day, now, 4 * STUDY_DAY) || !optStr(after.title, 80) || !optStr(after.goalId, 200)) return deny('Isi sesi belajar tidak valid.');
+    return allow(after);
+  }
+  // lms_study_stats: angka per hari dibatasi 24 jam; status langsung dibatasi bentuknya.
+  const days = after.days, months = after.months, live = after.live;
+  if (JSON.stringify(after).length > 30000) return deny('Ringkasan jam belajar terlalu besar.');
+  if (!days || typeof days !== 'object' || Array.isArray(days) || Object.keys(days).length > 80) return deny('Ringkasan jam belajar tidak valid.');
+  for (const d of Object.keys(days)) {
+    const v = days[d];
+    if (!studyDayOk(d, now, 400 * STUDY_DAY) || !v || typeof v !== 'object' || !n(v.f, 0, STUDY_DAY) || !n(v.w, 0, STUDY_DAY) ||
+        v.f + v.w > STUDY_DAY || (v.n != null && !n(v.n, 0, 500))) return deny('Jam belajar per hari di luar batas.');
+  }
+  if (months != null && (typeof months !== 'object' || Array.isArray(months) || Object.keys(months).length > 600 ||
+      Object.keys(months).some(m => !/^\d{4}-\d{2}$/.test(m) || !n(months[m], 0, 31 * STUDY_DAY)))) return deny('Rekap bulanan tidak valid.');
+  if (!n(after.total, 0, 1e12)) return deny('Total jam belajar tidak valid.');
+  if (live != null && (typeof live !== 'object' || !['focus', 'break'].includes(live.state) || !optStr(live.title, 80) || !optStr(live.goalId, 200) ||
+      !(live.since == null || n(live.since, now - 2 * STUDY_DAY, now + 5 * 60000)) || !n(live.accMs, 0, STUDY_MAX_FOCUS) ||
+      !n(live.targetMs, 0, 600 * 60000) || !n(live.at, 0, now + 5 * 60000))) return deny('Status Ruang Belajar tidak valid.');
   return allow(after);
+}
+
+/* ============================ MAIN BARENG KELAS ============================
+ * lms_game_rooms   : ruang game kelas milik tutor/admin (Monster Co-op, Balap Kelas).
+ *                    Hanya tuan rumah yang menulis; jam fase & mulai dicap server.
+ * lms_game_players : satu record per siswa per ruang (id = <ruang>:<siswa>). Hanya
+ *                    pemiliknya yang menulis; jawaban per ronde/gerbang terkunci
+ *                    setelah terkirim dan diberi cap waktu server (sa).
+ * Ruang & pemain lebih dari 12 jam tidak lagi dikirim ke peran lain (lihat present). */
+const ROOM_KINDS = ['raid', 'race'];
+const ROOM_STATUS = ['lobby', 'playing', 'done', 'closed'];
+const ROOM_PHASES = ['lobby', 'question', 'resolve', 'race', 'end'];
+const ROOM_TRACKS = ['taman', 'gurun', 'pantai', 'salju', 'hutan', 'malam', 'gunung', 'pelabuhan'];
+const ROOM_FIXED = ['id', 'code', 'kind', 'hostId', 'createdAt'];
+const ROOM_ROLES = ['penyerang', 'penyihir', 'penjaga', 'penyembuh'];
+const ROOM_ITEMS = ['turbo', 'shield', 'oil'];
+const ROOM_TTL = 12 * 3600000;
+const isNum = (v, lo, hi) => typeof v === 'number' && Number.isFinite(v) && v >= lo && v <= hi;
+function checkRoom(ctx, op, before, after) {
+  const me = ctx.id;
+  if (op === 'delete') return ctx.isAdmin || before.hostId === me ? allow(null) : deny('Ruang Main Bareng milik tutor lain.');
+  if (!ctx.isStaff) return deny('Ruang Main Bareng dibuat dan dijalankan oleh tutor/admin.');
+  if (op === 'create' && after.hostId !== me) return deny('Tuan rumah ruang harus akun sendiri.');
+  if (op === 'update' && before.hostId !== me && !ctx.isAdmin) return deny('Ruang Main Bareng milik tutor lain.');
+  if (JSON.stringify(after).length > 60000) return deny('Data ruang terlalu besar.');
+  const out = clone(after);
+  if (before) ROOM_FIXED.forEach(f => { out[f] = clone(before[f]); });
+  if (!/^[A-Z2-9]{6}$/.test(out.code || '') || !ROOM_KINDS.includes(out.kind)) return deny('Kode atau jenis ruang tidak valid.');
+  if (!ROOM_STATUS.includes(out.status) || !ROOM_PHASES.includes(out.phase || 'lobby')) return deny('Status ruang tidak valid.');
+  if (!strOk(out.title, 80, 2) || !optStr(out.subject, 120)) return deny('Judul ruang 2–80 karakter.');
+  if (!idList(out.qids, 60) || out.qids.length < 1) return deny('Daftar soal ruang tidak valid.');
+  if (out.playerIds != null && !idList(out.playerIds, 200)) return deny('Daftar pemain tidak valid.');
+  if (!isNum(out.round == null ? 0 : out.round, 0, 300) || !isNum(out.roundSec == null ? 20 : out.roundSec, 10, 120)) return deny('Ronde tidak valid.');
+  if (out.kind === 'race' && (!ROOM_TRACKS.includes(out.track) || !isNum(out.laps, 1, 5))) return deny('Sirkuit balap tidak valid.');
+  if (out.state != null && (typeof out.state !== 'object' || Array.isArray(out.state))) return deny('Keadaan ruang tidak valid.');
+  if (out.results != null && (!Array.isArray(out.results) || out.results.length > 200)) return deny('Hasil ruang tidak valid.');
+  const now = Date.now();
+  // Jam fase dicap server agar semua perangkat memakai acuan waktu yang sama.
+  const phaseChanged = !before || before.phase !== out.phase || before.round !== out.round;
+  if (phaseChanged) {
+    const dur = Math.max(0, Math.min(180000, num(after.phaseEndsAt, now) - num(after.phaseAt, now)));
+    out.phaseAt = now;
+    out.phaseEndsAt = now + dur;
+  } else { out.phaseAt = before.phaseAt; out.phaseEndsAt = before.phaseEndsAt; }
+  if (out.status === 'playing' && (!before || before.status !== 'playing')) out.startAt = now + Math.max(0, Math.min(15000, num(after.startIn, 5000)));
+  else out.startAt = before ? (before.startAt == null ? null : before.startAt) : null;
+  delete out.startIn;
+  if (!before) out.createdAt = now;
+  out.updatedAt = now;
+  return allow(out);
+}
+function cleanAnswer(a) {
+  if (!a || typeof a !== 'object') return null;
+  const o = a.o;
+  const okO = o == null || typeof o === 'number' || typeof o === 'boolean' || (typeof o === 'string' && o.length <= 300) ||
+    (Array.isArray(o) && o.length <= 20 && o.every(x => ['number', 'string', 'boolean'].includes(typeof x) && String(x).length <= 300));
+  if (!okO || !isNum(a.ms == null ? 0 : a.ms, 0, 600000) || (a.sk != null && !/^[a-z]{2,16}$/.test(String(a.sk)))) return null;
+  return { o: o == null ? null : o, ok: !!a.ok, ms: Math.round(num(a.ms, 0)), sk: a.sk || null };
+}
+function checkRoomPlayer(ctx, op, id, before, after) {
+  const me = ctx.id;
+  const owner = (before && before.userId) || (after && after.userId);
+  if (op === 'delete') return owner === me || ctx.isStaff ? allow(null) : deny('Data pemain milik mentee lain.');
+  if (after.userId !== me || (before && before.userId !== me)) return deny('Data pemain hanya dapat ditulis pemiliknya.');
+  if (ctx.role !== 'siswa') return deny('Main Bareng Kelas dimainkan oleh mentee.');
+  if (typeof after.roomId !== 'string' || !after.roomId || after.roomId.length > 120 || id !== `${after.roomId}:${me}`) return deny('Ruang pemain tidak valid.');
+  if (before && (before.roomId !== after.roomId || before.hostId !== after.hostId)) return deny('Ruang pemain tidak dapat dipindah.');
+  if (typeof after.hostId !== 'string' || !after.hostId || after.hostId.length > 200) return deny('Tuan rumah ruang tidak valid.');
+  if (JSON.stringify(after).length > 24000) return deny('Data pemain terlalu besar.');
+  if (after.role != null && !ROOM_ROLES.includes(after.role)) return deny('Peran tidak dikenal.');
+  if (after.color != null && !isNum(after.color, 0, 11)) return deny('Warna mobil tidak valid.');
+  const now = Date.now();
+  const out = clone(after);
+  // Jawaban: maks. 120 entri, entri lama tidak dapat diubah/dihapus, entri baru dicap server.
+  const ans = after.ans == null ? {} : after.ans;
+  if (typeof ans !== 'object' || Array.isArray(ans) || Object.keys(ans).length > 120) return deny('Jawaban tidak valid.');
+  const prev = (before && before.ans) || {};
+  out.ans = {};
+  for (const k of Object.keys(prev)) out.ans[k] = clone(prev[k]);
+  for (const k of Object.keys(ans)) {
+    if (!/^\d{1,3}$/.test(k)) return deny('Nomor ronde tidak valid.');
+    if (Object.prototype.hasOwnProperty.call(prev, k)) continue;      // sudah terkunci
+    const a = cleanAnswer(ans[k]);
+    if (!a) return deny('Isi jawaban tidak valid.');
+    out.ans[k] = Object.assign(a, { sa: now });
+  }
+  if (after.car != null) {
+    const c = after.car;
+    if (typeof c !== 'object' || !isNum(c.d, 0, 20000) || !isNum(c.lane, 0, 2) || !isNum(c.v, 0, 400) || !isNum(c.at, 0, now + 600000) ||
+      !(c.fin == null || c.fin === 0 || isNum(c.fin, 0, now + 600000)) || !(c.it == null || ROOM_ITEMS.includes(c.it))) return deny('Posisi mobil tidak valid.');
+    out.car = { d: c.d, lane: c.lane, v: c.v, at: c.at, fin: c.fin || 0, it: c.it || null, gate: isNum(c.gate, 0, 200) ? c.gate : 0,
+      fx: c.fx && typeof c.fx === 'object' ? { t: num(c.fx.t, 0), s: num(c.fx.s, 0), h: num(c.fx.h, 0) } : { t: 0, s: 0, h: 0 } };
+  }
+  if (after.ev != null) {
+    if (!Array.isArray(after.ev) || after.ev.length > 12 || !after.ev.every(e => e && e.t === 'oil' && isNum(e.n, 0, 1e6) && typeof e.to === 'string' && e.to.length <= 200 && isNum(e.at, 0, now + 600000))) return deny('Item balap tidak valid.');
+    out.ev = after.ev.map(e => ({ t: e.t, n: e.n, to: e.to, at: e.at, lane: isNum(e.lane, 0, 2) ? e.lane : 1 }));
+  }
+  out.at = now;
+  if (!before) out.joinedAt = now;
+  return allow(out);
 }
 
 /* ============================ REMEDIAL ============================ */
@@ -299,6 +523,13 @@ const REMEDIAL_GRACE_MS = 10 * 60 * 1000;      // toleransi selisih jam perangka
 function remedialAttemptProblem(ctx, after) {
   const refs = ctx.refs || {};
   const cbt = refs.cbts && refs.cbts.get(after.cbtId);
+  if (cbt && cbt.kind === 'tryout') {
+    // Tryout: draf & yang belum terbit tidak dapat dikerjakan, begitu pula sebelum jadwal dibuka.
+    const now = refs.now || Date.now();
+    if (cbt.status !== 'published' || (cbt.publishAt && now < cbt.publishAt - REMEDIAL_GRACE_MS)) return 'Tryout ini belum diterbitkan admin.';
+    if (cbt.startAt && now < cbt.startAt - REMEDIAL_GRACE_MS) return 'Tryout belum dibuka.';
+    return null;
+  }
   if (!cbt || !cbt.remedialOf) return null;
   if (refs.remedialEnabled === false) return 'Sistem remedial sedang dimatikan admin.';
   if (!cbt.targetStudentIds.includes(ctx.id)) return 'Kamu tidak terdaftar sebagai peserta remedial ini.';
@@ -388,9 +619,20 @@ function present(ctx, k, id, rec) {
     case 'lms_hub_payments':
       if (ctx.isAdmin || rec.studentId === me) return rec;
       return ctx.role === 'orangtua' && ctx.childIds.includes(rec.studentId) ? rec : undefined;
+    case 'lms_study_sessions':
+    case 'lms_study_goals':
+      // Data mentah Ruang Belajar hanya untuk pemiliknya; peran lain membaca ringkasan (lms_study_stats).
+      return rec.userId === me ? rec : undefined;
+    case 'lms_game_rooms':
+    case 'lms_game_players': {
+      // Ruang & pemain Main Bareng hanya relevan beberapa jam; yang lama tetap untuk tuan rumah & pemiliknya.
+      if (ctx.isAdmin || rec.hostId === me || rec.userId === me) return rec;
+      const t = Number(rec.updatedAt || rec.at || rec.createdAt) || 0;
+      return Date.now() - t < ROOM_TTL ? rec : undefined;
+    }
     case 'lms_hub_courses':
-      // Course berbayar: isi pelajaran hanya untuk admin dan siswa yang pembayarannya disetujui.
-      if (ctx.isAdmin || rec.accessType !== 'paid') return rec;
+      // Course berbayar: isi pelajaran hanya untuk admin, tutor course, dan siswa yang pembayarannya disetujui.
+      if (ctx.isAdmin || rec.accessType !== 'paid' || isHubTutor(ctx, rec)) return rec;
       if (ctx.paidCourses && ctx.paidCourses.has(rec.id)) return rec;
       return lockedCourse(rec);
     case 'lms_ai_chats':
@@ -414,6 +656,8 @@ function present(ctx, k, id, rec) {
     case 'lms_settings':
       if (!ctx.isAdmin && catalog.isSecretSetting(id)) return (rec === '' || rec == null) ? rec : catalog.MASK;
       return rec;
+    case 'lms_feedbacks':
+      return presentFeedback(ctx, rec);
     default:
       break;
   }
@@ -422,6 +666,11 @@ function present(ctx, k, id, rec) {
     case 'lms_expenses':
     case 'lms_activity_log':
       return undefined;
+    case 'lms_cbt_contribs':
+      return ctx.isStaff ? rec : undefined;          // setoran soal tryout hanya untuk tutor & admin
+    case 'lms_cbts':
+      // Draf tryout tidak pernah sampai ke mentee/orang tua; null = salinan lama di perangkat ikut terhapus.
+      return rec.kind === 'tryout' && rec.status !== 'published' && !ctx.isStaff ? null : rec;
     case 'lms_payments':
       if (ctx.role === 'siswa') return rec.studentId === me ? rec : undefined;
       if (ctx.role === 'orangtua') return ctx.childIds.includes(rec.studentId) ? rec : undefined;
@@ -438,11 +687,93 @@ function present(ctx, k, id, rec) {
       // Metadata saja: dipakai perhitungan streak/leaderboard, isi jawaban & nilai disembunyikan.
       return { id: rec.id, assignmentId: rec.assignmentId, studentId: rec.studentId, submittedAt: rec.submittedAt || null, redacted: true };
     case 'lms_hub_progress':
-      if (ctx.role === 'guru' || rec.studentId === me || (ctx.role === 'orangtua' && ctx.childIds.includes(rec.studentId))) return rec;
+      // Jawaban kuis & catatan hanya untuk pemilik, orang tuanya, dan tutor course tersebut (untuk menilai esai).
+      if (rec.studentId === me || (ctx.role === 'orangtua' && ctx.childIds.includes(rec.studentId))) return rec;
+      if (ctx.role === 'guru' && ctx.hubTutorOf && ctx.hubTutorOf.has(rec.courseId)) return rec;
       return Object.assign({}, rec, { notes: {}, quiz: redactQuiz(rec.quiz) });
     default:
       return rec;
   }
+}
+
+/* ---------- Kritik & Saran ----------
+ * 'admin' → hanya admin; 'tutor' → hanya tutor penerima; 'umum' → semua pengguna. Pengirim selalu melihat miliknya.
+ * Data lama: 'kelas' dianggap umum, 'individu' (penerima teks bebas) hanya untuk admin. */
+const FB_TARGETS = ['admin', 'tutor', 'umum'];
+function feedbackAudience(rec) {
+  const t = rec && rec.target;
+  if (t === 'tutor' && typeof rec.recipientId === 'string' && rec.recipientId) return 'tutor';
+  if (t === 'umum' || t === 'kelas') return 'umum';
+  return 'admin';
+}
+function presentFeedback(ctx, rec) {
+  const mine = typeof rec.senderId === 'string' && rec.senderId === ctx.id;
+  const aud = feedbackAudience(rec);
+  const ok = mine || aud === 'umum' || (aud === 'tutor' ? rec.recipientId === ctx.id : ctx.isAdmin);
+  // null (bukan undefined): perangkat yang dulu menyimpan salinannya ikut menghapus.
+  if (!ok) return null;
+  if (rec.anonymous && !mine && rec.senderId != null) {
+    const out = Object.assign({}, rec);
+    delete out.senderId;
+    return out;
+  }
+  return rec;
+}
+function checkFeedback(ctx, op, before, after) {
+  const me = ctx.id;
+  if (op === 'delete') {
+    if (ctx.isAdmin || before.senderId === me || (feedbackAudience(before) === 'tutor' && before.recipientId === me)) return allow(null);
+    return deny('Kritik & saran hanya dapat dihapus pengirim, penerima, atau admin.');
+  }
+  if (op === 'create') {
+    if (after.senderId !== me) return deny('Pengirim kritik & saran tidak sesuai.');
+    if (!FB_TARGETS.includes(after.target)) return deny('Tujuan kritik & saran tidak valid.');
+    const message = typeof after.message === 'string' ? after.message.trim() : '';
+    if (message.length < 3 || message.length > 2000) return deny('Pesan kritik & saran 3–2.000 karakter.');
+    const created = Number(after.createdAt);
+    const out = {
+      id: after.id, senderId: me, target: after.target, message, anonymous: after.anonymous === true,
+      createdAt: Number.isFinite(created) && created > 0 ? Math.min(created, Date.now() + 5 * 60 * 1000) : Date.now()
+    };
+    if (after.target === 'tutor') {
+      const rid = typeof after.recipientId === 'string' ? after.recipientId : '';
+      const info = rid && ctx.refs && ctx.refs.users ? ctx.refs.users.get(rid) : null;
+      if (!info || rid === me || info.r !== 'guru' || info.s === 'Dikeluarkan') return deny('Penerima harus akun tutor yang terdaftar di LMS.');
+      out.recipientId = rid;
+    }
+    return allow(out);
+  }
+  // Ubah: hanya balasan, oleh tutor penerima (tujuan tutor) atau admin (tujuan admin/umum).
+  const canReply = feedbackAudience(before) === 'tutor' ? before.recipientId === me : ctx.isAdmin;
+  if (!canReply) return deny('Hanya penerima yang dapat membalas kritik & saran ini.');
+  const out = clone(before);
+  const rep = after.reply;
+  if (rep == null) delete out.reply;
+  else {
+    const text = rep && typeof rep.text === 'string' ? rep.text.trim() : '';
+    if (!text || text.length > 2000) return deny('Balasan 1–2.000 karakter.');
+    out.reply = before.reply && before.reply.text === text ? clone(before.reply) : { text, by: me, at: Date.now() };
+  }
+  return allow(out);
+}
+
+/* ---------- Setoran soal CBT Tryout (tutor) ----------
+ * id 'cc_<cbtId>_<questionId>'; tutor hanya membuat setoran atas namanya (status pending)
+ * untuk subtest yang ada di tryout, dan hanya dapat menarik setoran sendiri yang belum ditinjau. */
+function checkContrib(ctx, op, id, before, after) {
+  if (ctx.role !== 'guru') return deny('Setoran soal tryout hanya untuk tutor dan admin.');
+  const me = ctx.id;
+  if (op === 'delete') {
+    return before.by === me && before.status === 'pending' ? allow(null) : deny('Hanya setoran sendiri yang belum ditinjau yang dapat ditarik.');
+  }
+  if (op === 'update') return deny('Setoran soal yang sudah dikirim tidak dapat diubah.');
+  if (after.by !== me) return deny('Penyetor soal tidak sesuai.');
+  if (typeof after.cbtId !== 'string' || typeof after.questionId !== 'string' || !after.questionId ||
+      after.questionId.length > 200 || id !== 'cc_' + after.cbtId + '_' + after.questionId) return deny('Data setoran soal tidak valid.');
+  const ref = ctx.refs && ctx.refs.tryouts ? ctx.refs.tryouts.get(after.cbtId) : null;
+  if (!ref) return deny('Tryout tujuan tidak ditemukan.');
+  if (!ref.subtests.includes(after.subtest)) return deny('Subtest ini tidak ada di tryout tujuan.');
+  return allow({ id, cbtId: after.cbtId, subtest: after.subtest, questionId: after.questionId, by: me, at: Date.now(), status: 'pending' });
 }
 
 function redactQuiz(quiz) {
@@ -517,8 +848,17 @@ function checkWrite(ctx, k, id, before, after) {
     const okOwner = (before == null || before.userId === me) && (after == null || after.userId === me);
     return okOwner ? allow(after) : deny('Riwayat chat AI milik pengguna lain.');
   }
+  if (/^lms_study_/.test(k)) return checkStudy(ctx, op, k, id, before, after);
+  if (k === 'lms_game_rooms') return checkRoom(ctx, op, before, after);
+  if (k === 'lms_game_players') return checkRoomPlayer(ctx, op, id, before, after);
   // Pesan divalidasi untuk semua peran (termasuk admin): bentuk, panjang, balasan, terusan.
   if (k === 'lms_messages') return checkMessage(ctx, op, before, after);
+  // Jadwal & presensi: bentuk data untuk semua peran staf, hak tulis tutor per pertemuan.
+  if (k === 'lms_attendance') return checkAttendance(ctx, before, after);
+  if (k === 'lms_class_plans') return checkClassPlan(ctx, op, before, after);
+  // Kritik & saran: pengirim = diri sendiri, penerima akun tutor, hanya penerima yang membalas (semua peran).
+  if (k === 'lms_feedbacks') return checkFeedback(ctx, op, before, after);
+  if (k === 'lms_material_plans') return checkMaterialPlan(ctx, before, after);
   if (k === 'lms_group_posts') return checkGroupPost(ctx, op, before, after);
   if (k === 'lms_group_answers') return checkGroupAnswer(ctx, op, id, before, after);
   if (k === 'lms_groups' && after) {
@@ -526,7 +866,8 @@ function checkWrite(ctx, k, id, before, after) {
     if (prob) return deny(prob);
   }
   if (k === 'lms_hub_payments') return checkHubPayment(ctx, op, before, after);
-  if (k === 'lms_hub_courses' && after) {
+  // Akses & harga hanya ditulis admin (perubahan tutor pada field ini dibuang, lihat HUB_TUTOR_FIELDS).
+  if (k === 'lms_hub_courses' && after && ctx.isAdmin) {
     const prob = hubCourseAccessProblem(after);
     if (prob) return deny(prob);
   }
@@ -547,14 +888,44 @@ function checkWrite(ctx, k, id, before, after) {
     if (after.parentId != null && (typeof after.parentId !== 'string' || after.parentId.length > 200 || after.parentId === id)) return deny('Materi induk tidak valid.');
     after = Object.assign({}, after, { name, order: Number.isFinite(Number(after.order)) ? Number(after.order) : 0 });
   }
+  // Teks bacaan: judul pendek, isi tanpa skrip & berukuran wajar (semua peran staf, termasuk admin).
+  if (k === 'lms_passages' && after) {
+    if (!optStr(after.title, 120) || typeof after.html !== 'string' || !after.html.trim() || after.html.length > 400000) return deny('Teks bacaan 1–400.000 karakter dengan judul maks. 120 karakter.');
+    if (richUnsafe(after.html)) return deny('Teks bacaan memuat skrip atau atribut yang tidak diizinkan.');
+    if (!optStr(after.subject, 120)) return deny('Subtest teks bacaan tidak valid.');
+  }
+  if (k === 'lms_questions' && after && after.passageId != null && (typeof after.passageId !== 'string' || after.passageId.length > 200)) return deny('Rujukan teks bacaan tidak valid.');
+  // Papan whiteboard: judul/materi pendek; PDF & gambar hanya berupa rujukan berkas "wb:<kelas>:…" (bukan data URL).
+  if (k === 'lms_whiteboards' && after) {
+    if (!optStr(after.title, 120) || !optStr(after.topic, 160) || !optStr(after.planId, 200)) return deny('Judul/materi papan terlalu panjang.');
+    if (after.media != null) {
+      const okMedia = Array.isArray(after.media) && after.media.length <= 300 && after.media.every(m => m && typeof m.key === 'string' &&
+        m.key.startsWith('wb:' + after.courseId + ':') && m.key.length <= 240 && Number.isFinite(Number(m.bytes)) && Number(m.bytes) >= 0);
+      if (!okMedia) return deny('Daftar berkas papan tidak valid.');
+    }
+    if (after.thumb != null && (typeof after.thumb !== 'string' || after.thumb.length > 60000 || !/^data:image\/(jpeg|png|webp);base64,[A-Za-z0-9+/=]+$/.test(after.thumb))) return deny('Gambar mini papan tidak valid.');
+  }
   // Video pembahasan soal: hanya ID YouTube yang valid (semua peran, termasuk admin).
   if (k === 'lms_questions' && after && after.explanationVideo != null) {
     const v = normVideo(after.explanationVideo);
     if (!v) return deny('Link video pembahasan tidak valid. Gunakan link YouTube.');
     after = Object.assign({}, after, { explanationVideo: v });
   }
+  if (k === 'lms_cbts' && after && after.kind === 'tryout' && !['draft', 'published'].includes(after.status)) return deny('Status tryout tidak valid.');
   if (ctx.isAdmin) return allow(after);
 
+  // CBT Tryout hanya ditulis admin; tutor menyetor soal lewat lms_cbt_contribs (ditinjau admin).
+  if (k === 'lms_cbts' && ((before && before.kind === 'tryout') || (after && after.kind === 'tryout'))) {
+    return deny('Tryout hanya dapat diubah admin. Setor soal lewat menu Tryout.');
+  }
+  if (k === 'lms_cbt_contribs') return checkContrib(ctx, op, id, before, after);
+
+  // Tutor course mandiri: hanya isi course yang ia ampu (field lain tetap milik admin).
+  if (k === 'lms_hub_courses' && op === 'update' && isHubTutor(ctx, before)) {
+    const prob = hubTutorCourseProblem(after);
+    if (prob) return deny(prob);
+    return allow(onlyFields(before, after, HUB_TUTOR_FIELDS));
+  }
   if (ADMIN_ONLY.has(k)) return deny('Hanya admin yang dapat mengubah data ini.');
   if (STAFF_ONLY.has(k)) return ctx.isStaff ? allow(after) : deny('Hanya admin/tutor yang dapat mengubah data ini.');
 
@@ -566,7 +937,8 @@ function checkWrite(ctx, k, id, before, after) {
   switch (k) {
     case 'lms_enrollments':
       if (ctx.isStaff) return allow(after);
-      if (ctx.role === 'siswa' && ownsBefore && ownsAfter) return allow(after);
+      // Mentee hanya untuk akun sendiri; pendaftarannya selalu tercatat sebagai bergabung sendiri.
+      if (ctx.role === 'siswa' && ownsBefore && ownsAfter) return allow(after ? Object.assign({}, after, { via: 'self' }) : null);
       return deny('Pendaftaran kelas hanya untuk akun sendiri.');
     case 'lms_submissions':
       if (ctx.isStaff) return allow(after);
@@ -599,9 +971,21 @@ function checkWrite(ctx, k, id, before, after) {
     case 'lms_hub_progress':
       if (ctx.role === 'siswa' && op !== 'delete' && ownsBefore && ownsAfter) {
         if (op === 'create' && !hubAccessOk(ctx, after.courseId)) return deny('Course berbayar ini belum dapat diikuti: pembayaran belum disetujui admin.');
-        return allow(after);
+        // Penilaian esai hanya ditulis tutor/admin: peserta tidak dapat mengubahnya.
+        const out = clone(after);
+        if (before && before.review) out.review = clone(before.review); else delete out.review;
+        return allow(out);
       }
-      return deny('Progres course hanya milik siswa bersangkutan.');
+      if (ctx.role === 'guru' && op === 'update') {
+        const c = ctx.refs && ctx.refs.courses && ctx.refs.courses.get(before.courseId);
+        if (!c || !(c.tutorIds || []).includes(me)) return deny('Hanya tutor course ini yang dapat menilai esai peserta.');
+        const prob = hubReviewProblem(after.review);
+        if (prob) return deny(prob);
+        const out = onlyFields(before, after, ['review']);
+        if (out.review) out.review = stampReview(ctx, before, out.review);
+        return allow(out);
+      }
+      return deny('Progres course hanya milik mentee bersangkutan.');
     case 'lms_capsules':
     case 'lms_capsule_vaults':
       if (ctx.role === 'siswa' && ownsBefore && ownsAfter) return allow(after);
@@ -622,12 +1006,23 @@ function checkWrite(ctx, k, id, before, after) {
       return deny('Hadiah ulang tahun hanya dapat dibuka pemiliknya.');
     case 'lms_birthday_notified':
       return (after == null || typeof after === 'number') ? allow(after) : deny('Format penanda tidak valid.');
-    case 'lms_feedbacks':
-      return op === 'create' ? allow(after) : deny('Hanya admin yang dapat mengelola masukan.');
-    case 'lms_game_scores':
+    case 'lms_game_scores': {
       if (op === 'delete') return ctx.isStaff ? allow(null) : deny('Riwayat game tidak dapat dihapus.');
-      if (ctx.role === 'siswa' && op === 'create' && ownsAfter) return allow(after);
-      return deny('Skor game hanya dicatat oleh pemainnya.');
+      if (!(ctx.role === 'siswa' && op === 'create' && ownsAfter)) return deny('Skor game hanya dicatat oleh pemainnya.');
+      // Skor harus angka wajar: NaN/Infinity atau angka raksasa merusak papan peringkat game.
+      const fin = (v) => Number.isFinite(Number(v));
+      if (!fin(after.score) || Math.abs(Number(after.score)) > 1e6) return deny('Skor game tidak valid.');
+      if (typeof after.game !== 'string' || !after.game || after.game.length > 60) return deny('Jenis game tidak valid.');
+      if (!['solo', 'battle', 'bot', 'kelas'].includes(after.mode)) return deny('Mode game tidak valid.');
+      if (after.result != null && !['win', 'lose', 'draw'].includes(after.result)) return deny('Hasil game tidak valid.');
+      const int = (v, max) => Math.max(0, Math.min(max, Math.floor(fin(v) ? Number(v) : 0)));
+      const created = Number(after.createdAt);
+      return allow(Object.assign({}, after, {
+        score: Math.round(Number(after.score)), correct: int(after.correct, 1000), answered: int(after.answered, 1000),
+        durationMs: int(after.durationMs, 24 * 3600000),
+        createdAt: Number.isFinite(created) && created > 0 ? Math.min(created, Date.now() + 5 * 60 * 1000) : Date.now()
+      }));
+    }
     case 'lms_game_battles':
       return checkBattle(ctx, op, before, after);
     case 'lms_utbk_plans':
@@ -668,7 +1063,7 @@ function checkBattle(ctx, op, before, after) {
   const now = Date.now();
   if (op === 'delete') return ctx.isStaff ? allow(null) : deny('Battle tidak dapat dihapus.');
   if (op === 'create') {
-    if (ctx.role !== 'siswa' || after.p1Id !== me) return deny('Battle hanya dapat dibuat siswa atas namanya sendiri.');
+    if (ctx.role !== 'siswa' || after.p1Id !== me) return deny('Battle hanya dapat dibuat mentee atas namanya sendiri.');
     if (after.status !== 'invite' && after.status !== 'open') return deny('Status battle awal tidak valid.');
     if (after.status === 'invite' && (typeof after.p2Id !== 'string' || !after.p2Id || after.p2Id === me)) return deny('Lawan battle tidak valid.');
     if (after.status === 'open' && after.p2Id) return deny('Tantangan terbuka belum memiliki lawan.');
@@ -716,11 +1111,138 @@ function checkBattle(ctx, op, before, after) {
   return allow(out);
 }
 
+/* Foto profil: kosong, kode avatar almamater (js/avatars.js), atau gambar kecil terkompresi. */
+const AVATAR_CODE = /^av1:[a-z]{2,8}:[mf]:[0-5]$/;
+const PHOTO_DATA = /^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+/]+=*$/;
+const PHOTO_MAX = 280000;               // ±200 KB gambar (320 px JPEG jauh di bawahnya)
+function photoProblem(before, after) {
+  if (!after || after.photo == null || after.photo === '') return null;
+  if (before && before.photo === after.photo) return null;      // foto lama tidak diperiksa ulang
+  const p = after.photo;
+  if (typeof p !== 'string') return 'Foto profil tidak valid.';
+  if (AVATAR_CODE.test(p)) return null;
+  if (p.length > PHOTO_MAX) return 'Foto profil terlalu besar. Pilih avatar almamater atau gambar yang lebih kecil.';
+  if (!PHOTO_DATA.test(p)) return 'Foto profil harus gambar PNG, JPG, atau WEBP.';
+  return null;
+}
+/* ============================ JADWAL & PRESENSI ============================
+ * ctx.refs.teach (diisi applyChanges): { courses: Map(id → tutor[]), plans: Map(id → plan ringkas) }.
+ * Tutor hanya boleh:
+ *  - membuat rencana di kelas yang ia ampu; mengubah/menghapus rencana yang ia ajar;
+ *  - mengisi/mengubah/menghapus presensi pertemuan yang ia ajar (tanpa rencana: tutor kelas).
+ * Tutor lain di kelas yang sama tidak dapat menimpa presensi pertemuan tutor lain. */
+const YMD_RE = /^\d{4}-\d{2}-\d{2}$/;
+const HM_RE = /^([01]\d|2[0-3]):[0-5]\d$/;
+const PLAN_MINUTES = 90;
+const PLAN_STATUSES = ['draft', 'fixed', 'changed', 'cancelled'];
+const ATT_STATUSES = ['hadir', 'terlambat', 'izin', 'sakit', 'alfa'];
+const hmToMin = (t) => { const m = HM_RE.exec(String(t || '')); return m ? Number(t.slice(0, 2)) * 60 + Number(t.slice(3, 5)) : null; };
+const planTutorsOf = (p) => (p && Array.isArray(p.teacherIds) && p.teacherIds.length ? p.teacherIds : (p && p.teacherId ? [p.teacherId] : []));
+function teachRefs(ctx) { return (ctx.refs && ctx.refs.teach) || { courses: new Map(), plans: new Map() }; }
+/** Sesi aktif sebuah kelas pada satu tanggal, urut jam. */
+function sessionsOf(ctx, courseId, date) {
+  const out = [];
+  teachRefs(ctx).plans.forEach((p, id) => {
+    if (p.courseId === courseId && p.date === date && p.status !== 'cancelled') out.push(Object.assign({ id }, p));
+  });
+  return out.sort((a, b) => String(a.time || '').localeCompare(String(b.time || '')));
+}
+function mayTakeAttendance(ctx, rec) {
+  if (ctx.isAdmin) return true;
+  if (ctx.role !== 'guru') return false;
+  const tutors = teachRefs(ctx).courses.get(rec.courseId);
+  if (!tutors) return false;
+  let plan = null;
+  if (rec.planId) {
+    // Sesi tertentu (juga yang sudah dibatalkan): hanya tutor sesi itu.
+    plan = teachRefs(ctx).plans.get(rec.planId);
+    if (!plan || plan.courseId !== rec.courseId || plan.date !== rec.date) return false;
+  } else {
+    plan = sessionsOf(ctx, rec.courseId, rec.date)[0] || null;
+  }
+  return plan ? planTutorsOf(plan).includes(ctx.id) : tutors.includes(ctx.id);
+}
+function checkAttendance(ctx, before, after) {
+  if (!ctx.isStaff) return deny('Hanya admin/tutor yang dapat mengubah presensi.');
+  if (after) {
+    if (typeof after.courseId !== 'string' || typeof after.userId !== 'string' || !YMD_RE.test(after.date || '')) return deny('Data presensi tidak valid.');
+    if (!['siswa', 'guru'].includes(after.role)) return deny('Peran presensi tidak valid.');
+    if (!ATT_STATUSES.includes(after.status)) return deny('Status presensi tidak dikenal.');
+    if (!optStr(after.note, 500)) return deny('Catatan presensi maksimal 500 karakter.');
+    if (after.planId != null && !strOk(after.planId, 200)) return deny('Rujukan pertemuan tidak valid.');
+    if (before && (before.courseId !== after.courseId || before.userId !== after.userId || before.date !== after.date)) {
+      return deny('Presensi tidak dapat dipindahkan ke kelas, orang, atau tanggal lain.');
+    }
+  }
+  for (const rec of [before, after]) {
+    if (rec && !mayTakeAttendance(ctx, rec)) return deny('Presensi pertemuan ini hanya dapat diisi atau diubah tutor yang mengajar sesi tersebut, atau admin.');
+  }
+  if (!after) return allow(null);
+  return allow(Object.assign({}, after, { markedBy: ctx.id, markedAt: Date.now() }));
+}
+function planShapeProblem(p) {
+  if (typeof p.courseId !== 'string' || !p.courseId || !YMD_RE.test(p.date || '')) return 'Kelas atau tanggal rencana tidak valid.';
+  if (!PLAN_STATUSES.includes(p.status)) return 'Status rencana tidak dikenal.';
+  if ((p.time && !HM_RE.test(p.time)) || (p.endTime && !HM_RE.test(p.endTime))) return 'Format jam tidak valid (HH:MM).';
+  if (!optStr(p.topic, 200) || !optStr(p.note, 1000)) return 'Topik maksimal 200 karakter dan catatan 1.000 karakter.';
+  if (!optUrl(p.meetingLink)) return 'Tautan kelas harus diawali http(s):// (maks. 300 karakter).';
+  if (p.teacherIds != null && !idList(p.teacherIds, 6)) return 'Daftar tutor pertemuan tidak valid (maks. 6).';
+  if ((p.topicId != null && !strOk(p.topicId, 200)) || (p.materialPlanId != null && !strOk(p.materialPlanId, 200))) return 'Rujukan materi tidak valid.';
+  if (!optStr(p.cancelReason, 200)) return 'Alasan pembatalan maksimal 200 karakter.';
+  if (p.prevStatus != null && !PLAN_STATUSES.includes(p.prevStatus)) return 'Status sebelumnya tidak dikenal.';
+  return null;
+}
+function checkClassPlan(ctx, op, before, after) {
+  if (!ctx.isStaff) return deny('Hanya admin/tutor yang dapat mengubah rencana kelas.');
+  const refs = teachRefs(ctx);
+  if (after) {
+    const prob = planShapeProblem(after);
+    if (prob) return deny(prob);
+    const slotChanged = !before || before.date !== after.date || before.time !== after.time || before.endTime !== after.endTime
+      || (before.status === 'cancelled' && after.status !== 'cancelled');
+    if (after.status !== 'cancelled' && slotChanged) {
+      const a = hmToMin(after.time), b = hmToMin(after.endTime);
+      if (a == null || b == null || b - a !== PLAN_MINUTES) return deny(`Setiap pertemuan berdurasi ${PLAN_MINUTES} menit.`);
+    }
+    const tutors = refs.courses.get(after.courseId);
+    const teamChanged = !before || JSON.stringify(planTutorsOf(before)) !== JSON.stringify(planTutorsOf(after));
+    if (tutors && teamChanged && planTutorsOf(after).some(id => !tutors.includes(id))) return deny('Tutor pertemuan harus tutor kelas tersebut.');
+  }
+  if (ctx.isAdmin) return allow(after);
+  if (op === 'create') {
+    const tutors = refs.courses.get(after.courseId);
+    return tutors && tutors.includes(ctx.id) ? allow(after) : deny('Rencana hanya dapat dibuat di kelas yang Anda ampu.');
+  }
+  if (!planTutorsOf(before).includes(ctx.id)) return deny('Rencana ini hanya dapat diubah tutor yang mengajar pertemuan tersebut atau admin.');
+  if (after && after.courseId !== before.courseId && !(refs.courses.get(after.courseId) || []).includes(ctx.id)) return deny('Rencana hanya dapat dipindah ke kelas yang Anda ampu.');
+  return allow(after);
+}
+function checkMaterialPlan(ctx, before, after) {
+  if (!ctx.isStaff) return deny('Hanya admin/tutor yang dapat mengubah rencana materi.');
+  if (after) {
+    if (typeof after.courseId !== 'string' || !after.courseId) return deny('Kelas rencana materi tidak valid.');
+    if (!(Number.isInteger(after.week) && after.week >= 1 && after.week <= 60)) return deny('Minggu ke- harus 1–60.');
+    if (!strOk(after.title, 80, 2) || /[<>]/.test(after.title)) return deny('Nama materi 2–80 karakter tanpa < atau >.');
+    if (!optStr(after.note, 300)) return deny('Catatan rencana materi maksimal 300 karakter.');
+    if (after.teacherIds != null && !idList(after.teacherIds, 6)) return deny('Daftar pengajar tidak valid (maks. 6).');
+    if ((after.topicId != null && !strOk(after.topicId, 200)) || (after.subtopicId != null && !strOk(after.subtopicId, 200))) return deny('Rujukan materi tidak valid.');
+  }
+  if (ctx.isAdmin) return allow(after);
+  const tutors = teachRefs(ctx).courses;
+  for (const rec of [before, after]) {
+    if (rec && !(tutors.get(rec.courseId) || []).includes(ctx.id)) return deny('Rencana materi hanya untuk kelas yang Anda ampu.');
+  }
+  return allow(after);
+}
+
 function checkUser(ctx, op, before, after) {
+  const pp = photoProblem(before, after);
+  if (pp) return deny(pp);
   if (ctx.isAdmin) {
     if (after) {
       if (!ROLES.includes(after.role)) return deny('Peran akun tidak valid.');
       if (typeof after.username !== 'string' || !after.username.trim()) return deny('Username wajib diisi.');
+      if (after.eduStatus != null && after.eduStatus !== '' && !EDU_STATUSES.includes(after.eduStatus)) return deny('Status pendidikan tidak valid.');
     }
     return allow(after);
   }

@@ -1,5 +1,7 @@
 /* =====================================================================
- * js/games.js — Game Battle: 10 game edukasi (pribadi & battle 1 lawan 1)
+ * js/games.js — Game Battle: mesin game edukasi (pribadi & battle 1 lawan 1)
+ *   10 game dasar ada di berkas ini; 8 game arkade didaftarkan oleh
+ *   js/games-arcade.js lewat Games.register().
  * ---------------------------------------------------------------------
  * Mode bermain:
  *  - Pribadi : main sendiri, skor tersimpan & masuk papan peringkat game.
@@ -20,6 +22,8 @@
  * ===================================================================*/
 (function (global) {
   'use strict';
+  // Isi lingkaran avatar: avatar almamater / foto / inisial (js/avatars.js).
+  const AV = (u) => (global.Avatars ? Avatars.inner(u) : UI.esc(UI.initials(u && u.name)));
 
   const K = { q: 'lms_game_questions', battles: 'lms_game_battles', scores: 'lms_game_scores' };
   const PREF_KEY = 'lms_game_prefs';
@@ -30,11 +34,54 @@
   const esc = (s) => UI.esc(s);
   const rt = (html) => `<span class="rt-content">${RichText.render(html || '')}</span>`;
   const plain = (html, n) => RichText.plain(html || '', n || 400).trim();
-  const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
   const server = () => !!(global.Sync && Sync.isServer && Sync.isServer());
   const reducedMotion = () => !!(global.matchMedia && global.matchMedia('(prefers-reduced-motion: reduce)').matches);
   const uid = (p) => p + '_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
   const fmt = (n) => Math.round(Number(n) || 0).toLocaleString('id-ID');
+
+  /* ---------- Layar penuh saat bermain ----------
+   * Fullscreen API bila tersedia, ditambah kelas .game-fs (posisi tetap memenuhi layar)
+   * sehingga tetap berfungsi di iPhone/peramban tanpa Fullscreen API. Dipakai juga oleh
+   * Main Bareng (js/game-room.js) dan Games Area Arena (js/arena.js) lewat GameFS. */
+  const FS_ON = '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg>';
+  const FS_OFF = '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 4v5H4M15 4v5h5M9 20v-5H4M15 20v-5h5"/></svg>';
+  const fsBtnHtml = () => `<button type="button" class="icon-btn gb-fs-btn" data-fs-toggle aria-pressed="false" aria-label="Layar penuh" title="Layar penuh">${FS_ON}</button>`;
+  function fsSet(el, on) {
+    if (!el) return;
+    // Kunci gulir halaman lewat CSS html:has(.game-fs) — otomatis lepas bila elemen dibuang saat pindah halaman.
+    el.classList.toggle('game-fs', on);
+    try {
+      if (on && el.requestFullscreen && document.fullscreenElement !== el) el.requestFullscreen({ navigationUI: 'hide' }).catch(() => {});
+      if (!on && document.fullscreenElement) document.exitFullscreen().catch(() => {});
+    } catch (e) { /* peramban tanpa Fullscreen API: cukup kelas .game-fs */ }
+    el.querySelectorAll('[data-fs-toggle]').forEach(b => {
+      b.setAttribute('aria-pressed', String(on));
+      b.setAttribute('aria-label', on ? 'Keluar layar penuh' : 'Layar penuh');
+      b.title = on ? 'Keluar layar penuh' : 'Layar penuh';
+      b.innerHTML = on ? FS_OFF : FS_ON;
+    });
+    // Kanvas arkade menyesuaikan tinggi area bermain.
+    setTimeout(() => global.dispatchEvent(new Event('resize')), 80);
+  }
+  /**
+   * Pasang tombol [data-fs-toggle] di dalam el (target layar penuh = el).
+   * Mengembalikan pelepas: release(keep) — keep=true mempertahankan layar penuh (sesi berikutnya memakai el yang sama).
+   */
+  function fsBind(el) {
+    if (!el) return () => {};
+    el.querySelectorAll('[data-fs-toggle]').forEach(b => b.addEventListener('click', () => fsSet(el, !el.classList.contains('game-fs'))));
+    const onChange = () => {
+      // Keluar lewat Esc / gesture sistem: lepas juga tampilan layar penuh CSS.
+      if (document.fullscreenElement === el) el.dataset.fsNative = '1';
+      else if (el.dataset.fsNative) { delete el.dataset.fsNative; if (el.classList.contains('game-fs')) fsSet(el, false); }
+    };
+    document.addEventListener('fullscreenchange', onChange);
+    return (keep) => {
+      document.removeEventListener('fullscreenchange', onChange);
+      if (!keep && el.classList.contains('game-fs')) fsSet(el, false);
+    };
+  }
+  global.GameFS = { buttonHtml: fsBtnHtml, bind: fsBind, set: fsSet };
 
   /* ================================================================
    * Penyimpanan
@@ -86,7 +133,6 @@
       return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
     };
   }
-  function hashStr(s) { let h = 2166136261; for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); } return h >>> 0; }
   function shuffle(arr, rng) {
     const a = arr.slice();
     for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(rng() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; }
@@ -163,6 +209,7 @@
   function poolFor(game, subject) {
     return sourceQuestions().filter(q => {
       if (subject && q.subject !== subject) return false;
+      if (q.passageId) return false;            // soal bertautan teks bacaan butuh bacaan panjang, tidak cocok untuk game
       if (Array.isArray(q.games) && q.games.length && !q.games.includes(game.id)) return false;
       return autoValid(q) && game.accepts(q);
     });
@@ -342,7 +389,7 @@
   function qCardHtml(q, idx, total, extra) {
     const st = DB.subtestByName(q.subject);
     return `<div class="gb-qhead">
-        <span class="gb-qnum">${idx}/${total}</span>
+        <span class="gb-qnum">${total ? idx + '/' + total : 'Soal ' + idx}</span>
         <span class="gb-chip-s">${st ? st.icon + ' ' + esc(st.short) : esc(q.subject || 'Umum')}</span>
         <span class="gb-chip-s d-${esc(q.difficulty || 'sedang')}">${esc(q.difficulty || 'sedang')}</span>
         ${extra || ''}
@@ -380,7 +427,7 @@
   }
 
   /* ================================================================
-   * Katalog 10 game
+   * Katalog 10 game dasar (game arkade: js/games-arcade.js)
    *  accepts(q)  : soal cocok untuk game ini?
    *  min         : minimal unit (soal/pernyataan/pasangan) agar bisa main
    *  pick(pool)  : pilih soal untuk satu ronde (deterministik dengan rng)
@@ -963,11 +1010,12 @@
       <div class="gb-run" style="--gc:${game.color}">
         <div class="gb-hud">
           <button type="button" class="btn btn-sm btn-secondary" data-gb="quit">← Keluar</button>
-          <div class="gb-hud-game"><span class="gb-hud-ic">${game.icon}</span><div><strong>${esc(game.name)}</strong>
+          <div class="gb-hud-game"><span class="gb-hud-ic">${game.art || game.icon}</span><div><strong>${esc(game.name)}</strong>
             <small>${mode === 'battle' ? `⚔️ Battle vs ${esc(firstName(oppId))}` : mode === 'bot' ? `🤖 vs ${esc(bot.label)}` : mode === 'preview' ? '👁️ Pratinjau (tidak disimpan)' : '🎯 Main pribadi'}</small></div></div>
           <div class="gb-hud-info" id="gbInfo"></div>
           <div class="gb-hud-score"><span>Skor</span><b id="gbScore">0</b></div>
           <button type="button" class="icon-btn gb-sound" data-gb="sound" aria-label="Suara" title="Suara">${prefs().sound === false ? '🔇' : '🔊'}</button>
+          ${fsBtnHtml()}
         </div>
         <div class="gb-timer" id="gbTimer" hidden><span class="gb-timer-bar"><i id="gbTimerBar"></i></span><b id="gbTimerTxt"></b></div>
         ${battle || bot ? `<div class="gb-vs" id="gbVs"></div>` : ''}
@@ -975,6 +1023,10 @@
       </div>`;
     const $ = (s) => container.querySelector(s);
     const stage = $('#gbStage');
+    // Layar penuh memakai container (bukan .gb-run) agar tetap aktif saat "Main Lagi"/tanding ulang.
+    const fsRelease = fsBind(container);
+    if (container.classList.contains('game-fs')) fsSet(container, true);
+    let resultShown = false;
 
     /* ---------- tampilan lawan ---------- */
     let botState = null;
@@ -1014,15 +1066,21 @@
 
     /* ---------- ctx untuk game ---------- */
     const ctx = {
-      stage, qs, rng, game,
+      stage, qs, rng, game, mode,
       score: () => stats.score,
-      setScore(n) { stats.score = Math.round(n); $('#gbScore').textContent = fmt(stats.score); paintVs(); writeMine(); },
+      setScore(n) {
+        // Skor tidak boleh menjadi NaN/Infinity (mis. hasil hitung game yang keliru).
+        const v = Math.round(Number(n));
+        if (!Number.isFinite(v) || finished) return;
+        stats.score = Math.max(-1e6, Math.min(1e6, v));
+        $('#gbScore').textContent = fmt(stats.score); paintVs(); writeMine();
+      },
       add(delta) {
         ctx.setScore(stats.score + delta);
         const el = $('#gbScore');
         el.classList.remove('is-bump'); void el.offsetWidth; el.classList.add('is-bump');
       },
-      mark(ok) { stats.answered++; if (ok) stats.correct++; paintVs(); writeMine(); },
+      mark(ok) { if (finished) return; stats.answered++; if (ok) stats.correct++; paintVs(); writeMine(); },
       info(html) { const el = $('#gbInfo'); if (el) el.innerHTML = esc(html); },
       flash(ok) {
         beep(ok ? 'ok' : 'bad');
@@ -1056,6 +1114,8 @@
         tick();
         return t;
       },
+      /** Sembunyikan bilah waktu (giliran selesai, menunggu animasi/lawan). */
+      hideTimer() { if (mainTimer) mainTimer.stop(); const el = $('#gbTimer'); if (el) el.hidden = true; },
       finish() { finishRound(); }
     };
 
@@ -1137,7 +1197,8 @@
     function waitOpponent() {
       const check = () => {
         const b = getBattle(battle.id);
-        if (!b) return showResult();
+        // Battle hilang (dihapus/dibersihkan): tampilkan hasil sekali dan hentikan pengecekan.
+        if (!b) { showResult(); return true; }
         battle = b;
         paintVs();
         const op = (b.players || {})[oppId];
@@ -1197,7 +1258,8 @@
     }
 
     function showResult() {
-      if (!session || session !== sess) return;
+      if (!session || session !== sess || resultShown) return;
+      resultShown = true;
       let outcome = null, opScore = null, opName = '';
       if (mode === 'battle') {
         const b = getBattle(battle.id) || battle;
@@ -1209,9 +1271,12 @@
         opScore = botState ? botState.score : 0; opName = bot.label;
         outcome = stats.score > opScore ? 'win' : (stats.score === opScore ? 'draw' : 'lose');
       }
+      // Rekor dihitung SEBELUM skor ronde ini disimpan: menyamai rekor lama bukan rekor baru.
+      const prevBest = mode === 'solo' ? getScores().filter(s => s.studentId === me && s.game === game.id && s.mode === 'solo')
+        .reduce((m, s) => Math.max(m, Number(s.score) || 0), 0) : null;
       saveScore(outcome);
-      const best = mode === 'solo' ? Math.max(0, ...getScores().filter(s => s.studentId === me && s.game === game.id).map(s => s.score)) : null;
-      const isBest = mode === 'solo' && best === stats.score && stats.score > 0;
+      const isBest = mode === 'solo' && user.role === 'siswa' && stats.score > 0 && stats.score > prevBest;
+      const best = mode === 'solo' ? Math.max(prevBest, stats.score) : null;
       const OUT = { win: ['🏆', 'Kamu Menang!', 'is-win'], lose: ['💪', 'Belum Beruntung', 'is-lose'], draw: ['🤝', 'Seri!', 'is-draw'] };
       const o = outcome ? OUT[outcome] : null;
       stage.innerHTML = `<div class="gb-result ${o ? o[2] : ''}">
@@ -1248,6 +1313,7 @@
         timers.clear(); intervals.clear();
         if (writeTimer) clearTimeout(writeTimer);
         disposers.forEach(fn => { try { fn(); } catch (e) { /* noop */ } });
+        fsRelease(reason === 'restart');
         // Keluar di tengah battle = menyerah dengan skor saat ini.
         if (mode === 'battle' && !finished && reason !== 'rematch') { finished = true; writeMine(true); }
       },
@@ -1443,24 +1509,27 @@
       return runSession(container, user, { gameId: act.game, mode: 'battle', battleId: act.id, onExit: () => render(container, user), onRematch: (nb) => { view.waiting = nb.id; render(container, user); } });
     }
     const ms = myStats(user.id);
-    const tabs = [['play', '🎮 Main'], ['battle', '⚔️ Battle'], ['rank', '🏆 Peringkat'], ['history', '📜 Riwayat']];
+    const tabs = [['play', '🎮 Main'], ['battle', '⚔️ Battle'], ['bareng', '🎪 Main Bareng'], ['rank', '🏆 Peringkat'], ['history', '📜 Riwayat']];
+    if (!global.GameRoom && view.tab === 'bareng') view.tab = 'play';
     const incoming = getBattles().filter(b => b.status === 'invite' && b.p2Id === user.id && !battleExpired(b)).length;
+    const roomsOpen = global.GameRoom ? GameRoom.openCount() : 0;
     container.innerHTML = `
       <section class="welcome-hero gb-hero">
         <span class="blob b1"></span><span class="blob b2"></span>
         <div class="wh-inner">
           <div class="wh-eyebrow">🎮 Game Battle</div>
           <h2>Belajar sambil bertanding!</h2>
-          <p class="wh-sub">10 game edukasi dari Bank Soal. Main sendiri untuk memecahkan rekor, atau tantang teman yang sedang online — pilih lawan sendiri atau biarkan bot mencarikan.</p>
+          <p class="wh-sub">${GAMES.length} game edukasi dari Bank Soal. Main sendiri untuk memecahkan rekor, tantang teman yang sedang online — pilih lawan sendiri atau biarkan bot mencarikan — atau gabung Main Bareng Kelas dengan kode dari tutor.</p>
           <div class="wh-chips"><span class="wh-chip">🎯 ${ms.plays} ronde</span><span class="wh-chip">⚔️ ${ms.wins}/${ms.battles} menang</span><span class="wh-chip">🏅 Rekor ${fmt(ms.best)}</span></div>
         </div>
       </section>
-      <div class="tabs gb-tabs" role="tablist">${tabs.map(([k, l]) => `<button type="button" class="tab-btn ${view.tab === k ? 'active' : ''}" data-gbtab="${k}" role="tab" aria-selected="${view.tab === k}">${l}${k === 'battle' && incoming ? ` <span class="gb-dot">${incoming}</span>` : ''}</button>`).join('')}</div>
+      <div class="tabs gb-tabs" role="tablist">${tabs.map(([k, l]) => `<button type="button" class="tab-btn ${view.tab === k ? 'active' : ''}" data-gbtab="${k}" role="tab" aria-selected="${view.tab === k}">${l}${k === 'battle' && incoming ? ` <span class="gb-dot">${incoming}</span>` : ''}${k === 'bareng' && roomsOpen ? ` <span class="gb-dot">${roomsOpen}</span>` : ''}</button>`).join('')}</div>
       <div id="gbBody"></div>`;
     container.querySelectorAll('[data-gbtab]').forEach(b => b.addEventListener('click', () => { view.tab = b.dataset.gbtab; render(container, user); }));
     const body = container.querySelector('#gbBody');
     if (view.tab === 'play') paintPlay(body, user);
     else if (view.tab === 'battle') paintBattle(body, user);
+    else if (view.tab === 'bareng') { GameRoom.tidy(user); GameRoom.renderJoin(body, user); }
     else if (view.tab === 'rank') paintRank(body, user);
     else paintHistory(body, user);
     if (global.Effects) Effects.enhance(container);
@@ -1470,7 +1539,7 @@
     const g = x.g;
     const best = getScores().filter(s => s.studentId === user.id && s.game === g.id).reduce((m, s) => Math.max(m, s.score), 0);
     return `<article class="gb-card-g ${x.ok ? '' : 'is-off'}" style="--gc:${g.color}">
-      <div class="gb-cg-top"><span class="gb-cg-ic">${g.icon}</span><span class="gb-cg-tag">${esc(g.tag)}</span></div>
+      <div class="gb-cg-top"><span class="gb-cg-ic">${g.art || g.icon}</span><span class="gb-cg-tag">${esc(g.tag)}</span></div>
       <h4>${esc(g.name)}</h4>
       <p>${esc(g.desc)}</p>
       <div class="gb-cg-meta"><span title="Format soal">🧩 ${esc(g.formats.join(', '))}</span>
@@ -1535,7 +1604,7 @@
         <div class="gb-opp-grid">
           <div class="gb-opp-card is-auto">
             <div class="gb-opp-ic">🤖</div><h4>Cari Otomatis</h4>
-            <p>Bot mendeteksi siswa yang sedang online lalu mencarikan lawan untukmu.</p>
+            <p>Bot mendeteksi mentee yang sedang online lalu mencarikan lawan untukmu.</p>
             <button type="button" class="btn btn-primary" id="gbAuto" ${ready.length ? '' : 'disabled'}>🔍 Cari Lawan</button>
           </div>
           <div class="gb-opp-card is-bot ${st.bot ? '' : 'is-off'}">
@@ -1544,16 +1613,16 @@
             <div class="flex-gap">${Object.entries(BOT_LEVELS).map(([k, v]) => `<button type="button" class="btn btn-sm btn-secondary" data-bot="${k}" ${st.bot && ready.length ? '' : 'disabled'}>${esc(v.label.replace('Bot ', ''))}</button>`).join('')}</div>
           </div>
         </div>
-        <h4 class="gb-sub-h">🟢 Pilih lawan sendiri <span class="muted small">(${online.length} siswa online)</span></h4>
+        <h4 class="gb-sub-h">🟢 Pilih lawan sendiri <span class="muted small">(${online.length} mentee online)</span></h4>
         ${online.length ? `<div class="gb-online">${online.map(o => `
           <div class="gb-on-row ${o.busy ? 'is-busy' : ''}">
-            <span class="gb-on-av">${esc(UI.initials(o.user.name))}<i class="presence-dot ${o.state}"></i></span>
+            <span class="gb-on-av">${AV(o.user)}<i class="presence-dot ${o.state}"></i></span>
             <div class="gb-on-main"><strong>${esc(o.user.name)}</strong>
               <span class="muted small">${esc(o.user.kelas || '')}${o.inGame ? ' • 🎮 di Game Battle' : ''}${o.busy ? ' • ⚔️ sedang bertanding' : (o.state === 'away' ? ' • menjauh' : '')}</span></div>
             <button type="button" class="btn btn-sm btn-primary" data-chal="${o.id}" ${o.busy || !ready.length ? 'disabled' : ''}>Tantang</button>
           </div>`).join('')}</div>`
-          : `<div class="empty"><div class="empty-icon">🌙</div>Belum ada siswa lain yang online${server() ? '' : ' (mode lokal: hanya tab di peramban ini)'}. Coba <b>Cari Otomatis</b> — tantanganmu terbuka 2 menit untuk siswa yang baru masuk — atau lawan bot.</div>`}
-        <label class="check-row gb-avail"><input type="checkbox" id="gbAvail" ${avail ? 'checked' : ''} /> Terima tantangan battle dari siswa lain (status online-ku terlihat di daftar lawan)</label>
+          : `<div class="empty"><div class="empty-icon">🌙</div>Belum ada mentee lain yang online${server() ? '' : ' (mode lokal: hanya tab di peramban ini)'}. Coba <b>Cari Otomatis</b> — tantanganmu terbuka 2 menit untuk mentee yang baru masuk — atau lawan bot.</div>`}
+        <label class="check-row gb-avail"><input type="checkbox" id="gbAvail" ${avail ? 'checked' : ''} /> Terima tantangan battle dari mentee lain (status online-ku terlihat di daftar lawan)</label>
       </div>`;
     const cfg = () => {
       const gid = body.querySelector('#gbBGame').value;
@@ -1591,7 +1660,7 @@
     }));
     body.querySelector('#gbAvail').addEventListener('change', (e) => {
       DB.updateUser(user.id, { gameAvailable: e.target.checked });
-      UI.toast(e.target.checked ? 'Kamu bisa ditantang siswa lain.' : 'Kamu tidak muncul di daftar lawan.', 'info');
+      UI.toast(e.target.checked ? 'Kamu bisa ditantang mentee lain.' : 'Kamu tidak muncul di daftar lawan.', 'info');
     });
   }
 
@@ -1617,7 +1686,7 @@
         <div class="gb-radar"><span></span><span></span><span></span><b>${g.icon}</b></div>
         <h3>${b.status === 'invite' ? `Menunggu ${esc(userName(b.p2Id))} menerima tantangan…` : '🤖 Bot sedang mencarikan lawan…'}</h3>
         <p class="muted">${esc(g.name)}${b.subject ? ' • ' + esc(b.subject) : ''} • berlaku <b id="gbLeft">${left}</b> detik lagi</p>
-        ${b.status === 'open' ? '<p class="muted small">Tantangan terbuka untuk semua siswa online. Siswa yang diundang mendapat notifikasi di perangkatnya.</p>' : ''}
+        ${b.status === 'open' ? '<p class="muted small">Tantangan terbuka untuk semua mentee online. Mentee yang diundang mendapat notifikasi di perangkatnya.</p>' : ''}
         <div class="flex-gap" style="justify-content:center;margin-top:12px;">
           <button type="button" class="btn btn-secondary" id="gbCancel">Batalkan</button>
           ${settings().bot ? '<button type="button" class="btn btn-ghost" id="gbToBot">🦾 Lawan Bot saja</button>' : ''}
@@ -1666,14 +1735,14 @@
     body.innerHTML = `
       <div class="gb-rank-wrap">
         <div class="card">
-          <div class="card-header">${UI.secHead('🏆', 'Rekor per Game', 'skor terbaik tiap siswa')}
+          <div class="card-header">${UI.secHead('🏆', 'Rekor per Game', 'skor terbaik tiap mentee')}
             <select id="gbRankG">${GAMES.map(x => `<option value="${x.id}" ${x.id === g.id ? 'selected' : ''}>${x.icon} ${esc(x.name)}</option>`).join('')}</select></div>
           ${rows.length ? `<ol class="gb-rank">${rows.map((s, i) => `<li class="${s.studentId === user.id ? 'is-me' : ''}"><span class="gb-rk">${medal(i)}</span>
             <span class="gb-rn">${esc(userName(s.studentId))}</span><span class="muted small">${esc(UI.fmtRelative(s.createdAt))}</span><b>${fmt(s.score)}</b></li>`).join('')}</ol>`
             : '<div class="empty"><div class="empty-icon">🏁</div>Belum ada skor. Jadilah yang pertama!</div>'}
         </div>
         <div class="card">
-          <div class="card-header">${UI.secHead('⚔️', 'Juara Battle', 'kemenangan battle melawan siswa')}</div>
+          <div class="card-header">${UI.secHead('⚔️', 'Juara Battle', 'kemenangan battle melawan mentee')}</div>
           ${champs.length ? `<ol class="gb-rank">${champs.map(([id, n], i) => `<li class="${id === user.id ? 'is-me' : ''}"><span class="gb-rk">${medal(i)}</span>
             <span class="gb-rn">${esc(userName(id))}</span><b>${n} menang</b></li>`).join('')}</ol>`
             : '<div class="empty"><div class="empty-icon">⚔️</div>Belum ada battle yang selesai.</div>'}
@@ -1688,7 +1757,7 @@
     body.innerHTML = `<div class="card"><div class="card-header">${UI.secHead('📜', 'Riwayat Main', '30 ronde terakhir')}</div>
       ${mine.length ? `<div class="table-wrap"><table class="table"><thead><tr><th>Game</th><th>Mode</th><th>Skor</th><th>Benar</th><th>Hasil</th><th>Waktu</th></tr></thead>
         <tbody>${mine.map(s => { const g = GAME[s.game] || {}; return `<tr><td>${g.icon || '🎮'} ${esc(g.name || s.game)}</td>
-          <td>${s.mode === 'battle' ? `⚔️ vs ${esc(firstName(s.opponentId))}` : s.mode === 'bot' ? '🦾 vs Bot' : '🎯 Pribadi'}</td>
+          <td>${s.mode === 'battle' ? `⚔️ vs ${esc(firstName(s.opponentId))}` : s.mode === 'bot' ? '🦾 vs Bot' : s.mode === 'kelas' ? '🎪 Main Bareng' : '🎯 Pribadi'}</td>
           <td><strong>${fmt(s.score)}</strong></td><td>${s.correct}/${s.answered}</td><td>${RES[s.result] || '-'}</td>
           <td class="small">${esc(UI.fmtDateTime(s.createdAt))}</td></tr>`; }).join('')}</tbody></table></div>`
         : '<div class="empty"><div class="empty-icon">🎮</div>Belum ada riwayat. Ayo main!</div>'}</div>`;
@@ -1721,7 +1790,7 @@
         shownCards.add('inv:' + b.id);
         // Kartu selalu muncul (juga di halaman Game Battle, tab apa pun); daftar ikut diperbarui.
         showCard(b, 'inv');
-        if (onPage && page) render(page.container, page.user);
+        if (onPage && page && !(global.GameRoom && GameRoom.busy())) render(page.container, page.user);
       }
       if (b.status === 'playing' && b.p1Id === me && !onPage && !shownCards.has('acc:' + b.id)
         && now < (b.startAt || 0) + (b.limitMs || 300000) && !((b.players || {})[me] || {}).finished) {
@@ -1772,12 +1841,25 @@
     setInterval(watch, 4000);
   }
 
-  function stop() { stopSession('nav'); clearTimeout(waitTimer); page = null; }
+  function stop() { stopSession('nav'); clearTimeout(waitTimer); page = null; if (global.GameRoom) GameRoom.stop(); }
+
+  /**
+   * Daftarkan game tambahan (js/games-arcade.js). Game harus memiliki bentuk yang
+   * sama dengan katalog di atas: id unik, accepts, min, pick, limitSec, bot, play.
+   */
+  function register(game) {
+    if (!game || !game.id || GAME[game.id] || typeof game.play !== 'function' || typeof game.accepts !== 'function') return false;
+    GAMES.push(game);
+    GAME[game.id] = game;
+    return true;
+  }
 
   global.Games = {
     PAGE, KEYS: K, GAMES, GAME, settings, poolFor, unitsOf, autoValid, sourceQuestions, getGameQuestions, upsertQuestion: (q) => upsert(K.q, q),
     removeQuestion: (id) => removeRec(K.q, id), getBattles, getScores, playableGames, gameCardHtml, keyText,
-    render, init, stop, runSession, stopSession, AnswerUI, winnerOf,
+    render, init, stop, runSession, stopSession, AnswerUI, winnerOf, register,
+    /** Bagian mesin game yang dipakai ulang game tambahan & Main Bareng Kelas. */
+    kit: { askTurn, qCardHtml, beep, shuffle, mulberry, gainHtml, fmtOf, optCount, plain, rt, esc, fmt, reducedMotion, bsLabels, DIFF_ORDER, ALL_AUTO, BOT_LEVELS, resolveRef, prefs, saveScore: (rec) => upsert(K.scores, rec) },
     _test: { mulberry, shuffle, bsCards, memoryPairs, createBattle, acceptBattle, autoMatch, onlineStudents }
   };
 })(window);

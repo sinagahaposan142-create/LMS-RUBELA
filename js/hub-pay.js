@@ -227,7 +227,7 @@
     if (!p) { UI.toast('Data pembayaran tidak ditemukan.', 'error'); return; }
     if (!p.proofKey) { UI.toast('Akses ini diberikan admin tanpa bukti transfer.', 'info'); return; }
     UI.modal.open('Bukti transfer', `<div class="hp-proof-view">${imgHtml(p.proofKey, 'Bukti transfer', 'hp-proof-full')}
-      ${p.note ? `<p class="hp-fine">Catatan siswa: ${esc(p.note)}</p>` : ''}</div>`, { autofocus: false });
+      ${p.note ? `<p class="hp-fine">Catatan mentee: ${esc(p.note)}</p>` : ''}</div>`, { autofocus: false });
     hydrate(document.getElementById('modalBody'));
   }
 
@@ -254,8 +254,8 @@
     container.querySelectorAll('[data-hp-view]').forEach(b => b.addEventListener('click', () => openProof(DB.getHubPayment(b.dataset.hpView))));
     container.querySelectorAll('[data-hp-approve]').forEach(b => b.addEventListener('click', () => {
       const p = DB.getHubPayment(b.dataset.hpApprove);
-      if (!UI.confirmDialog(`Setujui pembayaran ${rp(p.amount)} dan buka akses course untuk siswa ini?`)) return;
-      try { DB.hubDecidePayment(p.id, 'approved', '', admin); UI.toast('Pembayaran disetujui. Siswa sudah didaftarkan.', 'success'); renderAdmin(container, admin); }
+      if (!UI.confirmDialog(`Setujui pembayaran ${rp(p.amount)} dan buka akses course untuk mentee ini?`)) return;
+      try { DB.hubDecidePayment(p.id, 'approved', '', admin); UI.toast('Pembayaran disetujui. Mentee sudah didaftarkan.', 'success'); renderAdmin(container, admin); }
       catch (e) { UI.toast(e.message, 'error'); }
     }));
     container.querySelectorAll('[data-hp-reject]').forEach(b => b.addEventListener('click', () => openReject(container, admin, b.dataset.hpReject)));
@@ -291,7 +291,7 @@
     if (!p) return;
     UI.modal.open(revoke ? 'Cabut akses course' : 'Tolak pembayaran', `
       <form id="hpRejForm" class="form">
-        <div class="form-group"><label for="hpReason">Alasan (dikirim ke siswa)</label>
+        <div class="form-group"><label for="hpReason">Alasan (dikirim ke mentee)</label>
           <textarea id="hpReason" rows="3" maxlength="300" required placeholder="Contoh: nominal transfer kurang Rp5.000, atau bukti tidak terbaca."></textarea></div>
         <div class="hp-chips">${['Nominal tidak sesuai', 'Bukti tidak terbaca', 'Transfer belum masuk ke rekening', 'Bukti bukan untuk course ini']
           .map(t => `<button type="button" class="hp-chip" data-hp-reason="${esc(t)}">${esc(t)}</button>`).join('')}</div>
@@ -308,7 +308,7 @@
       try {
         DB.hubDecidePayment(id, 'rejected', ta.value, admin);
         UI.modal.close();
-        UI.toast(revoke ? 'Akses dicabut.' : 'Pembayaran ditolak. Siswa mendapat notifikasi.', 'success');
+        UI.toast(revoke ? 'Akses dicabut.' : 'Pembayaran ditolak. Mentee mendapat notifikasi.', 'success');
         renderAdmin(container, admin);
       } catch (err) { const el = f.querySelector('#hpRejErr'); el.hidden = false; el.textContent = err.message; }
     });
@@ -321,7 +321,7 @@
         <p class="muted small">Untuk pembayaran tunai, beasiswa, atau kasus khusus. Tercatat sebagai "Akses manual" tanpa nominal.</p>
         <div class="form-group"><label for="hpGC">Course berbayar</label><select id="hpGC" class="input" required>
           ${courses.map(c => `<option value="${esc(c.id)}">${esc(c.title)} — ${rp(c.price)}</option>`).join('')}</select></div>
-        <div class="form-group"><label for="hpGS">Siswa</label><select id="hpGS" class="input" required>
+        <div class="form-group"><label for="hpGS">Mentee</label><select id="hpGS" class="input" required>
           ${students.map(s => `<option value="${esc(s.id)}">${esc(s.name)}${s.kelas ? ' · ' + esc(s.kelas) : ''}</option>`).join('')}</select></div>
         <div class="form-group"><label for="hpGN">Catatan</label><input id="hpGN" class="input" maxlength="300" placeholder="mis. Bayar tunai di kantor" /></div>
         <div class="hp-err" id="hpGErr" role="alert" hidden></div>
@@ -334,7 +334,7 @@
       const cid = f.querySelector('#hpGC').value, sid = f.querySelector('#hpGS').value;
       try {
         const c = DB.getHubCourse(cid);
-        if (DB.hubHasAccess(c, sid)) throw new Error('Siswa ini sudah memiliki akses.');
+        if (DB.hubHasAccess(c, sid)) throw new Error('Mentee ini sudah memiliki akses.');
         DB.hubGrantAccess(cid, sid, admin, f.querySelector('#hpGN').value);
         try { DB.hubEnroll(cid, sid); } catch (er) { /* di luar sasaran: akses tetap tercatat */ }
         DB.addNotification({ userId: sid, icon: '💳', link: 'course', title: 'Akses course dibuka', body: c.title });

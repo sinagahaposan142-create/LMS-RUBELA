@@ -31,7 +31,7 @@
   }
 
   const ROLE_LABELS = {
-    admin: 'Admin', guru: 'Guru', siswa: 'Siswa', orangtua: 'Orang Tua'
+    admin: 'Admin', guru: 'Tutor', siswa: 'Mentee', orangtua: 'Orang Tua'
   };
 
   /** Periksa kredensial TANPA membuat sesi (mode lokal). */
@@ -94,7 +94,7 @@
     if (DB.findUserByUsername(username)) return { ok: false, error: 'Username sudah dipakai.' };
     const user = DB.addUser({
       id: DB.uid('u'), role: 'siswa', name, email, username, password,
-      kelas: 'X-A', status: 'Aktif',
+      kelas: '', status: 'Aktif',   // kelas utama ditetapkan admin
       // Dipakai sambutan dashboard: "Calon Mahasiswa <universitas impian>"
       targetUniv: (targetUniv || '').trim(),
       targetMajor: (targetMajor || '').trim(),

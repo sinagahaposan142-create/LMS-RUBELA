@@ -20,7 +20,7 @@
   function pool(subtest) {
     return DB.getQuestions().filter(q => (q.questionType || 'Pilihan Ganda') === 'Pilihan Ganda'
       && Array.isArray(q.options) && q.options.length >= 2 && q.correctIndex >= 0 && q.correctIndex < q.options.length
-      && (!subtest || q.subject === subtest));
+      && !q.passageId && (!subtest || q.subject === subtest));
   }
   function shuffle(a, seed) {
     const arr = a.slice();
@@ -293,7 +293,19 @@
   }
 
   /* ------------------------- Games Area ------------------------- */
+  /** Layar penuh: target = kotak permainan (tetap ada walau isinya digambar ulang). */
+  function bindFs(box) {
+    if (!global.GameFS) return;
+    if (box._arFsRelease) box._arFsRelease(true);
+    box._arFsRelease = GameFS.bind(box);
+    if (box.classList.contains('game-fs')) GameFS.set(box, true);   // sinkronkan ikon tombol
+  }
+  function releaseFs(box) {
+    if (box && box._arFsRelease) { box._arFsRelease(); box._arFsRelease = null; }
+  }
   function renderGames(box, user) {
+    releaseFs(box);
+    box._arRun = (box._arRun || 0) + 1;
     const day = today(user);
     const played = DB.getLearningLog(user.id).filter(e => e.type === 'games' && e.day === day).length;
     box.innerHTML = `<div class="card"><div class="card-header">${UI.secHead('🎮', 'Games Area', `${played}/${DB.LEARNING_TYPES.games.cap} ronde ber-XP hari ini`)}</div>
@@ -315,23 +327,30 @@
       q = { text: `${a} ${op} ${b}`, ans: op === '+' ? a + b : op === '−' ? a - b : a * b };
     };
     next();
-    box.innerHTML = `<div class="card ar-card ar-math"><div class="card-header">${UI.secHead('⚡', 'Kilat Hitung', 'tekan Enter untuk menjawab')}<span class="ar-timer" id="gmT">60</span></div>
+    // Penanda ronde: pewaktu ronde lama berhenti bila ronde baru dimulai di kotak yang sama.
+    const run = (box._arRun = (box._arRun || 0) + 1);
+    box.innerHTML = `<div class="card ar-card ar-math"><div class="card-header">${UI.secHead('⚡', 'Kilat Hitung', 'tekan Enter untuk menjawab')}
+        <span class="flex-gap"><span class="ar-timer" id="gmT">60</span>${global.GameFS ? GameFS.buttonHtml() : ''}</span></div>
       <div class="ar-math-q" id="gmQ" aria-live="polite">${q.text}</div>
       <form id="gmF" class="flex-gap" style="justify-content:center;"><input id="gmA" class="input" inputmode="numeric" autocomplete="off" aria-label="Jawaban" style="max-width:160px;text-align:center;font-size:20px;" />
         <button class="btn btn-primary" type="submit">Jawab</button></form>
       <div class="ar-math-score">Skor: <strong id="gmS">0</strong></div><div id="gmStatus"></div></div>`;
+    bindFs(box);
     const inp = box.querySelector('#gmA');
     inp.focus();
     box.querySelector('#gmF').addEventListener('submit', (e) => {
       e.preventDefault();
       if (left <= 0) return;
-      if (Number(inp.value) === q.ans) { score++; box.querySelector('#gmS').textContent = score; }
+      // Kolom kosong bukan jawaban (dulu dihitung 0 sehingga benar untuk soal "a − a").
+      const raw = inp.value.trim().replace(/[−–]/g, '-');
+      if (!/^-?\d+$/.test(raw)) { inp.focus(); return; }
+      if (Number(raw) === q.ans) { score++; box.querySelector('#gmS').textContent = score; }
       inp.value = ''; next(); box.querySelector('#gmQ').textContent = q.text;
     });
     const t = setInterval(() => {
-      left--;
       const el = box.querySelector('#gmT');
-      if (!el) { clearInterval(t); return; }
+      if (!el || box._arRun !== run) { clearInterval(t); return; }
+      left--;
       el.textContent = left;
       if (left > 0) return;
       clearInterval(t);
@@ -354,10 +373,13 @@
     const pairs = shuffle(SYNONYMS).slice(0, 6);
     const cards = shuffle(pairs.flatMap((p, i) => [{ w: p[0], g: i }, { w: p[1], g: i }]));
     let open = [], matched = new Set(), moves = 0;
+    const run = (box._arRun = (box._arRun || 0) + 1);
     const paint = () => {
-      box.innerHTML = `<div class="card ar-card"><div class="card-header">${UI.secHead('🧩', 'Pasangan Kata', `${matched.size}/6 pasangan • ${moves} langkah`)}</div>
+      if (box._arRun !== run) return;
+      box.innerHTML = `<div class="card ar-card"><div class="card-header">${UI.secHead('🧩', 'Pasangan Kata', `${matched.size}/6 pasangan • ${moves} langkah`)}${global.GameFS ? GameFS.buttonHtml() : ''}</div>
         <div class="ar-pairs">${cards.map((c, i) => `<button type="button" class="ar-pair ${matched.has(c.g) ? 'is-done' : ''} ${open.includes(i) ? 'is-open' : ''}" data-i="${i}" ${matched.has(c.g) ? 'disabled' : ''}>${esc(c.w)}</button>`).join('')}</div>
         <div id="gpStatus"></div></div>`;
+      bindFs(box);
       box.querySelectorAll('.ar-pair:not([disabled])').forEach(b => b.addEventListener('click', () => {
         const i = Number(b.dataset.i);
         if (open.includes(i) || open.length === 2) return;

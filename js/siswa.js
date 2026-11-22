@@ -80,6 +80,8 @@
 
       ${Shared.motivationHtml('siswa')}
 
+      ${global.Tryout ? Tryout.studentCardHtml(user) : ''}
+
       <div class="card">
         <div class="card-header">
           ${UI.secHead('🏅', `Level ${stats.level}`, `${stats.points} poin • ${Math.max(0, stats.nextLevelAt - stats.points)} poin lagi menuju Level ${stats.level + 1}`)}
@@ -142,6 +144,7 @@
 
     StreakAPI.bindWidget(container);
     Verses.bindCard(container);
+    if (global.Tryout) Tryout.bindStudentCard(container);
     const viewAll = document.getElementById('viewAllAsg');
     if (viewAll) viewAll.addEventListener('click', () => Dashboard.navigate('assignments'));
     const goLb = document.getElementById('goLeaderboard');
@@ -198,7 +201,7 @@
     const asgCount = sid ? DB.studentContent('assignment', sid, c.id).length : DB.getAssignmentsByCourse(c.id).length;
     return `
       <div class="course-card">
-        <div class="course-banner ${UI.bannerClass(idx)}">${UI.esc((c.title || '?').slice(0, 1).toUpperCase())}</div>
+        <div class="course-banner ${UI.bannerClass(idx)}">${UI.esc(DB.courseMark(c))}</div>
         <div class="course-body">
           <h4>${UI.esc(c.title)}</h4>
           <div class="meta">${UI.esc(c.category || 'Umum')} • ${UI.esc(t ? t.name : '-')}</div>
@@ -243,7 +246,7 @@
         <div class="alert alert-info" style="margin-bottom:0;">
           🔐 <strong>Kelas berpassword.</strong> Penempatan kelas utama diatur oleh <strong>Admin</strong>.
           Di halaman ini Anda masih bisa bergabung sendiri, tetapi kelas bertanda <strong>Terkunci</strong>
-          memerlukan password dari admin atau guru pengajarnya.
+          memerlukan password dari admin atau tutor pengajarnya.
         </div>
       </div>
 
@@ -268,7 +271,7 @@
         const locked = DB.hasCoursePassword(c.id);
         return `<div class="course-card">
           <div class="course-banner ${UI.bannerClass(i)}">
-            ${UI.esc((c.title || '?').slice(0, 1).toUpperCase())}
+            ${UI.esc(DB.courseMark(c))}
             <span class="lock-chip">${locked ? '🔒 Terkunci' : '🔓 Terbuka'}</span>
           </div>
           <div class="course-body">
@@ -278,7 +281,7 @@
             ${locked && !enrolled ? '<div class="muted small">Butuh password kelas untuk bergabung.</div>' : ''}
           </div>
           <div class="course-footer">
-            <span>${DB.getEnrollmentsByCourse(c.id).length} siswa</span>
+            <span>${DB.getEnrollmentsByCourse(c.id).length} mentee</span>
             ${enrolled
               ? '<span class="badge badge-success">Sudah Bergabung</span>'
               : `<button class="btn btn-sm btn-primary" data-enroll="${c.id}">${locked ? '🔒 Masukkan Password' : 'Gabung'}</button>`}
@@ -291,13 +294,13 @@
         const course = DB.getCourse(courseId);
         if (!course) return;
         const join = () => {
-          DB.enroll(courseId, user.id);
+          DB.enroll(courseId, user.id, 'self');
           UI.toast(`Berhasil bergabung ke kelas ${course.title}. 🎉`);
           // Beritahu guru pengajar + orang tua siswa agar data tetap sinkron
           if (course.teacherId) {
             DB.addNotification({
               userId: course.teacherId, type: 'kelas', icon: '👋',
-              title: 'Siswa baru bergabung',
+              title: 'Mentee baru bergabung',
               body: `${user.name} bergabung ke kelas ${course.title}.`,
               link: 'courses'
             });
@@ -337,7 +340,7 @@
       </div>
       <div class="card">
         <h3 class="mt-0">${UI.esc(course.title)}</h3>
-        <div class="muted small">${UI.esc(course.category || 'Umum')} • Guru: ${UI.esc(teacher ? teacher.name : '-')}</div>
+        <div class="muted small">${UI.esc(course.category || 'Umum')} • Tutor: ${UI.esc(teacher ? teacher.name : '-')}</div>
         <p class="mt-2">${UI.esc(course.description)}</p>
       </div>
 
@@ -372,13 +375,13 @@
       btn.classList.add('active');
       const tab = btn.dataset.tab;
       const el = document.getElementById('tabContent');
-      if (global.Whiteboard) Whiteboard.destroy();
+      if (global.WbHub) WbHub.destroy();
       if (tab === 'materials') renderCourseMaterials(el, course, user);
       else if (tab === 'modules') renderCourseModules(el, course, user);
       else if (tab === 'recordings') renderCourseRecordings(el, course, user);
       else if (tab === 'assignments') renderCourseAssignments(el, course, user);
       else if (tab === 'cbts') renderCourseCbts(el, course, user);
-      else if (tab === 'whiteboard') Whiteboard.mount({ container: el, course, user });
+      else if (tab === 'whiteboard') WbHub.render({ container: el, course, user });
       else if (tab === 'attendance') renderCourseAttendance(el, course, user);
     }));
     renderCourseMaterials(document.getElementById('tabContent'), course, user);
@@ -402,7 +405,7 @@
         { key: 'new', label: 'Terbaru', cmp: (a, b) => (b.createdAt || 0) - (a.createdAt || 0) }
       ],
       pageSize: 10,
-      empty: 'Guru belum mengunggah materi.',
+      empty: 'Tutor belum mengunggah materi.',
       render: (rows, ctx) => rows.map(m => `
             <div class="list-item">
               <div class="title">${ctx.highlight(m.title)}</div>
@@ -605,6 +608,9 @@
 
       if (sub) DB.updateSubmission(sub.id, AutoGrader.invalidateOnAnswerChange(sub, payload));
       else DB.addSubmission(Object.assign({ assignmentId, studentId: user.id }, payload));
+      // Antrean kirim langsung ditulis ke perangkat; bila offline terkirim otomatis saat sinyal kembali.
+      if (global.Sync && Sync.saveNow) Sync.saveNow();
+      const offline = !!(global.SafeSave && !SafeSave.net().online);
       try { localStorage.removeItem(draftKey); } catch (e) {}
       if (draftTimer) clearTimeout(draftTimer);
 
@@ -624,9 +630,8 @@
         body: `${asg.title}${course ? ' • ' + DB.courseTitle(course) : ''}.`,
         link: 'anak-tugas'
       }));
-      UI.toast(payload.grade != null
-        ? `Jawaban terkirim. Nilai otomatis: ${payload.grade}. 🚀`
-        : 'Jawaban terkirim. 🚀', 'success');
+      UI.toast(offline ? 'Sinyal sedang putus. Jawaban tersimpan di perangkat ini dan terkirim otomatis saat sinyal kembali.'
+        : payload.grade != null ? `Jawaban terkirim. Nilai otomatis: ${payload.grade}. 🚀` : 'Jawaban terkirim. 🚀', offline ? 'info' : 'success');
       Editor.setHost(null);
       UI.modal.close();
       const currentKey = (document.querySelector('.side-nav a.active') || {}).dataset
@@ -945,13 +950,19 @@
               <input name="phone" value="${UI.esc(user.phone || '')}" placeholder="08xxxxxxxxxx" /></div>
           </div>
           <div class="form-row">
-            <div class="form-group"><label>Kelas</label>
-              <input name="kelas" value="${UI.esc(user.kelas || '')}" /></div>
+            <div class="form-group"><label>Kelas Utama</label>
+              <input value="${UI.esc(user.kelas || 'Belum ditempatkan')}" readonly aria-describedby="pfKelasHint" />
+              <div class="muted small" id="pfKelasHint">Ditentukan admin. Kelas subtest mengikuti kelas utama secara otomatis.</div></div>
             <div class="form-group"><label>🎓 Universitas Impian</label>
               <input name="targetUniv" value="${UI.esc(user.targetUniv || '')}" placeholder="mis. Universitas Indonesia" /></div>
           </div>
-          <div class="form-group"><label>Jurusan Impian</label>
-            <input name="targetMajor" value="${UI.esc(user.targetMajor || '')}" placeholder="mis. Teknik Informatika" /></div>
+          <div class="form-row">
+            <div class="form-group"><label>Jurusan Impian</label>
+              <input name="targetMajor" value="${UI.esc(user.targetMajor || '')}" placeholder="mis. Teknik Informatika" /></div>
+            <div class="form-group"><label>Status Pendidikan</label>
+              <input value="${UI.esc(DB.eduStatusLabel(DB.getUser(user.id)?.eduStatus))}" readonly aria-describedby="pfEduHint" />
+              <div class="muted small" id="pfEduHint">Ditentukan admin. ${UI.esc(DB.absenceRuleText(DB.getUser(user.id)?.eduStatus))}</div></div>
+          </div>
           ${ProfileFields.profileExtraFields(DB.getUser(user.id))}
           <div class="form-group"><label>Password Baru (kosongkan jika tidak diubah)</label>
             <input name="password" type="password" minlength="6" /></div>
@@ -985,7 +996,6 @@
         name: fd.get('name').trim(),
         email: fd.get('email').trim(),
         phone: (fd.get('phone') || '').trim(),
-        kelas: fd.get('kelas').trim(),
         targetUniv: (fd.get('targetUniv') || '').trim(),
         targetMajor: (fd.get('targetMajor') || '').trim()
       };
@@ -1277,7 +1287,7 @@
   function renderPaymentsSection(container, user) {
     const payments = DB.getPaymentsByStudent(user.id).slice().sort((a, b) => b.createdAt - a.createdAt);
     const paid = payments.filter(p => p.status === 'lunas').reduce((s, p) => s + (p.amount || 0), 0);
-    const pending = payments.filter(p => p.status !== 'lunas').reduce((s, p) => s + (p.amount || 0), 0);
+    const pending = payments.filter(p => p.status !== 'lunas' && p.status !== 'dibatalkan').reduce((s, p) => s + (p.amount || 0), 0);
 
     container.innerHTML = `
       <div class="finance-summary">
@@ -1313,11 +1323,13 @@
       pageSize: 15,
       empty: 'Belum ada pembayaran.',
       render: (rows, ctx) => `<div class="table-wrap"><table class="table">
-          <thead><tr><th>Tanggal</th><th>Kelas/Keterangan</th><th>Jumlah</th><th>Metode</th><th>Status</th><th>Catatan</th></tr></thead>
+          <thead><tr><th>Tanggal</th><th>Jenis</th><th>Kelas/Keterangan</th><th>Jumlah</th><th>Metode</th><th>Status</th><th>Catatan</th></tr></thead>
           <tbody>${rows.map(p => {
             const c = p.courseId ? DB.getCourse(p.courseId) : null;
+            const k = DB.paymentKindMeta(DB.paymentKind(p));
             return `<tr>
               <td>${UI.fmtDate(p.paidAt || p.createdAt)}</td>
+              <td>${UI.esc(k.icon + ' ' + k.label)}${p.fineReason ? `<div class="muted small">${ctx.highlight(p.fineReason)}</div>` : ''}</td>
               <td>${ctx.highlight(c ? DB.courseTitle(c) : 'Umum')}</td>
               <td><strong>${UI.fmtRp(p.amount)}</strong></td>
               <td>${ctx.highlight(p.method || '-')}</td>

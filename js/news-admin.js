@@ -264,7 +264,7 @@
               <div class="nwa-cover" id="nwaCover"></div>
               <div class="form-group mt-1">
                 <label for="nwaAlt">Keterangan gambar</label>
-                <input id="nwaAlt" maxlength="160" value="${esc(draft.coverAlt)}" placeholder="mis. Siswa Rubela saat tryout akbar di aula" />
+                <input id="nwaAlt" maxlength="160" value="${esc(draft.coverAlt)}" placeholder="mis. Mentee Rubela saat tryout akbar di aula" />
                 <div class="muted small">Tampil sebagai keterangan di bawah gambar dan dibacakan pembaca layar.</div>
               </div>
             </section>
