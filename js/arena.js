@@ -20,7 +20,7 @@
   function pool(subtest) {
     return DB.getQuestions().filter(q => (q.questionType || 'Pilihan Ganda') === 'Pilihan Ganda'
       && Array.isArray(q.options) && q.options.length >= 2 && q.correctIndex >= 0 && q.correctIndex < q.options.length
-      && (!subtest || q.subject === subtest));
+      && !q.passageId && (!subtest || q.subject === subtest));
   }
   function shuffle(a, seed) {
     const arr = a.slice();

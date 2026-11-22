@@ -127,10 +127,25 @@
   /* =====================================================================
    * Orkestrasi
    * ===================================================================*/
+  /** Deret tab yang dapat digeser: tab aktif digeser ke area tampil setelah digambar ulang. */
+  function revealActiveTabs(root) {
+    const scope = root && root.querySelectorAll ? root : document;
+    scope.querySelectorAll('.tabs, .subtabs').forEach(bar => {
+      if (bar.scrollWidth <= bar.clientWidth + 2) return;
+      const act = bar.querySelector('.active, [aria-selected="true"]');
+      if (!act) return;
+      const left = act.getBoundingClientRect().left - bar.getBoundingClientRect().left + bar.scrollLeft;
+      if (left < bar.scrollLeft || left + act.offsetWidth > bar.scrollLeft + bar.clientWidth) {
+        bar.scrollLeft = Math.max(0, left - (bar.clientWidth - act.offsetWidth) / 2);
+      }
+    });
+  }
+
   function apply(root) {
     try {
       labelTables(root);
       markOverflow(root);
+      revealActiveTabs(root);
       syncSideClock();
     } catch (e) {
       // Penyempurnaan gagal tidak boleh mematikan aplikasi
@@ -158,8 +173,8 @@
       for (const m of mutations) {
         for (const node of m.addedNodes) {
           if (node.nodeType !== 1) continue;
-          if (node.matches && (node.matches('table.table, .table-wrap') ||
-              node.querySelector && node.querySelector('table.table'))) {
+          if (node.matches && (node.matches('table.table, .table-wrap, .tabs, .subtabs') ||
+              node.querySelector && node.querySelector('table.table, .tabs, .subtabs'))) {
             touched = true;
             break;
           }
@@ -181,5 +196,5 @@
     observe();
   });
 
-  global.Responsive = { apply, labelTables, markOverflow, syncSideClock };
+  global.Responsive = { apply, labelTables, markOverflow, revealActiveTabs, syncSideClock };
 })(window);

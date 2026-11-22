@@ -94,7 +94,6 @@ html[data-theme="dark"][data-holiday] .tab-btn.active,
 html[data-theme="dark"][data-holiday] .subtab-btn.active { color: var(--hd-kink); }
 html[data-theme="dark"][data-holiday] .bottom-nav button.is-active { color: var(--hd-kink); }
 html[data-theme="dark"][data-holiday] .bottom-nav button.is-active .bn-ic { background: var(--hd-1t); }
-html[data-theme="dark"][data-holiday] .live-chip { background: var(--hd-1t); }
 
 /* Garis warna khas tema di tepi atas sidebar & tepi bawah topbar */
 html[data-holiday] .sidebar {
@@ -190,7 +189,7 @@ html[data-holiday] .welcome-hero:not(.bd-hero):not(.hub-hero) .blob.b3 { backgro
     var(--hd-pattern, none) 0 0 / 120px 120px,
     linear-gradient(120deg, color-mix(in srgb, var(--hd-1, #4f46e5) 9%, var(--surface, #fff)), color-mix(in srgb, var(--hd-3, #ec4899) 10%, var(--surface, #fff)));
   box-shadow: var(--shadow-sm);
-  animation: popIn .45s var(--ease) both;
+  animation: popIn .45s var(--ease) backwards;
 }
 html[data-theme="dark"] .hd-greet { background: var(--hd-pattern-k, none) 0 0 / 120px 120px,
   linear-gradient(120deg, color-mix(in srgb, var(--hd-k1, #6366f1) 16%, var(--surface)), color-mix(in srgb, var(--hd-3, #ec4899) 10%, var(--surface))); }

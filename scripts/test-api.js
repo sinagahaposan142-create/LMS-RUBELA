@@ -73,6 +73,19 @@ async function main() {
   const s1 = await login('siswa1', 'rahasia1', 'siswa');
   const s2 = await login('siswa2', 'rahasia1', 'siswa');
 
+  /* ---------- Avatar almamater / foto profil ---------- */
+  console.log('\n[Foto profil]');
+  const meS1 = (await pull(s1)).lms_users.u_s1;
+  r = await push(s1, [{ k: 'lms_users', id: 'u_s1', v: Object.assign({}, meS1, { photo: 'av1:ui:f:2' }) }]);
+  check('siswa memilih avatar almamater', r.rejected.length === 0 && r.applied[0].v.photo === 'av1:ui:f:2', r.rejected);
+  r = await push(s1, [{ k: 'lms_users', id: 'u_s1', v: Object.assign({}, meS1, { photo: 'javascript:alert(1)' }) }]);
+  check('foto profil bukan gambar ditolak', r.rejected.length === 1 && /Foto profil/.test(r.rejected[0].reason), r.rejected);
+  r = await push(s1, [{ k: 'lms_users', id: 'u_s1', v: Object.assign({}, meS1, { photo: 'data:image/jpeg;base64,' + 'A'.repeat(300000) }) }]);
+  check('foto profil terlalu besar ditolak', r.rejected.length === 1 && /terlalu besar/.test(r.rejected[0].reason), r.rejected);
+  const meS2 = (await pull(admin)).lms_users.u_s2;
+  r = await push(admin, [{ k: 'lms_users', id: 'u_s2', v: Object.assign({}, meS2, { photo: 'data:image/png;base64,' + PNG }) }]);
+  check('admin menyimpan foto kecil yang valid', r.rejected.length === 0, r.rejected);
+
   /* ---------- Penyimpanan berkas ---------- */
   console.log('\n[Penyimpanan berkas]');
   r = await putBlob(admin, 'qris:hc1:1', PNG);
@@ -104,6 +117,111 @@ async function main() {
   r = await putBlob(s1, 'proof:u_s1:../x', PNG);
   check('kunci bukti tidak valid ditolak', r.status === 403 || r.status === 400, r);
 
+  /* ---------- Whiteboard: papan per pertemuan + berkas PDF/gambar ---------- */
+  console.log('\n[Whiteboard]');
+  r = await push(admin, [
+    { k: 'lms_users', id: 'u_g2', v: { id: 'u_g2', role: 'guru', name: 'Guru Dua', username: 'guru2', password: 'rahasia1', status: 'Aktif' } },
+    { k: 'lms_courses', id: 'c_wb', v: { id: 'c_wb', title: 'Kelas WB', teacherIds: ['u_g1'], teacherId: 'u_g1', mainClasses: [] } },
+    { k: 'lms_enrollments', id: 'e_wb', v: { id: 'e_wb', courseId: 'c_wb', studentId: 'u_s1' } }
+  ]);
+  check('kelas whiteboard disiapkan', r.rejected.length === 0, r.rejected);
+  const guru2 = await login('guru2', 'rahasia1', 'guru');
+  const wbRec = { id: 'wb1', courseId: 'c_wb', title: 'Pertemuan 1 — Barisan', topic: 'Barisan', createdBy: 'u_g1', strokes: [], media: [{ key: 'wb:c_wb:wb1:a', bytes: 20 }] };
+  r = await push(guru, [{ k: 'lms_whiteboards', id: 'wb1', v: wbRec }]);
+  check('tutor membuat papan berjudul & bermateri', r.rejected.length === 0, r.rejected);
+  r = await push(guru, [{ k: 'lms_whiteboards', id: 'wb2', v: Object.assign({}, wbRec, { id: 'wb2', media: [{ key: 'wb:c_lain:x:y', bytes: 1 }] }) }]);
+  check('rujukan berkas kelas lain ditolak', r.rejected.length === 1, r);
+  r = await push(guru, [{ k: 'lms_whiteboards', id: 'wb3', v: Object.assign({}, wbRec, { id: 'wb3', thumb: 'data:text/html;base64,PHNjcmlwdD4=' }) }]);
+  check('gambar mini bukan gambar ditolak', r.rejected.length === 1, r);
+  r = await push(s1, [{ k: 'lms_whiteboards', id: 'wb1', v: Object.assign({}, wbRec, { title: 'diubah' }) }]);
+  check('mentee tidak dapat mengubah papan', r.rejected.length === 1, r);
+  r = await putBlob(guru, 'wb:c_wb:wb1:a', JPG, 'image/jpeg');
+  check('tutor kelas mengunggah halaman PDF/gambar', r.data.ok, r.data);
+  r = await putBlob(guru2, 'wb:c_wb:wb1:b', JPG, 'image/jpeg');
+  check('tutor kelas lain tidak dapat mengunggah', r.status === 403, r);
+  r = await putBlob(s1, 'wb:c_wb:wb1:c', JPG, 'image/jpeg');
+  check('mentee tidak dapat mengunggah', r.status === 403, r);
+  r = await putBlob(guru, 'wb:c_wb:wb1:d', HTML, 'image/png');
+  check('berkas bukan gambar ditolak', r.status === 400, r);
+  r = await call('blob_put', { key: 'wb:c_wb:wb1:e', part: 0, parts: 2, size: 1024 * 1024, type: 'image/jpeg', data: JPG }, guru);
+  check('halaman > 900 KB ditolak', r.status === 400, r);
+  r = await call('blob_get', { key: 'wb:c_wb:wb1:a', part: 0 }, s1);
+  check('mentee kelas dapat melihat berkas papan', r.data.ok && r.data.type === 'image/jpeg', r.data);
+  r = await call('blob_get', { key: 'wb:c_wb:wb1:a', part: 0 }, s2);
+  check('mentee kelas lain tidak dapat melihat berkas papan', r.status === 403, r);
+  r = await call('blob_get', { key: 'wb:c_wb:wb1:a', part: 0 }, guru2);
+  check('tutor kelas lain tidak dapat melihat berkas papan', r.status === 403, r);
+  // Kuota 8 MB per kelas: 9 berkas ~900 KB (dua bagian) melewati batas.
+  const big = b64(Buffer.concat([Buffer.from([0xFF, 0xD8, 0xFF, 0xE0]), Buffer.alloc(560000)]));
+  let quotaHit = null;
+  for (let i = 0; i < 12 && !quotaHit; i++) {
+    const key = 'wb:c_wb:wb1:q' + i;
+    const r0 = await call('blob_put', { key, part: 0, parts: 2, size: 900 * 1024, type: 'image/jpeg', data: big.slice(0, 786432 / 3 * 4) }, guru);
+    if (r0.status === 400) { quotaHit = { i, r0 }; break; }
+    await call('blob_put', { key, part: 1, parts: 2, size: 900 * 1024, type: 'image/jpeg', data: big.slice(0, 1000) }, guru);
+  }
+  check('kuota berkas whiteboard 8 MB per kelas ditegakkan', quotaHit && quotaHit.i >= 8 && /penuh/.test(quotaHit.r0.data.error || ''), quotaHit);
+  r = await call('blob_del', { prefix: 'wb:c_wb:' }, guru2);
+  check('tutor kelas lain tidak dapat menghapus berkas papan', r.status === 403, r);
+  r = await call('blob_del', { prefix: 'wb:c_wb:wb1:' }, guru);
+  check('tutor kelas menghapus semua berkas papan', r.data.ok, r.data);
+  r = await call('blob_get', { key: 'wb:c_wb:wb1:a', part: 0 }, s1);
+  check('berkas papan terhapus', r.data.missing === true, r.data);
+
+  /* ---------- Jadwal & presensi: hak tutor per pertemuan ---------- */
+  console.log('\n[Jadwal & presensi]');
+  r = await push(admin, [
+    { k: 'lms_users', id: 'u_g3', v: { id: 'u_g3', role: 'guru', name: 'Guru Tiga', username: 'guru3', password: 'rahasia1', status: 'Aktif' } },
+    { k: 'lms_courses', id: 'c_att', v: { id: 'c_att', title: 'Kelas Presensi', teacherIds: ['u_g1', 'u_g2'], teacherId: 'u_g1', mainClasses: [] } }
+  ]);
+  check('kelas dua tutor disiapkan', r.rejected.length === 0, r.rejected);
+  const guru3 = await login('guru3', 'rahasia1', 'guru');
+  const plan = { id: 'pl_a', courseId: 'c_att', date: '2026-12-01', time: '19:00', endTime: '20:30', status: 'draft', topic: 'Logika', teacherIds: ['u_g1'], teacherId: 'u_g1' };
+  r = await push(guru, [{ k: 'lms_class_plans', id: 'pl_a', v: plan }]);
+  check('tutor kelas membuat rencana 90 menit', r.rejected.length === 0, r.rejected);
+  r = await push(guru, [{ k: 'lms_class_plans', id: 'pl_b', v: Object.assign({}, plan, { id: 'pl_b', endTime: '20:00' }) }]);
+  check('rencana yang tidak 90 menit ditolak', r.rejected.length === 1, r);
+  r = await push(guru, [{ k: 'lms_class_plans', id: 'pl_c', v: Object.assign({}, plan, { id: 'pl_c', teacherIds: ['u_g1', 'u_g3'] }) }]);
+  check('tutor luar kelas tidak dapat dijadikan pengajar', r.rejected.length === 1, r);
+  r = await push(guru3, [{ k: 'lms_class_plans', id: 'pl_d', v: Object.assign({}, plan, { id: 'pl_d' }) }]);
+  check('tutor luar kelas tidak dapat membuat rencana', r.rejected.length === 1, r);
+  r = await push(guru2, [{ k: 'lms_class_plans', id: 'pl_a', v: Object.assign({}, plan, { topic: 'diubah tutor lain' }) }]);
+  check('tutor lain tidak dapat mengubah rencana pertemuan', r.rejected.length === 1, r);
+  r = await push(guru, [{ k: 'lms_class_plans', id: 'pl_a', v: Object.assign({}, plan, { teacherIds: ['u_g1', 'u_g2'], teacherId: 'u_g1' }) }]);
+  check('pertemuan diajar dua tutor', r.rejected.length === 0, r.rejected);
+  r = await push(guru, [{ k: 'lms_class_plans', id: 'pl_a', v: Object.assign({}, plan, { teacherIds: ['u_g1'], teacherId: 'u_g1' }) }]);
+  check('tim pengajar dikembalikan ke satu tutor', r.rejected.length === 0, r.rejected);
+  const pres = { id: 'at_a', courseId: 'c_att', userId: 'u_s1', role: 'siswa', date: '2026-12-01', planId: 'pl_a', status: 'hadir', note: '' };
+  r = await push(guru, [{ k: 'lms_attendance', id: 'at_a', v: pres }]);
+  check('tutor pertemuan mengisi presensi', r.rejected.length === 0 && r.applied[0].v.markedBy === 'u_g1', r.rejected);
+  r = await push(guru2, [{ k: 'lms_attendance', id: 'at_a', v: Object.assign({}, pres, { status: 'alfa' }) }]);
+  check('tutor lain tidak dapat mengubah presensi pertemuan', r.rejected.length === 1, r);
+  r = await push(guru2, [{ k: 'lms_attendance', id: 'at_a', op: 'del' }]);
+  check('tutor lain tidak dapat menghapus presensi pertemuan', r.rejected.length === 1, r);
+  r = await push(guru2, [{ k: 'lms_attendance', id: 'at_b', v: Object.assign({}, pres, { id: 'at_b', userId: 'u_s2', status: 'izin' }) }]);
+  check('tutor lain tidak dapat mengisi presensi pertemuan tutor lain', r.rejected.length === 1, r);
+  r = await push(guru2, [{ k: 'lms_attendance', id: 'at_c', v: Object.assign({}, pres, { id: 'at_c', date: '2026-12-03', planId: null }) }]);
+  check('tanpa rencana: tutor kelas boleh mengisi presensi', r.rejected.length === 0, r.rejected);
+  r = await push(guru3, [{ k: 'lms_attendance', id: 'at_d', v: Object.assign({}, pres, { id: 'at_d', date: '2026-12-03', planId: null }) }]);
+  check('tutor luar kelas tidak dapat mengisi presensi', r.rejected.length === 1, r);
+  r = await push(guru, [{ k: 'lms_attendance', id: 'at_e', v: Object.assign({}, pres, { id: 'at_e', status: 'hadirr' }) }]);
+  check('status presensi tidak dikenal ditolak', r.rejected.length === 1, r);
+  r = await push(guru, [{ k: 'lms_attendance', id: 'at_a', v: Object.assign({}, pres, { date: '2026-12-03' }) }]);
+  check('presensi tidak dapat dipindah tanggal', r.rejected.length === 1, r);
+  r = await push(s1, [{ k: 'lms_attendance', id: 'at_f', v: Object.assign({}, pres, { id: 'at_f' }) }]);
+  check('mentee tidak dapat mengisi presensi', r.rejected.length === 1, r);
+  r = await push(guru, [{ k: 'lms_attendance', id: 'at_a', op: 'del' }]);
+  check('tutor pertemuan mengosongkan presensi', r.rejected.length === 0, r.rejected);
+  const mp = { id: 'mp_a', courseId: 'c_att', week: 1, title: 'Logika Proposisi', teacherIds: ['u_g1'], note: '' };
+  r = await push(guru2, [{ k: 'lms_material_plans', id: 'mp_a', v: mp }]);
+  check('tutor kelas mengisi rencana materi', r.rejected.length === 0, r.rejected);
+  r = await push(guru3, [{ k: 'lms_material_plans', id: 'mp_b', v: Object.assign({}, mp, { id: 'mp_b' }) }]);
+  check('tutor luar kelas tidak dapat mengisi rencana materi', r.rejected.length === 1, r);
+  r = await push(guru, [{ k: 'lms_material_plans', id: 'mp_c', v: Object.assign({}, mp, { id: 'mp_c', week: 0 }) }]);
+  check('minggu rencana materi di luar 1–60 ditolak', r.rejected.length === 1, r);
+  r = await push(admin, [{ k: 'lms_material_plans', id: 'mp_d', v: Object.assign({}, mp, { id: 'mp_d', title: '<b>x</b>' }) }]);
+  check('nama materi berisi tag ditolak (juga admin)', r.rejected.length === 1, r);
+
   /* ---------- Chat ---------- */
   console.log('\n[Chat]');
   const msg = { id: 'm1', senderId: 'u_s1', receiverId: 'u_g1', text: 'Halo $x^2$', createdAt: Date.now() };
@@ -127,6 +245,24 @@ async function main() {
   check('guru menyimpan video pembahasan', r.rejected.length === 0, r.rejected);
   r = await push(admin, [{ k: 'lms_questions', id: 'q2', v: Object.assign({}, q, { id: 'q2', explanationVideo: { id: 'x"><script>', url: 'javascript:alert(1)' } }) }]);
   check('video pembahasan tidak valid ditolak (juga untuk admin)', r.rejected.length === 1, r);
+
+  /* ---------- Teks bacaan ---------- */
+  console.log('\n[Teks bacaan]');
+  const psg = { id: 'p1', title: 'Teks 1', subject: 'Literasi Bahasa Indonesia', html: '<p>Hutan mangrove melindungi pantai.</p>', createdAt: Date.now() };
+  r = await push(guru, [{ k: 'lms_passages', id: 'p1', v: psg }]);
+  check('tutor menyimpan teks bacaan', r.rejected.length === 0, r.rejected);
+  r = await push(s1, [{ k: 'lms_passages', id: 'p2', v: Object.assign({}, psg, { id: 'p2' }) }]);
+  check('mentee tidak dapat menulis teks bacaan', r.rejected.length === 1, r);
+  r = await push(admin, [{ k: 'lms_passages', id: 'p3', v: Object.assign({}, psg, { id: 'p3', html: '<p onclick="x()">a</p><script>alert(1)</script>' }) }]);
+  check('teks bacaan berskrip ditolak (juga untuk admin)', r.rejected.length === 1, r);
+  r = await push(guru, [{ k: 'lms_passages', id: 'p4', v: Object.assign({}, psg, { id: 'p4', html: '   ' }) }]);
+  check('teks bacaan kosong ditolak', r.rejected.length === 1, r);
+  r = await push(guru, [{ k: 'lms_passages', id: 'p5', v: Object.assign({}, psg, { id: 'p5', title: 'J'.repeat(121) }) }]);
+  check('judul teks bacaan > 120 karakter ditolak', r.rejected.length === 1, r);
+  r = await push(guru, [{ k: 'lms_questions', id: 'q3', v: Object.assign({}, q, { id: 'q3', passageId: 'p1' }) }]);
+  check('soal merujuk teks bacaan', r.rejected.length === 0 && r.applied[0].v.passageId === 'p1', r.rejected);
+  r = await push(guru, [{ k: 'lms_questions', id: 'q4', v: Object.assign({}, q, { id: 'q4', passageId: { x: 1 } }) }]);
+  check('rujukan teks bacaan tidak valid ditolak', r.rejected.length === 1, r);
 
   /* ---------- Course berbayar ---------- */
   console.log('\n[Course berbayar]');
@@ -193,6 +329,52 @@ async function main() {
   const inc = await call('sync', { cursor }, s1);
   const upd = (inc.data.records || []).find(x => x.k === 'lms_hub_courses' && x.id === 'hc1');
   check('perubahan akses ikut tersinkron sebagai pembaruan course', upd && upd.v.contentLocked === true, (inc.data.records || []).map(x => x.k));
+
+  /* ---------- Course mandiri: tutor course ---------- */
+  console.log('\n[Course mandiri: tutor]');
+  const hub2 = { id: 'hc2', title: 'Logika Dasar', active: true, enrollMode: 'open', audience: { type: 'all' }, tutorIds: ['u_g1'], accessType: 'free',
+    sections: [{ id: 's1', title: 'Bab 1', lessons: [{ id: 'q1', title: 'Kuis', type: 'quiz', questions: [{ text: 'q', options: ['a', 'b'], correctIndex: 0 }, { questionType: 'Esai', text: 'Jelaskan' }] }] }] };
+  r = await push(admin, [{ k: 'lms_hub_courses', id: 'hc2', v: hub2 }]);
+  check('admin menetapkan tutor course', r.rejected.length === 0, r.rejected);
+  const hp2 = { id: 'hp2', courseId: 'hc2', studentId: 'u_s1', enrolledAt: Date.now(), completed: {}, notes: { q1: 'catatan pribadi' },
+    quiz: { q1: { score: 100, passed: true, answers: [0, 'Jawaban esai saya'], at: Date.now() } } };
+  r = await push(s1, [{ k: 'lms_hub_progress', id: 'hp2', v: Object.assign({}, hp2, { review: { q1: { scores: { 1: 100 }, feedback: 'palsu' } } }) }]);
+  check('mentee bergabung; penilaian buatan sendiri dibuang', r.rejected.length === 0 && r.applied[0] && !r.applied[0].v.review, r);
+  view = await pull(guru);
+  check('tutor course menerima jawaban esai peserta', JSON.stringify(((view.lms_hub_progress || {}).hp2 || {}).quiz || {}).includes('Jawaban esai saya'));
+  view = await pull(guru2);
+  const hubOther = JSON.stringify((view.lms_hub_progress || {}).hp2 || {});
+  check('tutor lain tidak menerima jawaban & catatan peserta', hubOther !== '{}' && !hubOther.includes('Jawaban esai saya') && !hubOther.includes('catatan pribadi'), hubOther);
+  const hubEdited = Object.assign({}, hub2, { title: 'Diganti tutor', accessType: 'paid', price: 99999, tutorIds: ['u_g1', 'u_g2'],
+    sections: [{ id: 's1', title: 'Bab 1 (revisi)', lessons: hub2.sections[0].lessons.concat([{ id: 'a2', title: 'Ringkasan', type: 'article', content: '<p>Ringkasan</p>' }]) }] });
+  r = await push(guru, [{ k: 'lms_hub_courses', id: 'hc2', v: hubEdited }]);
+  check('tutor course mengubah kurikulum', r.rejected.length === 0 && r.applied[0] && r.applied[0].v.sections[0].lessons.length === 2, r.rejected);
+  const hubAp = (r.applied[0] || {}).v || {};
+  check('tutor tidak dapat mengubah judul, akses, harga, atau daftar tutor', hubAp.title === 'Logika Dasar' && hubAp.accessType === 'free' && JSON.stringify(hubAp.tutorIds) === '["u_g1"]', hubAp);
+  r = await push(guru2, [{ k: 'lms_hub_courses', id: 'hc2', v: hubEdited }]);
+  check('tutor lain tidak dapat mengubah course', r.rejected.length === 1, r);
+  r = await push(guru, [{ k: 'lms_hub_courses', id: 'hc2', v: Object.assign({}, hubEdited, { sections: [{ id: 's1', title: 'Bab', lessons: [{ id: 'x', title: 'X', type: 'article', content: '<img src=x onerror=alert(1)>' }] }] }) }]);
+  check('isi pelajaran berisi skrip ditolak', r.rejected.length === 1, r);
+  const hubCur2 = (await pull(guru)).lms_hub_progress.hp2;
+  r = await push(guru, [{ k: 'lms_hub_progress', id: 'hp2', v: Object.assign({}, hubCur2, { completed: { q1: true }, review: { q1: { scores: { 1: 85 }, feedback: 'Bagus' } } }) }]);
+  const hubRv = ((r.applied[0] || {}).v || {});
+  check('tutor menilai esai (penilai dicap server, progres lain tidak berubah)', r.rejected.length === 0 && hubRv.review && hubRv.review.q1.gradedBy === 'u_g1' && !(hubRv.completed || {}).q1, r);
+  r = await push(guru, [{ k: 'lms_hub_progress', id: 'hp2', v: Object.assign({}, hubCur2, { review: { q1: { scores: { 1: 150 } } } }) }]);
+  check('nilai esai di luar 0–100 ditolak', r.rejected.length === 1, r);
+  r = await push(guru2, [{ k: 'lms_hub_progress', id: 'hp2', v: Object.assign({}, hubCur2, { review: { q1: { scores: { 1: 10 } } } }) }]);
+  check('tutor lain tidak dapat menilai', r.rejected.length === 1, r);
+  const hubMine = (await pull(s1)).lms_hub_progress.hp2;
+  check('mentee menerima nilai & umpan balik tutor', hubMine && hubMine.review && hubMine.review.q1.feedback === 'Bagus', hubMine && hubMine.review);
+  r = await push(s1, [{ k: 'lms_hub_progress', id: 'hp2', v: Object.assign({}, hubMine, { review: { q1: { scores: { 1: 100 }, feedback: 'diubah' } }, lastActiveAt: Date.now() }) }]);
+  check('mentee tidak dapat mengubah nilai esai', r.rejected.length === 0 && r.applied[0] && r.applied[0].v.review.q1.feedback === 'Bagus', r.applied[0] && r.applied[0].v.review);
+  let hubPg = await call('sync', { cursor: 0, full: true }, guru2);
+  let hubPgCur = hubPg.data.cursor;
+  while (hubPg.data.more) { hubPg = await call('sync', { cursor: hubPgCur }, guru2); hubPgCur = hubPg.data.cursor; }
+  const hubNow = (await pull(admin)).lms_hub_courses.hc2;
+  r = await push(admin, [{ k: 'lms_hub_courses', id: 'hc2', v: Object.assign({}, hubNow, { tutorIds: ['u_g1', 'u_g2'] }) }]);
+  const hubInc = await call('sync', { cursor: hubPgCur }, guru2);
+  const hubHpNew = (hubInc.data.records || []).find(x => x.k === 'lms_hub_progress' && x.id === 'hp2');
+  check('tutor baru menerima ulang jawaban peserta', hubHpNew && JSON.stringify(hubHpNew.v.quiz).includes('Jawaban esai saya'), (hubInc.data.records || []).map(x => x.k + ':' + x.id));
 
   /* ---------- Remedial ---------- */
   console.log('\n[Remedial]');
@@ -351,6 +533,12 @@ async function main() {
   check('jawaban yang sudah dikirim terkunci', r.rejected.length === 1 && /sudah dikirim/.test(r.rejected[0].reason), r.rejected);
   r = await push(s1, [ans('qzOld', 'u_s1')]);
   check('kuis yang lewat batas waktu ditolak', r.rejected.length === 1 && /Batas waktu/.test(r.rejected[0].reason), r.rejected);
+  // Sinyal putus: kiriman dibuat sebelum batas waktu, baru tersinkron sesudahnya.
+  r = await push(s1, [ans('qzOld', 'u_s1', { submittedAt: T2 - 3600000 - 60000, syncedLate: 1 })]);
+  check('kiriman offline yang dibuat sebelum batas diterima & dicap waktu server', r.rejected.length === 0 && r.applied[0].v.syncedLate >= T2, r.rejected.concat(r.applied.map(a => a.v && a.v.syncedLate)));
+  r = await push(guru, [gpost('qzOlder', 'u_g1', { kind: 'quiz', title: 'Kuis lama', text: '', quiz: { questions: quizQ, dueAt: T2 - 3 * 3600000 } })]);
+  r = await push(s1, [ans('qzOlder', 'u_s1', { submittedAt: T2 - 3 * 3600000 - 60000 })]);
+  check('kiriman offline lebih dari 2 jam setelah batas tetap ditolak', r.rejected.length === 1 && /Batas waktu/.test(r.rejected[0].reason), r.rejected);
   r = await push(s2, [ans('qz1', 'u_s2')]);
   check('bukan anggota tidak dapat mengerjakan kuis', r.rejected.length === 1, r.rejected);
   r = await push(s1, [ans('ds1', 'u_s1')]);
@@ -363,6 +551,17 @@ async function main() {
   check('tutor grup melihat jawaban anggota', !!(pG.lms_group_answers && pG.lms_group_answers['qz1:u_s1']));
   r = await push(guru, [{ k: 'lms_group_answers', id: 'qz1:u_s1', op: 'del' }]);
   check('tutor dapat mengatur ulang jawaban (anggota boleh mengerjakan lagi)', r.rejected.length === 0, r.rejected);
+  r = await push(s1, [ans('qz1', 'u_s1', { syncedLate: 5 })]);
+  check('cap kiriman offline tidak dapat diisi sendiri oleh anggota', r.rejected.length === 0 && r.applied[0].v.syncedLate === undefined, r.applied.map(a => a.v));
+
+  // Status koneksi (js/safe-save.js) ikut presence: dibersihkan server, hanya staf yang melihat.
+  await call('sync', { cursor: 0, presence: { tab: 'tab_net_s1', page: 'cbt', visibility: 'visible', net: { pending: 3, drops: 2, offlineMs: 5000.7, lastDropAt: 'x', evil: '<b>' } } }, s1);
+  const presG = (await call('sync', { cursor: 0 }, guru)).data.presence || [];
+  const pnet = (presG.find(p => p.tabId === 'tab_net_s1') || {}).net;
+  check('status koneksi peserta terlihat staf & dibersihkan', pnet && pnet.pending === 3 && pnet.drops === 2 && pnet.offlineMs === 5000 && pnet.lastDropAt === 0 && !('evil' in pnet), pnet);
+  const presS2 = (await call('sync', { cursor: 0 }, s2)).data.presence || [];
+  const other = presS2.find(p => p.tabId === 'tab_net_s1');
+  check('sesama siswa tidak melihat status koneksi', other && other.net === undefined, other);
   r = await push(admin, [{ k: 'lms_groups', id: 'grp1', v: { id: 'grp1', name: 'Grup PK 12', color: '#0d9488', memberIds: [], tutorIds: ['u_g1'], archived: false, createdBy: 'u_admin' } }]);
   const sync1 = await call('sync', { cursor: 0, full: true }, s1);
   const tomb = (sync1.data.records || []).find(x => x.k === 'lms_groups' && x.id === 'grp1');
@@ -372,6 +571,91 @@ async function main() {
   r = await push(admin, [{ k: 'lms_groups', id: 'grp1', v: { id: 'grp1', name: 'Grup PK 12', color: '#0d9488', memberIds: ['u_s1'], tutorIds: ['u_g1'], archived: true, createdBy: 'u_admin' } }]);
   r = await push(s1, [gpost('m10', 'u_s1', { text: 'diarsipkan?' })]);
   check('grup yang diarsipkan menolak kiriman baru', r.rejected.length === 1 && /diarsipkan/.test(r.rejected[0].reason), r.rejected);
+
+  /* ---------- Ruang Belajar ---------- */
+  console.log('\n[Ruang Belajar]');
+  const TS = Date.now();
+  const ymdUtc = (t) => new Date(t).toISOString().slice(0, 10);
+  const D0 = ymdUtc(TS);
+  r = await push(s1, [{ k: 'lms_study_goals', id: 'stg1', v: { id: 'stg1', userId: 'u_s1', title: 'Latihan PK', targetMin: 50, color: '#4f46e5', createdAt: TS } }]);
+  check('mentee menambah tujuan belajar', r.rejected.length === 0, r.rejected);
+  r = await push(s1, [{ k: 'lms_study_goals', id: 'stg2', v: { id: 'stg2', userId: 'u_s2', title: 'Palsu', targetMin: 50 } }]);
+  check('tujuan atas nama mentee lain ditolak', r.rejected.length === 1, r.rejected);
+  const sess = (id, extra) => ({ k: 'lms_study_sessions', id, v: Object.assign({ id, userId: 'u_s1', kind: 'focus', goalId: 'stg1', title: 'Latihan PK', startedAt: TS - 3600000, endedAt: TS - 600000, durationMs: 3000000, day: D0, createdAt: TS }, extra || {}) });
+  r = await push(s1, [sess('sts1')]);
+  check('sesi fokus yang wajar diterima', r.rejected.length === 0, r.rejected);
+  r = await push(s1, [sess('sts2', { durationMs: 4 * 3600000 })]);
+  check('durasi melebihi rentang mulai–selesai ditolak', r.rejected.length === 1 && /melebihi/.test(r.rejected[0].reason), r.rejected);
+  r = await push(s1, [sess('sts3', { startedAt: TS - 10 * 86400000, endedAt: TS - 10 * 86400000 + 3600000, durationMs: 3600000, day: ymdUtc(TS - 10 * 86400000) })]);
+  check('sesi lama (mengisi mundur) ditolak', r.rejected.length === 1, r.rejected);
+  r = await push(s1, [sess('sts1', { durationMs: 3500000 })]);
+  check('sesi yang sudah tercatat tidak dapat diubah', r.rejected.length === 1 && /tidak dapat diubah/.test(r.rejected[0].reason), r.rejected);
+  r = await push(s1, [{ k: 'lms_study_sessions', id: `web:u_s1:${D0}:dabc1234`, v: { id: `web:u_s1:${D0}:dabc1234`, userId: 'u_s1', kind: 'web', day: D0, dev: 'dabc1234', durationMs: 1800000 } }]);
+  check('waktu di LMS per perangkat diterima', r.rejected.length === 0, r.rejected);
+  r = await push(s1, [{ k: 'lms_study_sessions', id: 'web:lain', v: { id: 'web:lain', userId: 'u_s1', kind: 'web', day: D0, dev: 'dabc1234', durationMs: 1800000 } }]);
+  check('id waktu di LMS yang tidak cocok ditolak', r.rejected.length === 1, r.rejected);
+  const stat = (extra) => ({ k: 'lms_study_stats', id: 'u_s1', v: Object.assign({ userId: 'u_s1', days: { [D0]: { f: 3000000, w: 1800000, n: 1 } }, months: { [D0.slice(0, 7)]: 4800000 }, total: 4800000,
+    live: { state: 'focus', title: 'Latihan PK', goalId: 'stg1', since: TS - 60000, accMs: 0, targetMs: 3000000, at: TS }, updatedAt: TS }, extra || {}) });
+  r = await push(s1, [stat()]);
+  check('ringkasan jam belajar & status langsung diterima', r.rejected.length === 0, r.rejected);
+  r = await push(s1, [stat({ days: { [D0]: { f: 20 * 3600000, w: 6 * 3600000, n: 1 } } })]);
+  check('lebih dari 24 jam per hari ditolak', r.rejected.length === 1 && /per hari/.test(r.rejected[0].reason), r.rejected);
+  r = await push(s1, [stat({ live: { state: 'tidur', at: TS, accMs: 0, targetMs: 0 } })]);
+  check('status langsung yang tidak dikenal ditolak', r.rejected.length === 1, r.rejected);
+  r = await push(guru, [{ k: 'lms_study_stats', id: 'u_g1', v: { userId: 'u_g1', days: {}, months: {}, total: 0, live: null } }]);
+  check('tutor tidak mencatat jam belajar mentee', r.rejected.length === 1, r.rejected);
+  r = await push(admin, [{ k: 'lms_study_stats', id: 'u_s1', v: Object.assign(stat().v, { total: 999 }) }]);
+  check('admin tidak dapat mengubah ringkasan mentee', r.rejected.length === 1, r.rejected);
+  const pS2b = await pull(s2);
+  check('mentee lain melihat ringkasan, bukan sesi & tujuan', !!(pS2b.lms_study_stats && pS2b.lms_study_stats.u_s1) && !pS2b.lms_study_sessions && !pS2b.lms_study_goals, Object.keys(pS2b).filter(k => /study/.test(k)));
+  const pAdm = await pull(admin);
+  check('admin melihat ringkasan tanpa data mentah', !!(pAdm.lms_study_stats && pAdm.lms_study_stats.u_s1) && !pAdm.lms_study_sessions, Object.keys(pAdm).filter(k => /study/.test(k)));
+  const pS1b = await pull(s1);
+  check('pemilik menerima sesi & tujuannya', !!(pS1b.lms_study_sessions && pS1b.lms_study_sessions.sts1 && pS1b.lms_study_goals && pS1b.lms_study_goals.stg1));
+  r = await push(admin, [{ k: 'lms_study_stats', id: 'u_s1', op: 'del' }]);
+  check('admin dapat menghapus ringkasan yang tidak wajar', r.rejected.length === 0, r.rejected);
+
+  /* ---------- Main Bareng Kelas ---------- */
+  console.log('\n[Main Bareng Kelas]');
+  const room = (extra) => ({ k: 'lms_game_rooms', id: 'gr_t1', v: Object.assign({ id: 'gr_t1', code: 'ABC234', kind: 'raid', hostId: 'u_g1', title: 'Monster Kelas', subject: '',
+    status: 'lobby', phase: 'lobby', round: 0, roundSec: 20, qids: ['b:q1', 'b:q2'], playerIds: [], state: {} }, extra || {}) });
+  r = await push(s1, [room({ hostId: 'u_s1' })]);
+  check('siswa tidak dapat membuat ruang', r.rejected.length === 1, r.rejected);
+  r = await push(guru, [room({ hostId: 'u_admin' })]);
+  check('tuan rumah ruang harus akun sendiri', r.rejected.length === 1, r.rejected);
+  r = await push(guru, [room({ code: 'abc' })]);
+  check('kode ruang tidak valid ditolak', r.rejected.length === 1, r.rejected);
+  r = await push(guru, [room()]);
+  check('tutor membuat ruang', r.rejected.length === 0, r.rejected);
+  const T0 = Date.now();
+  r = await push(guru, [room({ status: 'playing', phase: 'question', round: 1, phaseAt: T0 - 999999, phaseEndsAt: T0 - 999999 + 20000, code: 'ZZZ999', hostId: 'u_g1' })]);
+  const rv = (r.applied[0] || {}).v || {};
+  check('jam fase dicap server (durasi dipertahankan), kode tidak berubah', r.rejected.length === 0 && Math.abs(rv.phaseAt - Date.now()) < 5000 && rv.phaseEndsAt - rv.phaseAt === 20000 && rv.code === 'ABC234', rv);
+  const pl = (extra, who) => ({ k: 'lms_game_players', id: 'gr_t1:' + (who || 'u_s1'), v: Object.assign({ id: 'gr_t1:' + (who || 'u_s1'), roomId: 'gr_t1', hostId: 'u_g1', userId: who || 'u_s1', role: 'penyihir', color: 1, ans: {} }, extra || {}) });
+  r = await push(s1, [pl()]);
+  check('siswa bergabung ke ruang', r.rejected.length === 0, r.rejected);
+  r = await push(s1, [pl({}, 'u_s2')]);
+  check('siswa tidak dapat menulis data pemain lain', r.rejected.length === 1, r.rejected);
+  r = await push(s1, [pl({ role: 'raja' })]);
+  check('peran tidak dikenal ditolak', r.rejected.length === 1, r.rejected);
+  r = await push(s1, [pl({ ans: { 1: { o: 2, ok: true, ms: 3000, sk: 'api' } } })]);
+  const a1 = (((r.applied[0] || {}).v || {}).ans || {})[1] || {};
+  check('jawaban ronde diterima & diberi cap waktu server', r.rejected.length === 0 && a1.o === 2 && Math.abs(a1.sa - Date.now()) < 5000, a1);
+  r = await push(s1, [pl({ ans: { 1: { o: 0, ok: true, ms: 100, sk: 'api' } } })]);
+  const a2 = (((r.applied[0] || {}).v || {}).ans || {})[1] || {};
+  check('jawaban yang sudah terkirim tidak dapat diganti', a2.o === 2 && a2.ms === 3000, a2);
+  r = await push(s1, [pl({ ans: { 1: { o: 2, ok: true, ms: 3000, sk: 'api' } }, car: { d: 120, lane: 1, v: 56, at: Date.now(), fin: 0, it: 'roket' } })]);
+  check('item balap tidak dikenal ditolak', r.rejected.length === 1, r.rejected);
+  r = await push(s1, [pl({ ans: { 1: { o: 2, ok: true, ms: 3000, sk: 'api' } }, car: { d: 120, lane: 2, v: 56, at: Date.now(), fin: 0, it: 'oil', fx: { t: 0, s: 0, h: 0 } }, ev: [{ t: 'oil', n: 1, to: 'u_s2', at: Date.now(), lane: 1 }] })]);
+  check('posisi mobil & lemparan oli diterima', r.rejected.length === 0, r.rejected);
+  r = await push(guru, [pl({ role: 'penjaga' })]);
+  check('tutor tidak dapat menulis data pemain', r.rejected.length === 1, r.rejected);
+  const pS2r = await pull(s2);
+  check('siswa lain melihat ruang & pemain yang aktif', !!(pS2r.lms_game_rooms && pS2r.lms_game_rooms.gr_t1 && pS2r.lms_game_players && pS2r.lms_game_players['gr_t1:u_s1']));
+  r = await push(s2, [room({ status: 'closed' })]);
+  check('siswa tidak dapat menutup ruang', r.rejected.length === 1, r.rejected);
+  r = await push(guru, [{ k: 'lms_game_players', id: 'gr_t1:u_s1', op: 'del' }, { k: 'lms_game_rooms', id: 'gr_t1', op: 'del' }]);
+  check('tuan rumah dapat merapikan ruang & pemainnya', r.rejected.length === 0, r.rejected);
 
   const failed = results.filter(x => !x.ok);
   console.log(`\n${results.length - failed.length}/${results.length} lulus`);

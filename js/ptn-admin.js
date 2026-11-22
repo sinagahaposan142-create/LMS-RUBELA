@@ -114,7 +114,7 @@
         box.querySelectorAll('[data-edit]').forEach(b => b.addEventListener('click', () => openMajorForm(user, PTN.major(b.dataset.edit), reload)));
         box.querySelectorAll('[data-del]').forEach(b => b.addEventListener('click', () => {
           const m = PTN.major(b.dataset.del);
-          if (!m || !UI.confirmDialog(`Hapus jurusan "${PTN.majorLabel(m)}"? Jurusan ini juga keluar dari pilihan tersimpan siswa.`)) return;
+          if (!m || !UI.confirmDialog(`Hapus jurusan "${PTN.majorLabel(m)}"? Jurusan ini juga keluar dari pilihan tersimpan mentee.`)) return;
           PTN.deleteMajor(m.id, user);
           UI.toast('Jurusan dihapus.', 'success');
           reload();
@@ -234,7 +234,7 @@
           </div>
           <div class="pa-sub-grid">${(DB.SUBTESTS || []).map(s => `<div class="form-group"><label for="pmS_${s.code}">${esc(s.code)}</label>
             <input id="pmS_${s.code}" data-sub="${s.code}" inputmode="decimal" value="${v((e.subtests || {})[s.code])}" title="${esc(s.name)}" /></div>`).join('')}</div>
-          <p class="muted small">Rata-rata per subtest opsional. Bila diisi, siswa melihat selisih skornya per subtest.</p>
+          <p class="muted small">Rata-rata per subtest opsional. Bila diisi, mentee melihat selisih skornya per subtest.</p>
         </fieldset>
         <div class="form-row">
           <div class="form-group"><label for="pmCap">Daya tampung</label><input id="pmCap" name="capacity" inputmode="numeric" value="${v(e.capacity)}" /></div>

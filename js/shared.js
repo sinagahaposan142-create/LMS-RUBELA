@@ -2,6 +2,8 @@
  * CBT (take/grade), video embed helper, attendance rendering.
  */
 (function (global) {
+  // Isi lingkaran avatar: avatar almamater / foto / inisial (js/avatars.js).
+  const AV = (u) => (global.Avatars ? Avatars.inner(u) : UI.esc(UI.initials(u && u.name)));
 
   /* ===== YouTube / Video embed helper ===== */
   /** URL embed Vimeo (YouTube ditangani YTPlayer: thumbnail dulu, youtube-nocookie saat diputar). */
@@ -289,11 +291,11 @@
       };
       const planTooltip = (pl) => {
         const c = DB.getCourse(pl.courseId);
-        const t = DB.getUser(pl.teacherId);
+        const t = DB.planTeacherNames(pl);
         const st = (DB.PLAN_STATUS && DB.PLAN_STATUS[pl.status]) || { label: pl.status };
         return [c ? DB.courseTitle(c) : 'Kelas dihapus',
           pl.topic || 'materi belum diisi',
-          t ? 'diajar ' + t.name : '',
+          t ? 'diajar ' + t : '',
           pl.time ? pl.time + (pl.endTime ? '–' + pl.endTime : '') : '',
           st.label,
           pl.__childName ? 'anak: ' + pl.__childName : ''].filter(Boolean).join(' • ');
@@ -344,12 +346,12 @@
                 <thead><tr><th>Tanggal</th><th>Kelas</th><th>Tutor</th><th>Materi</th><th>Jam</th><th>Status</th></tr></thead>
                 <tbody>${plans.slice().sort((a, b) => a.date.localeCompare(b.date)).map(pl => {
                   const c = DB.getCourse(pl.courseId);
-                  const t = DB.getUser(pl.teacherId);
+                  const t = DB.planTeacherNames(pl, ', ');
                   const st = (DB.PLAN_STATUS && DB.PLAN_STATUS[pl.status]) || { label: pl.status, badge: 'badge-gray' };
                   return `<tr>
                     <td>${UI.fmtYMD(pl.date)}</td>
                     <td>${UI.esc(c ? DB.courseTitle(c) : 'Kelas dihapus')}${pl.__childName ? `<div class="muted small">anak: ${UI.esc(pl.__childName)}</div>` : ''}</td>
-                    <td>${UI.esc(t ? t.name : '-')}</td>
+                    <td>${UI.esc(t || '-')}</td>
                     <td>${pl.topic ? UI.esc(pl.topic) : '<span class="muted">belum diisi</span>'}</td>
                     <td>${UI.esc(pl.time || '-')}${pl.endTime ? '–' + UI.esc(pl.endTime) : ''}</td>
                     <td><span class="badge ${st.badge}">${UI.esc(st.label)}</span></td>
@@ -567,7 +569,7 @@
   /* ===== Announcements / Pengumuman ===== */
   /** Label ramah untuk sasaran pengumuman, mis. "Peran: Orang Tua". */
   function audienceLabel(a) {
-    const roles = { guru: 'Tutor', siswa: 'Siswa', orangtua: 'Orang Tua', admin: 'Admin' };
+    const roles = { guru: 'Tutor', siswa: 'Mentee', orangtua: 'Orang Tua', admin: 'Admin' };
     if (a.targetType === 'semua') return 'Semua pengguna';
     if (a.targetType === 'role') return 'Peran: ' + (roles[a.targetRole] || a.targetRole || '-');
     if (a.targetType === 'kelas') {
@@ -784,7 +786,7 @@
           <div class="muted small">Bawaan 7 hari. Kosongkan bila ingin tayang tanpa batas waktu.</div></div>
         <div class="form-group"><label>Ditujukan Kepada</label>
           <select name="targetType" id="annTarget">
-            <option value="semua">Semua Pengguna (Tutor + Siswa + Orang Tua)</option>
+            <option value="semua">Semua Pengguna (Tutor + Mentee + Orang Tua)</option>
             <option value="role">Peran Tertentu</option>
             <option value="kelas">Kelas Tertentu</option>
             <option value="individu">Individu</option>
@@ -844,7 +846,7 @@
       if (t === 'role') {
         detailBox.innerHTML = `<label>Peran</label>
         <select name="targetRole">
-          <option value="siswa">Siswa</option>
+          <option value="siswa">Mentee</option>
           <option value="guru">Tutor</option>
           <option value="orangtua">Orang Tua</option>
         </select>
@@ -855,7 +857,7 @@
       } else {
         const users = DB.getUsers().filter(u => u.role !== 'admin');
         detailBox.innerHTML = '<label>Individu</label><input id="annIndSearch" placeholder="Cari..." style="margin-bottom:6px;padding:6px;border:1px solid var(--gray-300);border-radius:4px;width:100%;" /><div id="annIndList" style="max-height:150px;overflow-y:auto;border:1px solid var(--gray-200);border-radius:6px;padding:6px;">' +
-          users.map(u => `<label style="display:block;padding:4px;" data-n="${u.name.toLowerCase()}"><input type="checkbox" name="tid" value="${u.id}" /> ${UI.esc(u.name)} (${u.role})</label>`).join('') + '</div>';
+          users.map(u => `<label style="display:block;padding:4px;" data-n="${u.name.toLowerCase()}"><input type="checkbox" name="tid" value="${u.id}" /> ${UI.esc(u.name)} (${UI.esc(Auth.ROLE_LABELS[u.role] || u.role)})</label>`).join('') + '</div>';
         setTimeout(() => {
           const search = document.getElementById('annIndSearch');
           if (search) search.addEventListener('input', (e) => {
@@ -902,7 +904,6 @@
   /* ===== Live Chat ===== */
   function renderChat(container, user) {
     let activeChatUserId = null;
-    const allUsers = DB.getUsers().filter(u => u.id !== user.id && u.role !== 'admin' || (user.role !== 'admin' && u.role === 'admin'));
     // Show relevant contacts: admin sees all, guru sees students+admin, siswa sees guru+admin
     let contacts;
     if (user.role === 'admin') {
@@ -934,7 +935,7 @@
               ${sorted.map(c => {
                 const lastMsg = getLastMessage(user.id, c.id);
                 return `<div class="chat-contact ${activeChatUserId === c.id ? 'active' : ''}" data-uid="${c.id}">
-                  <div class="avatar" style="width:32px;height:32px;font-size:12px;">${UI.initials(c.name)}</div>
+                  <div class="avatar" style="width:32px;height:32px;font-size:12px;">${AV(c)}</div>
                   <div style="flex:1;min-width:0;">
                     <div style="font-size:13px;font-weight:500;">${UI.esc(c.name)}</div>
                     <div class="muted small" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${lastMsg ? UI.esc(previewText(lastMsg, 30)) : '<i>Belum ada pesan</i>'}</div>
@@ -1045,7 +1046,7 @@
       chatMain.innerHTML = `
         <div class="chat-header">
           <button type="button" class="chat-back" id="chatBack" aria-label="Kembali ke daftar kontak">←</button>
-          <div class="avatar" style="width:32px;height:32px;font-size:12px;">${UI.initials(partner.name)}</div>
+          <div class="avatar" style="width:32px;height:32px;font-size:12px;">${AV(partner)}</div>
           <div>
             <strong>${UI.esc(partner.name)}</strong>
             <div class="muted small">${UI.esc(partner.role)} ${partner.subject ? '• ' + UI.esc(partner.subject) : ''}</div>
@@ -1231,7 +1232,7 @@
             ${list.map(c => `
               <label class="chat-fwd-item" data-name="${UI.esc(c.name.toLowerCase())}">
                 <input type="checkbox" value="${UI.esc(c.id)}" />
-                <span class="avatar" style="width:30px;height:30px;font-size:11px;">${UI.initials(c.name)}</span>
+                <span class="avatar" style="width:30px;height:30px;font-size:11px;">${AV(c)}</span>
                 <span class="chat-fwd-name">${UI.esc(c.name)}<small>${UI.esc(c.role)}</small></span>
               </label>`).join('')}
             <div class="chat-empty" id="fwdEmpty" hidden>Tidak ada kontak yang cocok.</div>
@@ -1467,7 +1468,6 @@
   function renderAiTools(container, user) {
     const enrolled = DB.getEnrollmentsByStudent(user.id);
     const courses = enrolled.map(e => DB.getCourse(e.courseId)).filter(Boolean);
-    const subs = DB.getSubmissionsByStudent(user.id);
     const attempts = DB.getCbtAttemptsByStudent(user.id).filter(a => a.submittedAt);
     const avgScore = attempts.length ? Math.round(attempts.reduce((s, a) => s + (a.score || 0), 0) / attempts.length) : null;
 
@@ -1479,7 +1479,7 @@
           <div class="sub">Rencana belajar personal</div>
         </div>
         <div class="stat-card accent-success" style="cursor:pointer;" id="aiGuru">
-          <div class="label">AI Guru</div>
+          <div class="label">AI Tutor</div>
           <div class="value" style="font-size:20px;">🧠</div>
           <div class="sub">Tanya materi kapan saja</div>
         </div>
@@ -1524,7 +1524,7 @@
           byDay[d].push({
             title: DB.courseTitle(c),
             subtest: c.subtest || c.category || '-',
-            time: sc.time ? `${sc.time}${sc.endTime ? '–' + sc.endTime : ''}` : 'jam belum diatur',
+            time: sc.time ? `${sc.time}–${DB.planEndFor(sc.time)}` : 'jam belum diatur',
             tutor: DB.courseTeachers(c).map(t => t.name).join(' & ') || '-'
           });
         });
@@ -1579,7 +1579,7 @@
         }).join('; ');
         try {
           const ans = await AI.ask(
-            `Susun rencana belajar mingguan untuk siswa UTBK bernama ${user.name} dalam Bahasa Indonesia. ` +
+            `Susun rencana belajar mingguan untuk mentee UTBK bernama ${user.name} dalam Bahasa Indonesia. ` +
             `Jadwal kelas yang sudah pasti: ${jadwal}. ` +
             (weak.length
               ? `Rata-rata skor per subtest: ${weak.map(w => `${w.short} ${w.avg}`).join(', ')}. `
@@ -1609,9 +1609,9 @@
       box.innerHTML = '<div class="card aic-card" id="aiGuruChat"></div>';
       // Percakapan tersimpan (7 hari) & tersinkron; konteks siswa dibaca ulang setiap pertanyaan.
       AIChat.mount(document.getElementById('aiGuruChat'), user, {
-        kind: 'tutor', title: 'AI Guru — Asisten Belajar', icon: '🧠', temperature: 0.6, maxTokens: 1600,
+        kind: 'tutor', title: 'AI Tutor — Asisten Belajar', icon: '🧠', temperature: 0.6, maxTokens: 1600,
         placeholder: 'Tanyakan materi, contoh soal, atau strategi UTBK…',
-        intro: `Halo ${UI.esc(String(user.name || '').split(' ')[0])}! Saya AI Guru. Tanyakan materi apa saja —
+        intro: `Halo ${UI.esc(String(user.name || '').split(' ')[0])}! Saya AI Tutor. Tanyakan materi apa saja —
           konsep, contoh soal, atau strategi UTBK. ${weak.length
             ? `Dari hasil CBT-mu, subtest yang paling perlu dikuatkan saat ini adalah <strong>${UI.esc(weak[0].short)}</strong> (rata-rata ${weak[0].avg}).`
             : 'Kerjakan beberapa CBT dulu agar saya bisa memberi saran yang lebih terarah.'}`,
@@ -1695,7 +1695,7 @@
           .map(k => `${k}: ${(contentBySubtest[k] || []).map(i => i.title).slice(0, 5).join(', ') || '-'}`).join(' | ');
         try {
           const ans = await AI.ask(
-            `Siswa bernama ${user.name} mengikuti bimbel UTBK. Data nyata hasil CBT: ${facts}. ` +
+            `Mentee bernama ${user.name} mengikuti bimbel UTBK. Data nyata hasil CBT: ${facts}. ` +
             `Materi yang tersedia di kelasnya: ${materi}. ` +
             (user.targetUniv ? `Target: ${user.targetUniv} ${user.targetMajor || ''}. ` : '') +
             'Susun rencana belajar 2 minggu yang konkret dalam Bahasa Indonesia. ' +
@@ -1793,7 +1793,7 @@
         out.innerHTML = AI.loadingHtml('AI menganalisis kesiapanmu…');
         try {
           const ans = await AI.ask(
-            `Siswa ${user.name} menyiapkan UTBK/SNBT. ` +
+            `Mentee ${user.name} menyiapkan UTBK/SNBT. ` +
             (hasTarget ? `Target: ${user.targetUniv || '-'} jurusan ${user.targetMajor || '-'}. ` : 'Target kampus belum ditentukan. ') +
             `Rata-rata skor CBT keseluruhan ${overall}/100. Rincian per subtest: ` +
             done.map(s => `${s.short} ${s.avg}`).join(', ') + '. ' +
@@ -1889,14 +1889,14 @@
         </div>
       </div>
 
-      ${user.role === 'guru' ? `<p class="muted small">Menampilkan ${students.length} siswa dari ${myCourses.length} kelas yang Anda ampu.</p>` : ''}
+      ${user.role === 'guru' ? `<p class="muted small">Menampilkan ${students.length} mentee dari ${myCourses.length} kelas yang Anda ampu.</p>` : ''}
       ${AI.noticeHtml(user)}
       ${AI.ready() ? `<div class="flex-gap" style="margin-bottom:10px;">
         <button class="btn btn-primary btn-sm" id="aiAnalyticsNarrate">🤖 Minta Ringkasan & Saran Tindak Lanjut dari AI</button>
       </div><div id="aiAnalyticsAiOut" style="margin-bottom:10px;"></div>` : ''}
 
       <div class="subtabs">
-        <button class="subtab-btn active" data-aitab="earlyWarning">Deteksi Dini Siswa</button>
+        <button class="subtab-btn active" data-aitab="earlyWarning">Deteksi Dini Mentee</button>
         <button class="subtab-btn" data-aitab="fraud">Integritas Ujian</button>
       </div>
       <div id="aiAnalyticsBox"></div>
@@ -1906,7 +1906,7 @@
     if (narrateBtn) narrateBtn.addEventListener('click', async () => {
       const out = document.getElementById('aiAnalyticsAiOut');
       narrateBtn.disabled = true;
-      out.innerHTML = AI.loadingHtml('AI merangkum kondisi siswa…');
+      out.innerHTML = AI.loadingHtml('AI merangkum kondisi mentee…');
       const facts = warnings
         .filter(w => w.category !== 'Normal')
         .slice(0, 20)
@@ -1914,8 +1914,8 @@
         .join('; ');
       try {
         const ans = await AI.ask(
-          'Kamu asisten analitik untuk bimbel UTBK. Berikut data nyata siswa yang perlu perhatian: ' +
-          (facts || 'tidak ada siswa berkategori bermasalah') + '. ' +
+          'Kamu asisten analitik untuk bimbel UTBK. Berikut data nyata mentee yang perlu perhatian: ' +
+          (facts || 'tidak ada mentee berkategori bermasalah') + '. ' +
           'Buat ringkasan singkat dan saran tindak lanjut yang konkret untuk ' +
           (user.role === 'guru' ? 'tutor kelas' : 'admin lembaga') + ' dalam Bahasa Indonesia. ' +
           'Kelompokkan berdasarkan prioritas. Jangan menambah nama atau angka yang tidak saya berikan. Maksimal 300 kata.',
@@ -1935,11 +1935,11 @@
         const atRisk = warnings.filter(w => w.category !== 'Normal').sort((a, b) => b.risk - a.risk);
         box.innerHTML = `
           <div class="card">
-            <div class="card-header"><h3>Deteksi Dini: Murid Berisiko (${atRisk.length})</h3></div>
+            <div class="card-header"><h3>Deteksi Dini: Mentee Berisiko (${atRisk.length})</h3></div>
             <p class="muted small">AI menganalisis: presensi, keterlambatan tugas, penurunan nilai, aktivitas rendah.</p>
-            ${atRisk.length === 0 ? '<div class="empty"><div class="empty-icon">✅</div>Semua murid dalam kondisi baik!</div>' : `
+            ${atRisk.length === 0 ? '<div class="empty"><div class="empty-icon">✅</div>Semua mentee dalam kondisi baik!</div>' : `
             <div class="table-wrap"><table class="table">
-              <thead><tr><th>Siswa</th><th>Kategori</th><th>Absent Rate</th><th>Tugas Telat</th><th>Avg CBT</th><th>Tren</th><th>Indikasi</th></tr></thead>
+              <thead><tr><th>Mentee</th><th>Kategori</th><th>Absent Rate</th><th>Tugas Telat</th><th>Avg CBT</th><th>Tren</th><th>Indikasi</th></tr></thead>
               <tbody>${atRisk.map(w => {
                 const badge = w.category === 'Critical' ? 'badge-gray' : 'badge-warning';
                 const indicators = [];
@@ -1978,7 +1978,7 @@
             </p>
             ${fraudAlerts.length === 0 ? '<div class="empty"><div class="empty-icon">🛡️</div>Tidak ada pelanggaran atau anomali yang tercatat.</div>' : `
             <div class="table-wrap"><table class="table">
-              <thead><tr><th>Siswa</th><th>Ujian</th><th>Skor</th><th>Durasi</th><th>Pelanggaran</th><th>Tingkat</th><th>Temuan</th></tr></thead>
+              <thead><tr><th>Mentee</th><th>Ujian</th><th>Skor</th><th>Durasi</th><th>Pelanggaran</th><th>Tingkat</th><th>Temuan</th></tr></thead>
               <tbody>${fraudAlerts.map(f => `<tr>
                 <td><strong>${UI.esc(f.student.name)}</strong></td>
                 <td>${UI.esc(f.exam?.title || '-')}</td>
@@ -2023,8 +2023,8 @@
           <p class="muted small" style="margin:6px 0 0;">Kosongkan untuk membuat kelas terbuka (tanpa password).</p>
         </div>
         <div class="alert alert-info">
-          Password ini hanya diminta ketika <strong>siswa bergabung sendiri</strong> dari halaman Jelajah Kelas.
-          Admin tetap dapat menambahkan siswa langsung tanpa password.
+          Password ini hanya diminta ketika <strong>mentee bergabung sendiri</strong> dari halaman Jelajah Kelas.
+          Admin tetap dapat menambahkan mentee langsung tanpa password.
         </div>
         <div class="flex-gap" style="justify-content:space-between;">
           <button type="button" class="btn btn-secondary" id="genPwBtn">🎲 Buat Otomatis</button>
@@ -2070,7 +2070,7 @@
         <span class="lock-ic">🔐</span>
         <h3 style="margin:0 0 4px;">${UI.esc(course.title)}</h3>
         <p class="muted small">Kelas ini dilindungi password. Mintalah password kepada
-        <strong>${UI.esc(teacher ? teacher.name : 'guru pengajar')}</strong> atau admin.</p>
+        <strong>${UI.esc(teacher ? teacher.name : 'tutor pengajar')}</strong> atau admin.</p>
       </div>
       <form id="gateForm" class="form mt-2">
         <div class="form-group">
@@ -2096,7 +2096,7 @@
       }
       attempts++;
       err.textContent = attempts >= 3
-        ? 'Password masih salah. Hubungi guru atau admin untuk mendapatkan password kelas.'
+        ? 'Password masih salah. Hubungi tutor atau admin untuk mendapatkan password kelas.'
         : 'Password kelas salah. Coba lagi.';
       err.classList.remove('hidden');
       const input = document.getElementById('gatePw');
@@ -2225,7 +2225,7 @@
           <div class="stat-card accent-primary">
             <div class="label">Peserta</div>
             <div class="value">${rows.length}</div>
-            <div class="sub">siswa aktif diperingkat</div>
+            <div class="sub">mentee aktif diperingkat</div>
           </div>
           <div class="stat-card accent-success">
             <div class="label">Rata-rata Poin</div>
@@ -2248,26 +2248,26 @@
             <button type="button" class="class-chip ${activeCourse === '' ? 'is-active' : ''}" data-lb-course="">
               <span class="cc-dot"></span>
               <span class="cc-title">Semua Kelas</span>
-              <span class="cc-meta">${DB.getUsers().filter(u => u.role === 'siswa').length} siswa</span>
+              <span class="cc-meta">${DB.getUsers().filter(u => u.role === 'siswa').length} mentee</span>
             </button>
             ${courses.map(c => `
               <button type="button" class="class-chip ${activeCourse === c.id ? 'is-active' : ''}" data-lb-course="${c.id}">
                 <span class="cc-dot"></span>
                 <span class="cc-title">${UI.esc(c.title)}</span>
-                <span class="cc-meta">${DB.getEnrollmentsByCourse(c.id).length} siswa</span>
+                <span class="cc-meta">${DB.getEnrollmentsByCourse(c.id).length} mentee</span>
               </button>`).join('')}
           </div>
         </div>
 
         <div class="card">
           ${rows.length === 0
-            ? '<div class="empty"><div class="empty-icon">🏅</div>Belum ada siswa untuk diperingkat.</div>'
+            ? '<div class="empty"><div class="empty-icon">🏅</div>Belum ada mentee untuk diperingkat.</div>'
             : `<div class="lb-list">${rows.map((r, i) => {
                 const medal = i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : (i + 1);
                 const cls = i === 0 ? 'top1' : i === 1 ? 'top2' : i === 2 ? 'top3' : '';
                 return `<div class="lb-row ${cls} ${r.s.id === user.id ? 'is-me' : ''}" style="animation-delay:${Math.min(0.4, i * 0.04)}s;">
                   <div class="rank">${medal}</div>
-                  <div class="avatar">${UI.initials(r.s.name)}</div>
+                  <div class="avatar">${AV(r.s)}</div>
                   <div class="who">
                     <div class="nm">${UI.esc(r.s.name)}${r.s.id === user.id ? ' <span class="badge badge-info">Saya</span>' : ''}</div>
                     <div class="mt">Level ${r.st.level} • ${UI.esc(r.s.kelas || '-')} • Kehadiran ${r.st.attendancePct}% • ${r.st.submissions} tugas • ${r.st.cbtDone} CBT</div>
@@ -2311,21 +2311,23 @@
     const attr = attrName || 'data-course-chip';
     if (!courses.length) return '';
     return `<div class="class-chips">
-      ${courses.map(c => {
-        const teacher = DB.getUser(c.teacherId);
-        return `<button type="button" class="class-chip ${activeId === c.id ? 'is-active' : ''}" ${attr}="${c.id}">
+      ${courses.map(c => `<button type="button" class="class-chip ${activeId === c.id ? 'is-active' : ''}" ${attr}="${UI.esc(c.id)}">
           <span class="cc-dot"></span>
-          <span class="cc-title">${UI.esc(c.title)}</span>
-          <span class="cc-meta">${DB.getEnrollmentsByCourse(c.id).length} siswa • ${UI.esc(teacher ? teacher.name.split(' ').slice(-1)[0] : '-')}</span>
-        </button>`;
-      }).join('')}
+          <span class="cc-title">${UI.esc(DB.courseTitle(c))}</span>
+          <span class="cc-meta">${DB.getEnrollmentsByCourse(c.id).length} mentee • ${UI.esc(DB.courseTutorsShort(c, 1) || 'tanpa tutor')}</span>
+        </button>`).join('')}
     </div>`;
   }
 
   /**
-   * Lembar presensi interaktif.
-   * opts = { container, courseId, date, user, canMarkTeacher, round, onDateChange, onSaved }
-   * Setiap klik status langsung tersimpan (auto-save) sehingga absensi cepat.
+   * Lembar presensi per pertemuan.
+   * opts = { container, courseId, date, planId, user, canMarkTeacher, round, onDateChange, onSaved }
+   *
+   *  - Baris kosong sampai ditandai: tidak ada status bawaan, tidak ada "tersimpan" palsu.
+   *  - Klik status langsung tersimpan; status dapat diganti atau dikosongkan (dengan Urungkan).
+   *  - Kelas dengan beberapa pertemuan di hari yang sama dipilih per sesi.
+   *  - Tutor yang tampil hanya tutor yang mengajar sesi itu (rencana kelas).
+   *  - Hanya tutor sesi itu atau admin yang dapat mengisi/mengubah (juga dijaga server).
    */
   function renderAttendanceSheet(opts) {
     const { container, courseId, user } = opts;
@@ -2334,284 +2336,278 @@
       container.innerHTML = '<div class="empty"><div class="empty-icon">📭</div>Kelas tidak ditemukan.</div>';
       return;
     }
-    let date = opts.date || UI.todayYMD();
+    const esc = UI.esc;
     const canMarkTeacher = opts.canMarkTeacher !== false;
     const roundStyle = !!opts.round;
+    const fmtTime = (t) => String(t || '').replace(':', '.');
+    const timeLabel = (pl) => (pl && pl.time ? `${fmtTime(pl.time)}–${fmtTime(pl.endTime || DB.planEndFor(pl.time))}` : '');
+    let date = opts.date || UI.todayYMD();
+    let planId = opts.planId || null;
+    let ses, editable, people, recs;
 
-    /* Daftar peserta: SEMUA tutor kelas (opsional) + siswa terdaftar.
-     * Dulu bagian ini membaca `course.teacherId` (satu tutor saja), sehingga
-     * kelas yang diampu dua tutor hanya menampilkan satu nama. Kelas subtest
-     * di LMS ini bisa diampu beberapa tutor, jadi seluruh tutor harus muncul.
-     * Tutor yang benar-benar bertugas pada tanggal itu diambil dari rencana
-     * kelas (War Jadwal) dan ditandai khusus, karena satu pertemuan hanya
-     * diajar oleh satu tutor. */
-    const tutors = DB.courseTeachers(course);
-    const students = DB.getEnrollmentsByCourse(course.id)
-      .map(e => DB.getUser(e.studentId))
-      .filter(Boolean)
-      .sort((a, b) => a.name.localeCompare(b.name));
-
-    let people = [];
-    const draft = {};
-
-    /* Dibangun ulang setiap tanggal berubah, karena tutor yang bertugas
-     * ditentukan oleh rencana kelas pada tanggal tersebut. */
-    function buildPeople() {
-      const ses = DB.sessionTeacher(course, date);
-      const sessionTutorId = ses && ses.user ? ses.user.id : null;
-      people = [];
-      if (canMarkTeacher) {
-        // Tutor yang bertugas hari itu ditaruh paling atas
-        tutors.slice().sort((a, b) => (b.id === sessionTutorId) - (a.id === sessionTutorId))
-          .forEach(t => {
-            const isSession = t.id === sessionTutorId;
-            const mine = t.id === user.id;
-            let tag = mine ? 'Saya (Tutor)' : 'Tutor Kelas';
-            if (isSession) tag = mine ? 'Saya — Mengajar Sesi Ini' : 'Mengajar Sesi Ini';
-            people.push({ u: t, role: 'guru', tag, isSession });
-          });
-      }
-      students.forEach(st => people.push({ u: st, role: 'siswa', tag: st.kelas || 'Siswa' }));
-    }
-
-    /** Muat status tersimpan; default 'hadir' bila belum ada catatan. */
-    function loadDraft() {
-      Object.keys(draft).forEach(k => { delete draft[k]; });
-      people.forEach(p => {
-        const rec = DB.getAttendanceRecord(course.id, p.u.id, date);
-        draft[p.u.id] = {
-          status: rec ? rec.status : 'hadir',
-          note: rec ? (rec.note || '') : '',
-          saved: !!rec
-        };
+    /** Sesi, hak ubah, peserta, dan catatan tersimpan untuk tanggal/sesi terpilih. */
+    function load() {
+      const all = DB.getPlansForCourseDate(course.id, date);
+      ses = DB.sessionTutors(course, date, planId);
+      if (!ses.plans.some(p => p.id === planId)) planId = ses.plan ? ses.plan.id : null;
+      ses.cancelledOnly = all.length > 0 && !ses.plans.length;
+      editable = !ses.cancelledOnly && DB.canTakeAttendance(user, course, date, planId);
+      recs = new Map();
+      DB.getSessionAttendance(course.id, date, planId).forEach(a => {
+        // Satu orang satu catatan per sesi: catatan bertanda sesi diutamakan dari catatan lama tanpa planId.
+        const prev = recs.get(a.userId);
+        if (!prev || (!prev.planId && a.planId)) recs.set(a.userId, a);
       });
+
+      people = [];
+      const seen = new Set();
+      const push = (u, role, tag, extra) => {
+        if (!u || seen.has(u.id)) return;
+        seen.add(u.id);
+        people.push(Object.assign({ u, role, tag }, extra || {}));
+      };
+      if (canMarkTeacher) {
+        if (ses.plan) {
+          ses.users.forEach(t => push(t, 'guru', t.id === user.id ? 'Saya — mengajar sesi ini' : 'Mengajar sesi ini', { isSession: true }));
+        } else if (user.role === 'guru') {
+          push(user, 'guru', 'Saya (tutor kelas)');
+        } else {
+          DB.courseTeachers(course).forEach(t => push(t, 'guru', 'Tutor kelas — tandai yang mengajar'));
+        }
+        // Tutor yang sudah tercatat walau bukan pengajar sesi (mis. tim pengajar diubah) tetap terlihat.
+        recs.forEach(a => { if (a.role === 'guru') push(DB.getUser(a.userId), 'guru', 'Bukan pengajar sesi ini'); });
+      }
+      DB.getEnrollmentsByCourse(course.id).map(e => DB.getUser(e.studentId)).filter(Boolean)
+        .sort((a, b) => a.name.localeCompare(b.name))
+        .forEach(st => push(st, 'siswa', st.kelas || 'Mentee'));
+      recs.forEach(a => { if (a.role === 'siswa') push(DB.getUser(a.userId), 'siswa', 'Tidak lagi terdaftar di kelas ini'); });
     }
 
-    buildPeople();
-    loadDraft();
+    const countOf = () => {
+      const c = { empty: 0 };
+      ATT_STATUSES.forEach(s => { c[s.key] = 0; });
+      people.forEach(p => { const r = recs.get(p.u.id); if (r) c[r.status] = (c[r.status] || 0) + 1; else c.empty++; });
+      return c;
+    };
 
-    paint();
-
-    /* Keterangan tutor yang mengajar pada tanggal yang dipilih. Diambil dari
-     * rencana kelas supaya presensi mengikuti siapa yang benar-benar mengajar. */
-    function sessionBannerHtml() {
-      if (!tutors.length) {
-        return '<div class="alert alert-error" style="margin-bottom:12px;">Kelas ini belum memiliki tutor.</div>';
+    function bannerHtml() {
+      const tutors = DB.courseTeachers(course);
+      if (!tutors.length) return '<div class="alert alert-error">Kelas ini belum memiliki tutor.</div>';
+      if (ses.cancelledOnly) {
+        return `<div class="att-session is-locked"><span class="as-ic">✕</span><div>
+          <strong>Pertemuan pada tanggal ini dibatalkan</strong>
+          <div class="muted small">Presensi tidak diisi dan tidak dihitung. Pulihkan pertemuannya di Jadwal Kelas bila ternyata tetap berlangsung.</div></div></div>`;
       }
-      const ses = DB.sessionTeacher(course, date);
-      if (!ses) return '';
-      const plan = ses.plan;
-      const allNames = tutors.map(t => t.name).join(' & ');
-      if (ses.scheduled && plan) {
-        const st = (DB.PLAN_STATUS && DB.PLAN_STATUS[plan.status]) || { label: plan.status, badge: 'badge-gray' };
-        return `<div class="att-session">
-          <span class="as-ic">👨‍🏫</span>
+      if (ses.plan) {
+        const pl = ses.plan;
+        const st = (DB.PLAN_STATUS && DB.PLAN_STATUS[pl.status]) || { label: pl.status, badge: 'badge-gray' };
+        return `<div class="att-session ${editable ? '' : 'is-locked'}">
+          <span class="as-ic">${editable ? '👨‍🏫' : '🔒'}</span>
           <div>
-            <strong>Sesi ini diajar oleh ${UI.esc(ses.user.name)}</strong>
-            <span class="badge ${st.badge}">${UI.esc(st.label)}</span>
-            <div class="muted small">
-              ${plan.topic ? 'Materi: ' + UI.esc(plan.topic) + ' • ' : ''}${UI.esc(plan.time || '')}${plan.endTime ? '–' + UI.esc(plan.endTime) : ''}
-              ${tutors.length > 1 ? ` • Kelas ini diampu ${tutors.length} tutor (${UI.esc(allNames)})` : ''}
-            </div>
+            <strong>Diajar ${esc(DB.planTeacherNames(pl) || '-')}</strong>
+            <span class="badge ${st.badge}">${esc(st.label)}</span>
+            <div class="muted small">${esc(timeLabel(pl))}${pl.topic ? ' • ' + esc(pl.topic) : ''}</div>
+            ${editable ? '' : `<div class="att-lock small">Presensi pertemuan ini hanya dapat diisi atau diubah oleh ${esc(DB.planTeacherNames(pl, ', ') || 'tutor yang mengajar')} atau admin.</div>`}
           </div>
         </div>`;
       }
-      return `<div class="att-session is-loose">
-        <span class="as-ic">❓</span>
+      return `<div class="att-session is-loose ${editable ? '' : 'is-locked'}">
+        <span class="as-ic">${editable ? '❓' : '🔒'}</span>
         <div>
-          <strong>Belum ada rencana kelas untuk tanggal ini</strong>
-          <div class="muted small">
-            Sementara ditandai atas nama ${UI.esc(ses.user.name)}.
-            ${tutors.length > 1 ? `Kelas ini diampu ${tutors.length} tutor (${UI.esc(allNames)}) — isi War Jadwal Kelas agar tutor sesi tercatat tepat.` : ''}
-          </div>
+          <strong>Belum ada rencana pertemuan pada tanggal ini</strong>
+          <div class="muted small">${editable
+            ? 'Presensi tetap dapat diisi tutor kelas. Buat pertemuannya di War Jadwal agar tutor sesi tercatat tepat.'
+            : 'Hanya tutor kelas ini atau admin yang dapat mengisi presensi.'}</div>
         </div>
       </div>`;
     }
 
-    function summary() {
-      const c = {};
-      ATT_STATUSES.forEach(s => { c[s.key] = 0; });
-      people.forEach(p => { c[draft[p.u.id].status] = (c[draft[p.u.id].status] || 0) + 1; });
-      return c;
+    function sessionPickerHtml() {
+      if (ses.plans.length < 2) return '';
+      return `<div class="att-sessions" role="group" aria-label="Pilih pertemuan">
+        ${ses.plans.map((p, i) => `<button type="button" class="att-ses ${p.id === planId ? 'is-on' : ''}" data-att-plan="${esc(p.id)}" aria-pressed="${p.id === planId}">
+          <strong>Sesi ${i + 1} · ${esc(timeLabel(p))}</strong><span>${esc(p.topic || 'materi belum diisi')} • ${esc(DB.planTeacherNames(p) || '-')}</span></button>`).join('')}
+      </div>`;
     }
 
-    function paint() {
-      const c = summary();
-      const savedCount = people.filter(p => draft[p.u.id].saved).length;
-      container.innerHTML = `
-        <div class="card">
-          <div class="card-header">
-            ${UI.secHead('📋', 'Ambil Presensi', `${UI.esc(DB.courseTitle(course))} • ${UI.fmtYMD(date)}`)}
-          </div>
-
-          ${sessionBannerHtml()}
-
-          <div class="att-toolbar">
-            <span class="lbl">Tanggal</span>
-            <input type="date" id="attSheetDate" value="${date}" />
-            <span class="lbl" style="margin-left:6px;">Tandai Semua</span>
-            ${ATT_STATUSES.map(s => `
-              <button type="button" class="att-pill p-${s.key}" data-bulk="${s.key}" title="Tandai semua ${s.label}">
-                <span class="dot"></span>${s.label}
-              </button>`).join('')}
-            <button type="button" class="btn btn-sm btn-secondary" id="attReset" style="margin-left:auto;">↺ Muat Ulang</button>
-          </div>
-
-          <div class="att-legend">
-            ${attLegendHtml(c, `<span class="muted">• ${savedCount}/${people.length} tersimpan</span>`)}
-          </div>
-
-          ${people.length === 0
-            ? '<div class="empty"><div class="empty-icon">👥</div>Belum ada siswa terdaftar di kelas ini.</div>'
-            : `<div class="att-sheet">
-                ${people.map((p, i) => rowHtml(p, i)).join('')}
-              </div>`}
-
-          ${people.length ? `
-          <div class="att-sticky-save">
-            <div class="muted small">
-              ${attSummaryText(c)}
-              <div>Perubahan status tersimpan otomatis saat diklik.</div>
-            </div>
-            <div class="flex-gap">
-              <button class="btn btn-secondary" id="attSaveNotes">Simpan Catatan</button>
-              <button class="btn btn-success" id="attSaveAll">✔ Simpan &amp; Selesai</button>
-            </div>
-          </div>` : ''}
-        </div>
-      `;
-      bind();
-      if (window.Effects) Effects.enhance(container);
+    function stateHtml(p) {
+      const r = recs.get(p.u.id);
+      if (!r) return '<span class="att-empty-tag">Belum diisi</span>';
+      const by = r.markedBy ? DB.getUser(r.markedBy) : null;
+      const when = r.markedAt ? UI.fmtDateTime(r.markedAt) : '';
+      return `<span class="att-by" title="${esc([by ? 'oleh ' + by.name : '', when].filter(Boolean).join(' • '))}">✓ ${by ? esc(by.id === user.id ? 'oleh Anda' : 'oleh ' + by.name.split(' ').slice(0, 2).join(' ')) : 'tercatat'}</span>
+        ${editable ? `<button type="button" class="att-clear" data-att-clear aria-label="Kosongkan presensi ${esc(p.u.name)}" title="Kosongkan">×</button>` : ''}`;
     }
 
-    function rowHtml(p, i) {
-      const d = draft[p.u.id];
-      return `
-        <div class="att-row ${p.isSession ? 'is-session' : ''}" data-uid="${p.u.id}" data-role="${p.role}">
+    function rowHtml(p) {
+      const r = recs.get(p.u.id);
+      return `<div class="att-row ${p.isSession ? 'is-session' : ''} ${r ? 'is-marked' : 'is-empty'}" data-uid="${esc(p.u.id)}" data-role="${p.role}">
           <div class="att-person">
-            <div class="avatar">${UI.initials(p.u.name)}</div>
-            <div>
-              <div class="nm">${UI.esc(p.u.name)}${p.isSession ? ' <span class="badge badge-success">sesi ini</span>' : ''}</div>
-              <div class="sub">${UI.esc(p.tag)}${p.role === 'guru' ? ' • presensi tutor' : ''}</div>
+            <div class="avatar">${AV(p.u)}</div>
+            <div class="att-who">
+              <div class="nm">${esc(p.u.name)}</div>
+              <div class="sub">${esc(p.tag)}</div>
             </div>
+            <div class="att-state">${stateHtml(p)}</div>
           </div>
-          <div class="att-pills ${roundStyle ? 'round' : ''}">
-            ${ATT_STATUSES.map(s => `
-              <button type="button" class="att-pill p-${s.key} ${d.status === s.key ? 'is-on' : ''}"
-                      data-status="${s.key}" title="${s.label}">
+          <div class="att-pills ${roundStyle ? 'round' : ''}" role="radiogroup" aria-label="Status ${esc(p.u.name)}">
+            ${ATT_STATUSES.map(s => `<button type="button" role="radio" aria-checked="${!!r && r.status === s.key}" class="att-pill p-${s.key} ${r && r.status === s.key ? 'is-on' : ''}"
+                      data-status="${s.key}" title="${s.label}" ${editable ? '' : 'disabled'}>
                 <span class="dot"></span>${roundStyle ? s.short : s.label}
               </button>`).join('')}
           </div>
-          <input class="att-note" placeholder="Catatan (opsional)..." value="${UI.esc(d.note)}" />
-          <div class="att-state ${d.saved ? 'ok' : ''}">${d.saved ? '✓ Tersimpan' : 'Belum'}</div>
+          <input class="att-note" maxlength="500" placeholder="${!editable ? '' : (r ? 'Catatan (opsional)…' : 'Pilih status dulu')}" value="${esc(r ? (r.note || '') : '')}" ${editable && r ? '' : 'disabled'} aria-label="Catatan ${esc(p.u.name)}" />
         </div>`;
     }
 
-    function persist(uid, role) {
-      const d = draft[uid];
-      DB.upsertAttendance(course.id, uid, role, date, d.status, d.note);
-      d.saved = true;
+    function groupHtml(role, title) {
+      const list = people.filter(p => p.role === role);
+      if (!list.length) return '';
+      return `<div class="att-group-head">${title} <span>${list.length}</span></div>${list.map(rowHtml).join('')}`;
     }
 
-    function bind() {
-      const dateInput = container.querySelector('#attSheetDate');
-      if (dateInput) dateInput.addEventListener('change', (e) => {
-        date = e.target.value || UI.todayYMD();
-        if (typeof opts.onDateChange === 'function') opts.onDateChange(date);
-        // Tutor sesi & draft dihitung ulang untuk tanggal baru
-        buildPeople();
-        loadDraft();
-        paint();
-      });
-
-      // Klik satu status -> langsung tersimpan
-      container.querySelectorAll('.att-row').forEach(row => {
-        const uid = row.dataset.uid;
-        const role = row.dataset.role;
-        row.querySelectorAll('[data-status]').forEach(btn => btn.addEventListener('click', () => {
-          draft[uid].status = btn.dataset.status;
-          row.querySelectorAll('[data-status]').forEach(b => b.classList.remove('is-on'));
-          btn.classList.add('is-on');
-          persist(uid, role);
-          const state = row.querySelector('.att-state');
-          state.textContent = '✓ Tersimpan';
-          state.classList.add('ok');
-          refreshLegend();
-        }));
-        const note = row.querySelector('.att-note');
-        if (note) {
-          note.addEventListener('change', () => {
-            draft[uid].note = note.value;
-            persist(uid, role);
-          });
-        }
-      });
-
-      // Tandai semua sekaligus
-      container.querySelectorAll('[data-bulk]').forEach(b => b.addEventListener('click', () => {
-        const st = b.dataset.bulk;
-        people.forEach(p => { draft[p.u.id].status = st; persist(p.u.id, p.role); });
-        UI.toast(`Semua peserta ditandai ${st.toUpperCase()}.`, 'info');
-        paint();
-      }));
-
-      const reset = container.querySelector('#attReset');
-      if (reset) reset.addEventListener('click', () => {
-        buildPeople();
-        loadDraft();
-        paint();
-      });
-
-      const saveNotes = container.querySelector('#attSaveNotes');
-      if (saveNotes) saveNotes.addEventListener('click', () => {
-        container.querySelectorAll('.att-row').forEach(row => {
-          const uid = row.dataset.uid;
-          draft[uid].note = row.querySelector('.att-note').value;
-          persist(uid, row.dataset.role);
-        });
-        UI.toast('Catatan presensi disimpan.');
-        paint();
-      });
-
-      const saveAll = container.querySelector('#attSaveAll');
-      if (saveAll) saveAll.addEventListener('click', () => {
-        container.querySelectorAll('.att-row').forEach(row => {
-          const uid = row.dataset.uid;
-          draft[uid].note = row.querySelector('.att-note').value;
-          persist(uid, row.dataset.role);
-        });
-        // Beritahu siswa alfa + orang tuanya agar data tetap tersinkron
-        let alerted = 0;
-        people.filter(p => p.role === 'siswa' && draft[p.u.id].status === 'alfa').forEach(p => {
-          DB.notifyStudentAndParents(p.u.id, {
-            type: 'absensi', icon: '⚠️',
-            title: 'Tercatat tidak hadir (Alfa)',
-            body: `${course.title} — ${UI.fmtYMD(date)}${draft[p.u.id].note ? ' • ' + draft[p.u.id].note : ''}`,
-            link: 'absensi'
-          }, { link: 'anak-absensi', title: `${p.u.name} tercatat Alfa` });
-          alerted++;
-        });
-        const c = summary();
-        UI.toast(`Presensi tersimpan: ${ATT_STATUSES.map(s => `${c[s.key] || 0} ${s.label.toLowerCase()}`).join(', ')}.` +
-          (alerted ? ` ${alerted} notifikasi alfa dikirim.` : ''));
-        if (typeof opts.onSaved === 'function') opts.onSaved(date);
-        paint();
-      });
+    function legendHtml() {
+      const c = countOf();
+      return attLegendHtml(c, `<span class="${c.empty ? 'att-empty-count' : 'muted'}">• ${c.empty ? c.empty + ' belum diisi' : 'semua sudah diisi'}</span>`);
     }
 
-    function refreshLegend() {
-      const c = summary();
-      const savedCount = people.filter(p => draft[p.u.id].saved).length;
+    function paint() {
+      load();
+      const hasPeople = people.length > 0;
+      container.innerHTML = `
+        <div class="card att-card">
+          <div class="card-header">
+            ${UI.secHead('📋', 'Ambil Presensi', `${DB.courseTitle(course)} • ${UI.fmtYMD(date)}`)}
+          </div>
+          <div class="att-toolbar">
+            <label class="att-date"><span class="lbl">Tanggal</span><input type="date" id="attSheetDate" class="input" value="${esc(date)}" /></label>
+            ${editable && hasPeople ? `<div class="att-bulk"><span class="lbl">Isi yang kosong</span>
+              ${ATT_STATUSES.map(s => `<button type="button" class="att-pill p-${s.key}" data-bulk="${s.key}" title="Tandai ${s.label} untuk peserta yang belum diisi"><span class="dot"></span>${s.label}</button>`).join('')}</div>` : ''}
+          </div>
+          ${sessionPickerHtml()}
+          ${bannerHtml()}
+          <div class="att-legend">${legendHtml()}</div>
+          ${!hasPeople
+            ? '<div class="empty"><div class="empty-icon">👥</div>Belum ada mentee terdaftar di kelas ini.</div>'
+            : `<div class="att-sheet">${groupHtml('guru', 'Tutor')}${groupHtml('siswa', 'Mentee')}</div>`}
+          ${hasPeople && editable ? `
+          <div class="att-sticky-save">
+            <div class="muted small" id="attSummary">${attSummaryText(countOf())}<div>Status tersimpan otomatis saat diklik; catatan saat kolom ditinggalkan.</div></div>
+            <button type="button" class="btn btn-success" id="attDone">✔ Selesai</button>
+          </div>` : ''}
+        </div>`;
+      if (window.Effects) Effects.enhance(container);
+    }
+
+    function refreshRow(uid) {
+      const p = people.find(x => x.u.id === uid);
+      const row = p && container.querySelector(`.att-row[data-uid="${CSS.escape(uid)}"]`);
+      if (row) row.outerHTML = rowHtml(p);
       const legend = container.querySelector('.att-legend');
-      if (legend) {
-        legend.innerHTML = attLegendHtml(c, `<span class="muted">• ${savedCount}/${people.length} tersimpan</span>`);
-      }
-      const sticky = container.querySelector('.att-sticky-save .muted');
-      if (sticky) {
-        sticky.innerHTML = `${attSummaryText(c)}
-          <div>Perubahan status tersimpan otomatis saat diklik.</div>`;
-      }
+      if (legend) legend.innerHTML = legendHtml();
+      const sum = container.querySelector('#attSummary');
+      if (sum) sum.innerHTML = `${attSummaryText(countOf())}<div>Status tersimpan otomatis saat diklik; catatan saat kolom ditinggalkan.</div>`;
     }
+
+    const sessionOpts = () => ({ planId, actor: user });
+    function mark(p, status, note) {
+      const rec = DB.upsertAttendance(course.id, p.u.id, p.role, date, status, note, sessionOpts());
+      recs.set(p.u.id, rec);
+      return rec;
+    }
+    const guard = () => {
+      if (editable) return true;
+      UI.toast('Presensi pertemuan ini hanya dapat diubah tutor yang mengajar sesi tersebut atau admin.', 'error');
+      return false;
+    };
+
+    // Penanganan event lewat properti agar pemanggilan ulang pada wadah yang sama tidak menumpuk pendengar.
+    container.onclick = (e) => {
+      const planBtn = e.target.closest('[data-att-plan]');
+      if (planBtn) { planId = planBtn.dataset.attPlan; paint(); return; }
+      const row = e.target.closest('.att-row');
+      const p = row && people.find(x => x.u.id === row.dataset.uid);
+      const pill = e.target.closest('.att-row [data-status]');
+      if (pill && p) {
+        if (!guard()) return;
+        const prev = recs.get(p.u.id);
+        if (prev && prev.status === pill.dataset.status) return;
+        try { mark(p, pill.dataset.status, prev ? prev.note : ''); } catch (err) { UI.toast(err.message, 'error'); return; }
+        refreshRow(p.u.id);
+        return;
+      }
+      if (e.target.closest('[data-att-clear]') && p) {
+        if (!guard()) return;
+        let removed;
+        try { removed = DB.clearAttendance(course.id, p.u.id, date, sessionOpts()); } catch (err) { UI.toast(err.message, 'error'); return; }
+        recs.delete(p.u.id);
+        refreshRow(p.u.id);
+        if (removed) UI.toast(`Presensi ${p.u.name} dikosongkan.`, 'info', {
+          label: 'Urungkan', onClick: () => { if (DB.restoreAttendance(removed)) { recs.set(p.u.id, removed); refreshRow(p.u.id); } }
+        });
+        return;
+      }
+      const bulk = e.target.closest('[data-bulk]');
+      if (bulk) {
+        if (!guard()) return;
+        const st = bulk.dataset.bulk;
+        const todo = people.filter(x => !recs.has(x.u.id));
+        if (!todo.length) { UI.toast('Semua peserta sudah diisi. Ubah satu per satu bila perlu.', 'info'); return; }
+        const done = [];
+        try { todo.forEach(x => { mark(x, st, ''); done.push(x); }); } catch (err) { UI.toast(err.message, 'error'); }
+        const label = (ATT_STATUSES.find(s => s.key === st) || {}).label || st;
+        paint();
+        UI.toast(`${done.length} peserta yang kosong ditandai ${label}.`, 'success', {
+          label: 'Urungkan', onClick: () => {
+            done.forEach(x => { try { DB.clearAttendance(course.id, x.u.id, date, sessionOpts()); } catch (err) { /* hak sudah dicek saat menandai */ } });
+            paint();
+          }
+        });
+        return;
+      }
+      if (e.target.closest('#attDone')) finish();
+    };
+    container.onchange = (e) => {
+      if (e.target.id === 'attSheetDate') {
+        date = e.target.value || UI.todayYMD();
+        planId = null;
+        if (typeof opts.onDateChange === 'function') opts.onDateChange(date);
+        paint();
+        return;
+      }
+      if (e.target.classList.contains('att-note')) {
+        const row = e.target.closest('.att-row');
+        const p = row && people.find(x => x.u.id === row.dataset.uid);
+        const r = p && recs.get(p.u.id);
+        if (!p || !r || !guard()) return;
+        try { mark(p, r.status, e.target.value.trim()); } catch (err) { UI.toast(err.message, 'error'); }
+      }
+    };
+
+    /** Selesai: ingatkan baris kosong, kirim notifikasi Alfa sekali per catatan. */
+    function finish() {
+      if (!guard()) return;
+      const c = countOf();
+      if (c.empty && !UI.confirmDialog(`${c.empty} peserta belum diisi presensinya. Tetap selesai? Baris kosong tidak dihitung dalam rekap.`)) return;
+      let alerted = 0;
+      people.filter(p => p.role === 'siswa').forEach(p => {
+        const r = recs.get(p.u.id);
+        if (!r || r.status !== 'alfa' || r.notifiedAt) return;
+        DB.notifyStudentAndParents(p.u.id, {
+          type: 'absensi', icon: '⚠️',
+          title: 'Tercatat tidak hadir (Alfa)',
+          body: `${DB.courseTitle(course)} — ${UI.fmtYMD(date)}${ses.plan ? ' ' + timeLabel(ses.plan) : ''}${r.note ? ' • ' + r.note : ''}`,
+          link: 'absensi'
+        }, { link: 'anak-absensi', title: `${p.u.name} tercatat Alfa` });
+        recs.set(p.u.id, DB.markAttendanceNotified(r.id));
+        alerted++;
+      });
+      UI.toast(`Presensi selesai: ${ATT_STATUSES.map(s => `${c[s.key] || 0} ${s.label.toLowerCase()}`).join(', ')}.` +
+        (alerted ? ` ${alerted} notifikasi Alfa dikirim.` : ''));
+      if (typeof opts.onSaved === 'function') opts.onSaved(date);
+    }
+
+    paint();
   }
 
   /* =====================================================================

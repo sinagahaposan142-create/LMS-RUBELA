@@ -171,7 +171,7 @@ html[data-theme="dark"] .gb-hud-score b { color: color-mix(in srgb, var(--gc) 60
 .gb-bs { text-align: center; }
 .gb-bs-stem { font-size: 13px; color: var(--gray-500); margin-bottom: 8px; }
 .gb-bs-card { margin: 0 auto 16px; max-width: 620px; padding: 26px 22px; border-radius: 20px; font-size: clamp(16px, 2.4vw, 19px); font-weight: 700; line-height: 1.5;
-  background: color-mix(in srgb, var(--gc) 10%, var(--surface)); border: 2px solid color-mix(in srgb, var(--gc) 30%, transparent); animation: popIn .25s ease both; }
+  background: color-mix(in srgb, var(--gc) 10%, var(--surface)); border: 2px solid color-mix(in srgb, var(--gc) 30%, transparent); animation: popIn .25s ease backwards; }
 .gb-bs-card.is-ok { border-color: var(--success); }
 .gb-bs-card.is-no { border-color: var(--danger); }
 .gb-bs-btns { display: flex; gap: 12px; justify-content: center; }
@@ -238,7 +238,7 @@ html[data-theme="dark"] .gb-hud-score b { color: color-mix(in srgb, var(--gc) 60
 .gb-radar span { position: absolute; inset: 0; border-radius: 50%; border: 3px solid var(--gc); opacity: 0; animation: gbRadar 2.4s ease-out infinite; }
 .gb-radar span:nth-child(2) { animation-delay: .8s; } .gb-radar span:nth-child(3) { animation-delay: 1.6s; }
 @keyframes gbRadar { 0% { transform: scale(.3); opacity: .9; } 100% { transform: scale(1.2); opacity: 0; } }
-.gb-res-ic { font-size: 64px; animation: popIn .5s var(--ease-back, ease) both; }
+.gb-res-ic { font-size: 64px; animation: popIn .5s var(--ease-back, ease) backwards; }
 .gb-result h2 { margin: 6px 0 12px; font-size: clamp(22px, 4vw, 30px); }
 .gb-result.is-win h2 { color: var(--success); }
 .gb-result.is-lose h2 { color: var(--gray-700); }
@@ -255,7 +255,7 @@ html[data-theme="dark"] .gb-hud-score b { color: color-mix(in srgb, var(--gc) 60
 /* ---------- Kartu undangan global ---------- */
 .gb-dock { position: fixed; z-index: 1550; right: 16px; top: calc(var(--topbar-h, 64px) + 12px); display: grid; gap: 10px; width: min(380px, calc(100vw - 32px)); pointer-events: none; }
 .gb-invite { pointer-events: auto; display: flex; align-items: center; gap: 12px; padding: 12px 14px; border-radius: 16px; background: var(--surface);
-  border: 2px solid var(--primary); box-shadow: var(--shadow-lg); animation: popIn .35s var(--ease-back, ease) both; }
+  border: 2px solid var(--primary); box-shadow: var(--shadow-lg); animation: popIn .35s var(--ease-back, ease) backwards; }
 .gb-invite-ic { font-size: 30px; }
 .gb-invite-main { flex: 1; min-width: 0; display: flex; flex-direction: column; font-size: 13px; }
 .gb-invite-main strong { font-size: 14px; color: var(--gray-900); }

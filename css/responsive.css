@@ -149,6 +149,7 @@ html[data-theme="dark"] .table-wrap.has-overflow::after {
   table.table.as-cards td.no-label { grid-template-columns: 1fr; }
   table.table.as-cards td.actions { display: flex; flex-wrap: wrap; gap: 6px; padding-top: 10px; }
   table.table.as-cards td.actions::before { display: none; }
+  table.table.as-cards td.actions > * { margin: 0; }
   /* Sel pertama tampil sebagai judul kartu */
   table.table.as-cards td:first-child {
     grid-template-columns: 1fr;
@@ -311,7 +312,7 @@ html[data-theme="dark"] .table-wrap.has-overflow::after {
     max-height: 92dvh;             /* dvh: tinggi sebenarnya di browser mobile */
     border-radius: 18px 18px 0 0;
     padding: 18px 16px calc(18px + var(--sa-b));
-    animation: sheetUp 0.3s var(--ease) both;
+    animation: sheetUp 0.3s var(--ease) backwards;
   }
   .modal.is-closing .modal-content { animation: sheetDown 0.2s ease both; }
   @keyframes sheetUp { from { transform: translateY(100%); } to { transform: none; } }
@@ -452,14 +453,16 @@ html[data-theme="dark"] .table-wrap.has-overflow::after {
   .att-pill .dot { display: none; }        /* hemat ruang di layar sempit */
   .att-pills.round .att-pill { width: 100%; border-radius: 12px; height: 42px; }
   .att-note { flex: 1 1 100%; }
-  .att-state { text-align: left; min-width: 0; flex: 1 1 100%; }
+  .att-by { max-width: 96px; }
   .att-toolbar { gap: 8px; padding: 11px; }
-  .att-toolbar .att-pill { flex: 1 1 calc(50% - 4px); }
-  .att-toolbar #attReset, .att-toolbar [id$="Reset"] { margin-left: 0 !important; width: 100%; }
-  .att-toolbar input[type="date"] { flex: 1 1 100%; }
+  .att-toolbar .att-date { flex: 1 1 100%; }
+  .att-toolbar .att-date .input { flex: 1 1 auto; }
+  .att-bulk { margin-left: 0; width: 100%; display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); }
+  .att-bulk .lbl { grid-column: 1 / -1; }
+  .att-bulk .att-pill { padding: 8px 2px; font-size: 11px; }
+  .att-ses { flex-basis: 100%; }
   .att-sticky-save { flex-direction: column; align-items: stretch; gap: 10px; bottom: 0; padding-bottom: calc(12px + var(--sa-b)); }
-  .att-sticky-save .flex-gap { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
-  .att-sticky-save .flex-gap > .btn { width: 100%; justify-content: center; }
+  .att-sticky-save > .btn { width: 100%; justify-content: center; }
   .att-legend { gap: 10px; font-size: 11.5px; }
   .class-chips { gap: 8px; }
   .class-chip { min-width: calc(50% - 4px); flex: 1 1 calc(50% - 4px); padding: 10px 12px; }

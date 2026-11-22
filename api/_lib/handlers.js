@@ -15,7 +15,7 @@ const PRESENCE_TTL = 90 * 1000;
 const PULL_ROWS = 600;
 const PULL_BYTES = 3000000;
 const QUIZ_COOLDOWN = 60 * 1000;
-const ROLE_LABELS = { admin: 'Admin', guru: 'Guru', siswa: 'Siswa', orangtua: 'Orang Tua' };
+const ROLE_LABELS = { admin: 'Admin', guru: 'Tutor', siswa: 'Mentee', orangtua: 'Orang Tua' };
 const MASK = catalog.MASK;
 
 class HttpError extends Error {
@@ -241,7 +241,7 @@ async function register(db, req, body) {
   if (st.lockedFor > 0) return { ok: false, error: 'Terlalu banyak pendaftaran dari jaringan ini. Coba lagi nanti.' };
   const hash = await security.hashPassword(password);
   const user = {
-    id: security.randomId('u'), role: 'siswa', name, email, username, kelas: 'X-A', status: 'Aktif',
+    id: security.randomId('u'), role: 'siswa', name, email, username, kelas: '', status: 'Aktif',   // kelas utama ditetapkan admin (bukan pilihan mentee)
     targetUniv: str(body.targetUniv, 160).trim(), targetMajor: str(body.targetMajor, 160).trim(), phone: str(body.phone, 40).trim(),
     birthDate: '', photo: '', religion: '', streakShare: false, createdAt: now
   };
@@ -334,13 +334,16 @@ function sanitizePresence(p) {
   const tab = str(p.tab, 60);
   if (!/^[A-Za-z0-9_-]{4,60}$/.test(tab)) return null;
   if (p.gone) return { tab, gone: true };
-  return {
-    tab,
-    data: {
-      page: str(p.page, 60), visibility: p.visibility === 'hidden' ? 'hidden' : 'visible',
-      idle: Math.max(0, Math.min(86400000, int(p.idle, 0))), browser: str(p.browser, 30), os: str(p.os, 30), device: str(p.device, 30)
-    }
+  const data = {
+    page: str(p.page, 60), visibility: p.visibility === 'hidden' ? 'hidden' : 'visible',
+    idle: Math.max(0, Math.min(86400000, int(p.idle, 0))), browser: str(p.browser, 30), os: str(p.os, 30), device: str(p.device, 30)
   };
+  // Kesehatan koneksi tab (js/safe-save.js): antrean belum terkirim & riwayat putus sambung.
+  if (p.net && typeof p.net === 'object') {
+    const n = (v, max) => Math.max(0, Math.min(max, int(v, 0)));
+    data.net = { pending: n(p.net.pending, 100000), drops: n(p.net.drops, 10000), offlineMs: n(p.net.offlineMs, 7 * 86400000), lastDropAt: n(p.net.lastDropAt, 9e15) };
+  }
+  return { tab, data };
 }
 
 function presenceStmts(tokenHash, pres, now) {
@@ -461,6 +464,10 @@ async function fetchPull(db, ctx, metaRows, cursor, full, snap) {
   if (!ctx.isAdmin && !ctx.groupAccess && rows.some(r => r.k === 'lms_group_posts' || r.k === 'lms_group_answers')) {
     const groups = await db.query(GROUP_REF_SQL);
     ctx.groupAccess = rules.groupAccessFrom(groups.map(groupRef), ctx.id);
+  }
+  if (ctx.role === 'guru' && !ctx.hubTutorOf && rows.some(r => r.k === 'lms_hub_progress')) {
+    const hubs = await db.query("SELECT id, json_extract(v, '$.tutorIds') AS tu FROM kv WHERE k = 'lms_hub_courses' AND v IS NOT NULL");
+    ctx.hubTutorOf = new Set(hubs.filter(r => jsonIds(r.tu).includes(ctx.id)).map(r => r.id));
   }
   if (!ctx.isAdmin && !ctx.paidCourses && rows.some(r => r.k === 'lms_hub_courses')) {
     const paid = await db.query("SELECT json_extract(v, '$.courseId') AS c FROM kv WHERE k = 'lms_hub_payments' AND v IS NOT NULL AND json_extract(v, '$.studentId') = ? AND json_extract(v, '$.status') = 'approved'", [ctx.id]);
@@ -608,7 +615,7 @@ async function applyChanges(db, req, tokenHash, changes, now, afterStmts) {
   let idxRefs = -1;
   if (byKey.has('lms_hub_payments') || byKey.has('lms_hub_progress')) {
     idxRefs = head.length + reads.length + extra.length;
-    extra.push("SELECT id, json_extract(v, '$.accessType') AS t, json_extract(v, '$.price') AS p, json_extract(v, '$.active') AS a FROM kv WHERE k = 'lms_hub_courses' AND v IS NOT NULL");
+    extra.push("SELECT id, json_extract(v, '$.accessType') AS t, json_extract(v, '$.price') AS p, json_extract(v, '$.active') AS a, json_extract(v, '$.tutorIds') AS tu FROM kv WHERE k = 'lms_hub_courses' AND v IS NOT NULL");
     extra.push({
       sql: "SELECT id, json_extract(v, '$.courseId') AS c, json_extract(v, '$.status') AS s FROM kv WHERE k = 'lms_hub_payments' AND v IS NOT NULL AND json_extract(v, '$.studentId') = (SELECT user_id FROM sessions WHERE token_hash = ?)",
       args: [tokenHash]
@@ -639,6 +646,17 @@ async function applyChanges(db, req, tokenHash, changes, now, afterStmts) {
       ? { sql: `SELECT id, ${GROUP_POST_COLS} FROM kv WHERE k = 'lms_group_posts' AND v IS NOT NULL AND id IN (${quizIds.map(() => '?').join(',')})`, args: quizIds }
       : "SELECT id FROM kv WHERE 0");
   }
+  // Rujukan jadwal & presensi: tutor tiap kelas + rencana kelas (hak tutor per pertemuan).
+  let idxTeachRefs = -1;
+  if (byKey.has('lms_attendance') || byKey.has('lms_class_plans') || byKey.has('lms_material_plans')) {
+    idxTeachRefs = head.length + reads.length + extra.length;
+    extra.push("SELECT id, json_extract(v, '$.teacherIds') AS t, json_extract(v, '$.teacherId') AS t1 FROM kv WHERE k = 'lms_courses' AND v IS NOT NULL");
+    extra.push(byKey.has('lms_attendance')
+      ? `SELECT id, json_extract(v, '$.courseId') AS c, json_extract(v, '$.date') AS d, json_extract(v, '$.time') AS tm,
+           json_extract(v, '$.status') AS s, json_extract(v, '$.teacherIds') AS t, json_extract(v, '$.teacherId') AS t1
+         FROM kv WHERE k = 'lms_class_plans' AND v IS NOT NULL`
+      : "SELECT id FROM kv WHERE 0");
+  }
   const { tx, rows } = await db.begin(head.concat(reads, extra));
   try {
     const user = userFromSessionRows(rows[2], now);
@@ -647,9 +665,12 @@ async function applyChanges(db, req, tokenHash, changes, now, afterStmts) {
     if (idxRefs >= 0) {
       const courses = new Map();
       (rows[idxRefs] || []).forEach(r => courses.set(r.id, {
-        accessType: r.t || 'free', price: r.p == null ? null : Number(r.p), active: !(r.a === 0 || r.a === false || r.a === 'false')
+        accessType: r.t || 'free', price: r.p == null ? null : Number(r.p), active: !(r.a === 0 || r.a === false || r.a === 'false'),
+        tutorIds: jsonIds(r.tu)
       }));
       ctx.refs = { courses, myPayments: (rows[idxRefs + 1] || []).map(r => ({ id: r.id, courseId: r.c, status: r.s })) };
+      // Nilai balasan untuk tutor course memuat jawaban peserta (lihat rules.present).
+      if (ctx.role === 'guru') ctx.hubTutorOf = new Set([...courses].filter(([, c]) => c.tutorIds.includes(ctx.id)).map(([id]) => id));
     }
     if (idxCbtRefs >= 0) {
       const cbts = new Map();
@@ -668,6 +689,20 @@ async function applyChanges(db, req, tokenHash, changes, now, afterStmts) {
       (rows[idxGroupRefs + 1] || []).forEach(r => groupPosts.set(r.id, groupPostRef(r)));
       ctx.refs = Object.assign(ctx.refs || {}, { groups, groupPosts });
       ctx.groupAccess = rules.groupAccessFrom([...groups.values()], ctx.id);
+    }
+    if (idxTeachRefs >= 0) {
+      const ids = (raw, one) => { const a = jsonIds(raw); return a.length ? a : (one ? [String(one)] : []); };
+      const courses = new Map();
+      (rows[idxTeachRefs] || []).forEach(r => courses.set(r.id, ids(r.t, r.t1)));
+      const plans = new Map();
+      (rows[idxTeachRefs + 1] || []).forEach(r => {
+        if (r.c) plans.set(r.id, { courseId: r.c, date: r.d, time: r.tm || '', status: r.s, teacherIds: ids(r.t, r.t1) });
+      });
+      // Rencana yang ikut dikirim bersama presensi (mis. sesi baru dibuat lalu langsung diabsen).
+      changes.filter(c => c.k === 'lms_class_plans' && c.op === 'put' && c.v && typeof c.v.courseId === 'string').forEach(c => {
+        if (!plans.has(c.id)) plans.set(c.id, { courseId: c.v.courseId, date: c.v.date, time: c.v.time || '', status: c.v.status, teacherIds: ids(c.v.teacherIds, c.v.teacherId) });
+      });
+      ctx.refs = Object.assign(ctx.refs || {}, { teach: { courses, plans } });
     }
     let ver = Number(rows[1][0] && rows[1][0].v) || 0;
     const current = new Map();
@@ -699,7 +734,13 @@ async function applyChanges(db, req, tokenHash, changes, now, afterStmts) {
       const meta = catalog.info(k) || {};
       if (meta.quiet) return;
       if (meta.target) {
-        [value, before].forEach(r => { if (r) meta.target.forEach(f => { if (typeof r[f] === 'string') targets.add(r[f]); }); });
+        [value, before].forEach(r => {
+          if (!r) return;
+          meta.target.forEach(f => {
+            if (typeof r[f] === 'string') targets.add(r[f]);
+            else if (Array.isArray(r[f])) r[f].slice(0, 300).forEach(u => { if (typeof u === 'string') targets.add(u); });
+          });
+        });
       } else broadcastAll = true;
     };
     const activeAdmins = () => [...userIdx.entries()].filter(([, x]) => x.r === 'admin' && x.s !== 'Dikeluarkan').length;
@@ -760,6 +801,12 @@ async function applyChanges(db, req, tokenHash, changes, now, afterStmts) {
       const newVer = (value != null && before != null && rules.same(value, before)) ? cur.ver : put(c.k, c.id, value, cur ? cur.seq : 0);
       if (GROUP_KEYS.has(c.k)) groupNudge(ctx, c.k, c.id, value, before, targets);
       else noteNudge(c.k, value, before);
+      if (c.k === 'lms_hub_courses' && JSON.stringify((before && before.tutorIds) || []) !== JSON.stringify((value && value.tutorIds) || [])) {
+        // Tutor course berubah → progres peserta dikirim ulang agar tutor baru menerima jawaban kuis untuk dinilai.
+        ver++;
+        writes.push({ sql: "UPDATE kv SET ver = ?, updated_at = ?, updated_by = ? WHERE k = 'lms_hub_progress' AND v IS NOT NULL AND json_extract(v, '$.courseId') = ?", args: [ver, now, user.id, c.id] });
+        broadcastAll = true;
+      }
       if (c.k === 'lms_hub_payments') {
         // Akses berubah → naikkan versi course agar perangkat siswa menarik ulang (isi terbuka/tertutup).
         const was = before && before.status === 'approved', now2 = value && value.status === 'approved';
@@ -1044,9 +1091,15 @@ const BLOB_CHUNK_MAX = 1100000;   // karakter base64 per bagian (~800 KB data)
  * images:true = isi wajib PNG/JPEG/WEBP (diperiksa dari byte awal, bukan dari nama/tipe kiriman).
  */
 function blobPolicy(ctx, key) {
-  const m = /^(music|cap|qris|proof):([A-Za-z0-9_.:-]{1,200})$/.exec(String(key || ''));
+  const m = /^(music|cap|qris|proof|wb):([A-Za-z0-9_.:-]{1,200})$/.exec(String(key || ''));
   if (!m) return null;
   if (m[1] === 'music') return { read: true, write: ctx.isAdmin, del: ctx.isAdmin, maxBytes: 16 * 1024 * 1024 };
+  // Halaman PDF / gambar whiteboard: "wb:<kelas>:<papan>:<berkas>". Hak per kelas dicek di wbAccess().
+  if (m[1] === 'wb') {
+    if (!/^[A-Za-z0-9_.-]{1,80}:[A-Za-z0-9_.-]{1,80}:/.test(m[2])) return null;
+    const staff = ctx.isAdmin || ctx.role === 'guru';
+    return { read: true, write: staff, del: staff, maxBytes: WB_FILE_MAX, images: true, wb: m[2].split(':')[0] };
+  }
   if (m[1] === 'qris') return { read: true, write: ctx.isAdmin, del: ctx.isAdmin, maxBytes: 1536 * 1024, images: true };
   const owner = m[2].split(':')[0];
   const mine = owner === ctx.id;
@@ -1055,6 +1108,27 @@ function blobPolicy(ctx, key) {
     return { read: mine || ctx.isAdmin, write: mine && ctx.role === 'siswa', del: ctx.isAdmin, maxBytes: 3 * 1024 * 1024, images: true, once: true };
   }
   return { read: mine, write: mine && ctx.role === 'siswa', del: mine || ctx.isAdmin, maxBytes: 4 * 1024 * 1024 };
+}
+
+const WB_FILE_MAX = 900 * 1024;               // satu halaman PDF/gambar setelah dikompres di browser
+const WB_COURSE_MAX = 8 * 1024 * 1024;        // total berkas whiteboard per kelas
+/**
+ * Hak berkas whiteboard per kelas: tutor kelas & admin menulis; anggota kelas
+ * (mentee terdaftar, orang tuanya, tutor kelas) membaca.
+ */
+async function wbAccess(db, user, ctx, courseId, write) {
+  if (ctx.isAdmin) return true;
+  const rows = await db.query("SELECT v FROM kv WHERE k = 'lms_courses' AND id = ? AND v IS NOT NULL", [courseId]);
+  const course = rows.length ? parse(rows[0].v) : null;
+  if (!course) return false;
+  const tutors = Array.isArray(course.teacherIds) && course.teacherIds.length ? course.teacherIds : (course.teacherId ? [course.teacherId] : []);
+  if (ctx.role === 'guru') return tutors.includes(user.id);
+  if (write) return false;
+  const ids = ctx.role === 'orangtua' ? (Array.isArray(user.childIds) ? user.childIds.map(String) : []) : [user.id];
+  if (!ids.length) return false;
+  const en = await db.query(`SELECT 1 FROM kv WHERE k = 'lms_enrollments' AND v IS NOT NULL AND json_extract(v, '$.courseId') = ?
+    AND json_extract(v, '$.studentId') IN (${ids.map(() => '?').join(',')}) LIMIT 1`, [courseId].concat(ids));
+  return en.length > 0;
 }
 
 const IMAGE_TYPES = ['image/png', 'image/jpeg', 'image/webp'];
@@ -1075,6 +1149,14 @@ async function blobPut(db, req, body) {
   const pol = blobPolicy(ctx, key);
   if (!pol || !pol.write) throw forbidden('Anda tidak berhak mengunggah berkas ini.');
   const part = int(body.part, -1), parts = int(body.parts, 0), size = int(body.size, -1);
+  if (pol.wb && part === 0) {
+    if (!(await wbAccess(db, user, ctx, pol.wb, true))) throw forbidden('Hanya tutor kelas ini dan admin yang dapat mengunggah berkas whiteboard.');
+    const pre = 'wb:' + pol.wb + ':';
+    const [used] = await db.query('SELECT COALESCE(SUM(size), 0) AS s FROM blob_meta WHERE key >= ? AND key < ? AND key <> ?', [pre, pre.slice(0, -1) + ';', key]);
+    if (Number(used && used.s) + Math.max(0, size) > WB_COURSE_MAX) {
+      throw bad(`Ruang berkas whiteboard kelas ini (${WB_COURSE_MAX / 1048576} MB) sudah penuh. Hapus papan berisi PDF/gambar lama terlebih dahulu.`);
+    }
+  }
   const data = typeof body.data === 'string' ? body.data : '';
   if (!(parts >= 1 && parts <= 40 && part >= 0 && part < parts)) throw bad('Bagian berkas tidak valid.');
   if (!(size >= 0 && size <= pol.maxBytes)) throw bad('Ukuran berkas melebihi batas.');
@@ -1120,6 +1202,7 @@ async function blobGet(db, req, body) {
   const key = str(body.key, 240);
   const pol = blobPolicy(ctx, key);
   if (!pol || !pol.read) throw forbidden('Anda tidak berhak membuka berkas ini.');
+  if (pol.wb && !(await wbAccess(db, user, ctx, pol.wb, false))) throw forbidden('Berkas whiteboard ini hanya untuk anggota kelasnya.');
   const part = Math.max(0, int(body.part, 0));
   const [meta, data] = await db.run([
     { sql: 'SELECT size, type, parts, complete FROM blob_meta WHERE key = ?', args: [key] },
@@ -1134,9 +1217,11 @@ async function blobDel(db, req, body) {
   const ctx = rules.makeCtx(user);
   const prefix = str(body.prefix, 240);
   if (prefix) {
-    if (!/^(music|cap):[A-Za-z0-9_.:-]*$/.test(prefix)) throw bad('Prefix tidak valid.');
-    const pol = blobPolicy(ctx, prefix + 'x');
+    if (!/^(music|cap|wb):[A-Za-z0-9_.:-]*$/.test(prefix)) throw bad('Prefix tidak valid.');
+    // Prefix whiteboard minimal satu kelas ("wb:<kelas>:"); diuji dengan berkas contoh di bawahnya.
+    const pol = blobPolicy(ctx, prefix.startsWith('wb:') ? (/^wb:[^:]+:$/.test(prefix) ? prefix + 'x:x' : prefix + 'x') : prefix + 'x');
     if (!pol || !pol.del || (prefix.startsWith('cap:') && !/^cap:[^:]+:/.test(prefix) && !ctx.isAdmin)) throw forbidden('Anda tidak berhak menghapus berkas ini.');
+    if (pol.wb && !(await wbAccess(db, user, ctx, pol.wb, true))) throw forbidden('Anda tidak berhak menghapus berkas whiteboard kelas ini.');
     const end = prefix.slice(0, -1) + String.fromCharCode(prefix.charCodeAt(prefix.length - 1) + 1);
     await db.atomic([
       { sql: 'DELETE FROM blobs WHERE key >= ? AND key < ?', args: [prefix, end] },
@@ -1147,6 +1232,7 @@ async function blobDel(db, req, body) {
   const key = str(body.key, 240);
   const pol = blobPolicy(ctx, key);
   if (!pol || !pol.del) throw forbidden('Anda tidak berhak menghapus berkas ini.');
+  if (pol.wb && !(await wbAccess(db, user, ctx, pol.wb, true))) throw forbidden('Anda tidak berhak menghapus berkas whiteboard kelas ini.');
   await db.atomic([
     { sql: 'DELETE FROM blobs WHERE key = ?', args: [key] },
     { sql: 'DELETE FROM blob_meta WHERE key = ?', args: [key] }

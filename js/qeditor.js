@@ -28,7 +28,7 @@
     { key: 'Majemuk Kompleks', icon: '🧩', desc: 'Tabel pernyataan dengan kolom jawaban yang bisa diubah (3+ kolom, mis. Benar/Salah/Tidak diketahui).', auto: true },
     { key: 'Menjodohkan', icon: '🔗', desc: 'Pasangkan kolom kiri dengan kolom kanan.', auto: true },
     { key: 'Urutan', icon: '🔢', desc: 'Susun item ke urutan yang benar.', auto: true },
-    { key: 'Esai', icon: '📝', desc: 'Jawaban uraian, dinilai manual oleh guru.', auto: false }
+    { key: 'Esai', icon: '📝', desc: 'Jawaban uraian, dinilai manual oleh tutor.', auto: false }
   ];
 
   /* Palet simbol LaTeX yang paling sering dipakai */
@@ -75,7 +75,7 @@
 
     if (f === 'Esai') {
       return `
-        <div class="alert alert-info">Soal esai dinilai manual oleh guru. Anda dapat menuliskan rambu-rambu penilaian pada kolom pembahasan.</div>
+        <div class="alert alert-info">Soal esai dinilai manual oleh tutor. Anda dapat menuliskan rambu-rambu penilaian pada kolom pembahasan.</div>
         <div class="form-group">
           <label>Kata kunci penilaian (opsional, pisahkan dengan koma)</label>
           <input id="qeKeywords" value="${esc((draft.keywords || []).join(', '))}" placeholder="mis. fotosintesis, klorofil, cahaya" />
@@ -292,6 +292,8 @@
     // Bank keamanan memakai field "subtest", bank soal utama memakai "subject"
     if (bank === 'security') draft.subject = draft.subtest || draft.subject;
     else draft.subtest = draft.subject;
+    // Teks Bacaan hanya untuk Bank Soal utama (soal salinan menyimpan teksnya sendiri).
+    const psg = bank === 'questions' && !detached && global.Passages ? Passages.editor(draft) : null;
 
     buildShell();
     paint();
@@ -317,7 +319,7 @@
           </div>
         </div>
         <div class="qe-body">
-          <div class="qe-main" id="qeMain"></div>
+          <div class="qe-main form no-anim" id="qeMain"></div>
           <aside class="qe-side" id="qeSide"></aside>
         </div>`;
       document.body.appendChild(wsEl);
@@ -380,6 +382,8 @@
           </div>
         </section>
 
+        ${psg ? psg.html : ''}
+
         <section class="qe-card">
           <h4 class="qe-h">2. Isi Pertanyaan</h4>
           ${toolbarHtml('qeText')}
@@ -405,8 +409,8 @@
             <input type="url" id="qeYtUrl" inputmode="url" autocomplete="off" spellcheck="false" maxlength="500"
               placeholder="https://www.youtube.com/watch?v=… atau https://youtu.be/…" value="${esc(ytUrl)}" aria-describedby="qeYtMsg" />
             <label class="qe-check"><input type="checkbox" id="qeYtNoSkip" ${draft.explanationVideo && draft.explanationVideo.noSkip ? 'checked' : ''} />
-              Cegah siswa melompati bagian video yang belum ditonton</label>
-            <div class="qe-yt-msg small" id="qeYtMsg">Siswa menonton dengan kecepatan 1x (opsi kecepatan disembunyikan).</div>
+              Cegah mentee melompati bagian video yang belum ditonton</label>
+            <div class="qe-yt-msg small" id="qeYtMsg">Mentee menonton dengan kecepatan 1x (opsi kecepatan disembunyikan).</div>
           </div>`}
         </section>
       `;
@@ -475,6 +479,11 @@
 
       bindAnswerBox();
 
+      if (psg) psg.bind(main.querySelector('#qePsgCard'), {
+        onChange: renderPreview,
+        attach: (el) => Editor.attach(el, { onInput: () => renderPreview() })
+      });
+
       const yt = main.querySelector('#qeYtUrl');
       if (yt) {
         const noSkip = main.querySelector('#qeYtNoSkip');
@@ -489,7 +498,7 @@
           msg.textContent = bad
             ? 'Link tidak dikenali. Gunakan link YouTube (watch, youtu.be, shorts, atau embed).'
             : (id ? 'Video terdeteksi (ID ' + id + '). Kecepatan dikunci 1x' + (noSkip.checked ? ', tidak bisa dilompati.' : '.')
-                  : 'Siswa menonton dengan kecepatan 1x (opsi kecepatan disembunyikan).');
+                  : 'Mentee menonton dengan kecepatan 1x (opsi kecepatan disembunyikan).');
           renderPreview();
         };
         yt.addEventListener('input', syncYt);
@@ -742,7 +751,7 @@
 
       side.innerHTML = `
         <div class="qe-side-head">
-          <strong>👁 Pratinjau Siswa</strong>
+          <strong>👁 Pratinjau Mentee</strong>
           <span class="muted small">Tampilan saat ujian</span>
         </div>
         <div class="qe-preview">
@@ -752,13 +761,14 @@
             <span class="qc-chip d-${esc(draft.difficulty)}">${esc((draft.difficulty || '').toUpperCase())}</span>
             ${showTopics ? Topics.chipsHtml(draft) : ''}
           </div>
+          ${(() => { const pv = psg && psg.preview(); return pv && pv.html ? `<details class="psg-review" open><summary>${Passages.ICON}<strong>${esc((pv.title || '').trim() || 'Teks bacaan')}</strong></summary><div class="psg-body rt-content">${RichText.render(pv.html)}</div></details>` : ''; })()}
           <div class="rt-content qe-prev-text">${draft.text ? RichText.render(draft.text) : '<span class="muted">Pertanyaan belum diisi…</span>'}</div>
           <div class="qe-prev-ans">${previewAnswerHtml()}</div>
           ${draft.explanation ? `<div class="alert alert-info mt-2"><strong>Pembahasan:</strong> <span class="rt-content">${RichText.render(draft.explanation)}</span></div>` : ''}
           ${YTPlayer.expVideo(draft)}
         </div>
         <div class="qe-side-foot muted small">
-          ${fmt.auto ? '✓ Soal ini dinilai otomatis oleh sistem.' : '⚠ Soal ini perlu dinilai manual oleh guru.'}
+          ${fmt.auto ? '✓ Soal ini dinilai otomatis oleh sistem.' : '⚠ Soal ini perlu dinilai manual oleh tutor.'}
         </div>`;
     }
 
@@ -767,7 +777,7 @@
       const R = (s) => RichText.render(s || '');
 
       if (f === 'Esai') {
-        return `<div class="qe-prev-essay muted small">[ Area jawaban uraian siswa ]</div>`;
+        return `<div class="qe-prev-essay muted small">[ Area jawaban uraian mentee ]</div>`;
       }
       if (f === 'Isian Singkat') {
         return `<div class="qe-prev-short">
@@ -824,6 +834,7 @@
       collect();
       const plainText = RichText.plain(draft.text);
       if (!plainText) return 'Isi pertanyaan tidak boleh kosong.';
+      if (psg) { const pe = psg.validate(); if (pe) return pe; }
       if (ytUrl && !YTPlayer.parseId(ytUrl)) return 'Link video pembahasan bukan link YouTube yang valid.';
       const f = draft.questionType;
 
@@ -924,6 +935,8 @@
         // Salinan soal untuk kuis course; kunci asal bank (sourceId) dipertahankan.
         payload.id = (existing && existing.id) || ('hq_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6));
         if (existing && existing.sourceId) payload.sourceId = existing.sourceId;
+        // Teks bacaan salinan (kuis) / tautan teks hasil impor dokumen tetap ikut.
+        if (existing) ['passage', 'passageId', '_psg', '_topic', '_subtopic'].forEach(k => { if (existing[k] != null) payload[k] = existing[k]; });
         payload.subject = draft.subject;
         close();
         if (typeof onSaved === 'function') onSaved(payload);
@@ -947,6 +960,10 @@
         payload.authorId = (existing && existing.authorId) || user.id;
         const pv = Number(draft.points);
         payload.points = Number.isFinite(pv) && pv >= 0 ? Math.min(10000, pv) : 1;
+        // Soal ganda: peringatkan sebelum menyimpan soal yang sama/sangat mirip dengan soal lain.
+        const twins = global.Duplicates ? Duplicates.similarQuestions(Object.assign({}, payload, { passageId: psg ? (psg.preview() && psg.preview().id) || null : null }), existing ? existing.id : null) : [];
+        if (twins.length && !UI.confirmDialog(`Soal ini ${twins[0].sim === 1 ? 'sama persis' : 'sangat mirip'} dengan soal yang sudah ada di Bank Soal:\n"${RichText.plain(twins[0].q.text, 140)}"\n\nTetap simpan?`)) return;
+        if (psg) payload.passageId = psg.commit(user, draft.subject);
         saved = existing ? DB.updateQuestion(existing.id, payload) : DB.addQuestion(payload);
       }
 
