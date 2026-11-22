@@ -466,15 +466,20 @@
     }
 
     /* ================= Riwayat notifikasi & aktivitas ================= */
-    let notifTab = 'notif';
+    // Admin & tutor membuka Ruang Perhatian lebih dulu (js/attention.js).
+    const staffNotif = (user.role === 'admin' || user.role === 'guru') && !!window.Attention;
+    let notifTab = staffNotif ? 'perhatian' : 'notif';
     function renderNotifHistory(container) {
       const isAdmin = user.role === 'admin';
-      const tab = isAdmin ? notifTab : 'notif';
+      const tabs = [];
+      if (staffNotif) tabs.push(['perhatian', 'Perlu Ditindaklanjuti']);
+      if (staffNotif || isAdmin) tabs.push(['notif', 'Notifikasi Saya']);
+      if (isAdmin) tabs.push(['log', 'Riwayat Aktivitas']);
+      const tab = tabs.some(t => t[0] === notifTab) ? notifTab : 'notif';
+      const attCount = staffNotif ? Attention.count(user) : 0;
       container.innerHTML = `
-        ${isAdmin ? `<div class="tabs">
-          <button type="button" class="tab-btn ${tab === 'notif' ? 'active' : ''}" data-ntab="notif">🔔 Notifikasi Saya</button>
-          <button type="button" class="tab-btn ${tab === 'log' ? 'active' : ''}" data-ntab="log">🧾 Riwayat Aktivitas</button>
-        </div>` : ''}
+        ${tabs.length > 1 ? `<div class="tabs" role="tablist">${tabs.map(([k, l]) => `<button type="button" role="tab" aria-selected="${tab === k}" class="tab-btn ${tab === k ? 'active' : ''}" data-ntab="${k}">${l}${k === 'perhatian' && attCount ? ` <span class="tab-count">${attCount > 99 ? '99+' : attCount}</span>` : ''}</button>`).join('')}</div>` : ''}
+        ${tab === 'perhatian' ? '<div class="card" id="attRoom"></div>' : `
         <div class="card">
           <div class="card-header">
             ${UI.secHead(tab === 'log' ? '🧾' : '🔔', tab === 'log' ? 'Riwayat Aktivitas' : 'Riwayat Notifikasi',
@@ -484,11 +489,15 @@
               <button type="button" class="btn btn-sm btn-danger" id="nhClear">Bersihkan</button></div>` : ''}
           </div>
           <div id="nhList"></div>
-        </div>`;
+        </div>`}`;
       container.querySelectorAll('[data-ntab]').forEach(b => b.addEventListener('click', () => {
         notifTab = b.dataset.ntab; renderNotifHistory(container);
       }));
       const box = container.querySelector('#nhList');
+      if (tab === 'perhatian') {
+        Attention.render(container.querySelector('#attRoom'), user);
+        return;
+      }
       if (tab === 'log') {
         const ROLE = Auth.ROLE_LABELS;
         const log = DB.getActivityLog();
