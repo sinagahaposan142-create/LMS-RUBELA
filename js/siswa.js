@@ -605,6 +605,9 @@
 
       if (sub) DB.updateSubmission(sub.id, AutoGrader.invalidateOnAnswerChange(sub, payload));
       else DB.addSubmission(Object.assign({ assignmentId, studentId: user.id }, payload));
+      // Antrean kirim langsung ditulis ke perangkat; bila offline terkirim otomatis saat sinyal kembali.
+      if (global.Sync && Sync.saveNow) Sync.saveNow();
+      const offline = !!(global.SafeSave && !SafeSave.net().online);
       try { localStorage.removeItem(draftKey); } catch (e) {}
       if (draftTimer) clearTimeout(draftTimer);
 
@@ -624,9 +627,8 @@
         body: `${asg.title}${course ? ' • ' + DB.courseTitle(course) : ''}.`,
         link: 'anak-tugas'
       }));
-      UI.toast(payload.grade != null
-        ? `Jawaban terkirim. Nilai otomatis: ${payload.grade}. 🚀`
-        : 'Jawaban terkirim. 🚀', 'success');
+      UI.toast(offline ? 'Sinyal sedang putus. Jawaban tersimpan di perangkat ini dan terkirim otomatis saat sinyal kembali.'
+        : payload.grade != null ? `Jawaban terkirim. Nilai otomatis: ${payload.grade}. 🚀` : 'Jawaban terkirim. 🚀', offline ? 'info' : 'success');
       Editor.setHost(null);
       UI.modal.close();
       const currentKey = (document.querySelector('.side-nav a.active') || {}).dataset

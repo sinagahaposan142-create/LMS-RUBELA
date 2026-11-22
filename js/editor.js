@@ -109,7 +109,6 @@
   /* ===== Status modul ===== */
   let activeEditable = null;   // editor terakhir yang difokuskan
   let savedRange = null;       // posisi kursor terakhir di dalam editor
-  let dialogHost = null;       // hanya untuk kompatibilitas Editor.setHost()
 
   function esc(s) { return global.UI ? UI.esc(s) : String(s == null ? '' : s); }
   function toast(msg, kind) { if (global.UI) UI.toast(msg, kind); }
@@ -119,7 +118,7 @@
    * dipasang di <body> dengan posisi fixed (lihat openSubDialog), sehingga
    * host tidak lagi menentukan letak dialog.
    */
-  function setHost(el) { dialogHost = el || null; }
+  function setHost() { /* tidak dipakai lagi */ }
 
   /* =====================================================================
    * 1. Seleksi & penyisipan — inti perbaikan bug "tabel tidak bisa dibuat"

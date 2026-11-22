@@ -1,19 +1,63 @@
 /* =====================================================================
- * sw.js — Service Worker LMS Rubela (notifikasi perangkat / Web Push)
+ * sw.js — Service Worker LMS Rubela
  * ---------------------------------------------------------------------
- * Hanya menangani notifikasi. TIDAK ada cache/fetch handler, sehingga
- * halaman & data selalu diambil langsung dari server seperti biasa.
  *  - push              : tampilkan notifikasi sistem (Windows/macOS/Android/iOS)
  *  - notificationclick : buka/fokuskan dashboard ke halaman terkait
  *  - message           : notifikasi lokal dari halaman (mode lokal / tab tersembunyi)
+ *                        & daftar berkas halaman untuk disalin (lms-shell-cache)
+ *  - fetch             : salinan halaman untuk dibuka tanpa sinyal. Selalu
+ *                        jaringan dulu; salinan hanya dipakai bila jaringan
+ *                        gagal. /api/, permintaan non-GET, dan domain lain
+ *                        tidak pernah disentuh, jadi data tetap dari server.
  * ===================================================================*/
 'use strict';
 
 const ICON = 'assets/icons/icon-192.png';
 const BADGE = 'assets/icons/badge-72.png';
+const SHELL = 'lms-shell-v1';
 
 self.addEventListener('install', () => self.skipWaiting());
-self.addEventListener('activate', (e) => e.waitUntil(self.clients.claim()));
+self.addEventListener('activate', (e) => e.waitUntil((async () => {
+  const names = await caches.keys();
+  await Promise.all(names.filter(n => n.startsWith('lms-shell-') && n !== SHELL).map(n => caches.delete(n)));
+  await self.clients.claim();
+})()));
+
+/* ---------------- Salinan halaman (offline) ---------------- */
+function shellable(url) {
+  return url.origin === self.location.origin && !/\/api\//.test(url.pathname);
+}
+async function fromNetwork(req) {
+  const cache = await caches.open(SHELL);
+  try {
+    const res = await fetch(req);
+    if (res && res.ok && res.type === 'basic' && !res.redirected) cache.put(req, res.clone()).catch(() => {});
+    return res;
+  } catch (err) {
+    const hit = await cache.match(req, { ignoreSearch: req.mode === 'navigate' });
+    if (hit) return hit;
+    throw err;
+  }
+}
+self.addEventListener('fetch', (event) => {
+  const req = event.request;
+  if (req.method !== 'GET' || req.headers.has('range')) return;
+  let url;
+  try { url = new URL(req.url); } catch (e) { return; }
+  if (!shellable(url)) return;
+  event.respondWith(fromNetwork(req));
+});
+async function precache(urls) {
+  const cache = await caches.open(SHELL);
+  await Promise.all(urls.slice(0, 250).map(async (u) => {
+    try {
+      const url = new URL(String(u), self.registration.scope);
+      if (!shellable(url) || await cache.match(url.href)) return;
+      const res = await fetch(url.href, { cache: 'no-cache' });
+      if (res.ok && res.type === 'basic' && !res.redirected) await cache.put(url.href, res);
+    } catch (e) { /* lewati berkas yang gagal */ }
+  }));
+}
 
 const scopeUrl = (path) => new URL(path, self.registration.scope).href;
 const isDashboard = (c) => { try { return /\/dashboard\.html$/.test(new URL(c.url).pathname); } catch (e) { return false; } };
@@ -78,4 +122,6 @@ self.addEventListener('notificationclick', (event) => {
 self.addEventListener('message', (event) => {
   const m = event.data || {};
   if (m.type === 'lms-local-notify' && m.payload) event.waitUntil(show(m.payload));
+  // Hanya halaman dari origin ini yang dapat mengirim pesan ke service worker.
+  if (m.type === 'lms-shell-cache' && Array.isArray(m.urls)) event.waitUntil(precache(m.urls));
 });

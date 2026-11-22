@@ -15,7 +15,10 @@
  * saat soal disimpan (js/topics.js).
  * Kunci: huruf (A/B/C…) untuk pilihan ganda, beberapa huruf dipisah koma
  * untuk pilihan lebih dari satu, "Benar"/"Salah" untuk benar-salah, dan teks
- * jawaban untuk isian singkat.
+ * jawaban untuk isian singkat. Menjodohkan: kolom A–H berisi "kiri = kanan".
+ * Urutan: kolom A–H berisi langkah; Kunci kosong berarti urutan kolom sudah
+ * benar, atau tulis urutan huruf yang benar (mis. "C, A, B").
+ * Impor dari PDF/Word (dibantu AI) ada di js/doc-import.js.
  */
 (function (global) {
 
@@ -52,6 +55,8 @@
     if (/benar|salah|b\/s/.test(v)) return 'Benar/Salah';
     if (/isian|singkat|short/.test(v)) return 'Isian Singkat';
     if (/esai|essay|uraian/.test(v)) return 'Esai';
+    if (/jodoh|pasang|match/.test(v)) return 'Menjodohkan';
+    if (/urut|order|sequence/.test(v)) return 'Urutan';
     return 'Pilihan Ganda';
   }
 
@@ -139,6 +144,33 @@
       return { question: base };
     }
 
+    if (format === 'Menjodohkan') {
+      // Kolom A–H: "kiri = kanan" (juga => -> → atau |), satu pasangan benar per kolom.
+      const cells = LETTERS.map(L => String(row[L] == null ? '' : row[L]).trim()).filter(Boolean);
+      const pairs = cells.map(c => { const m = /^(.+?)\s*(?:=>|->|→|=|\|)\s*(.+)$/.exec(c); return m ? { left: wrapParagraph(m[1]), right: wrapParagraph(m[2]) } : null; });
+      if (pairs.length < 2 || pairs.some(p => !p)) return { error: 'Menjodohkan: isi kolom A, B, … dengan "kiri = kanan" (minimal 2 pasangan)' };
+      if (new Set(pairs.map(p => RichText.plain(p.right).toLowerCase())).size !== pairs.length) return { error: 'Menjodohkan: jawaban kanan tidak boleh sama' };
+      base.pairs = pairs;
+      base.correctIndex = null;
+      return { question: base };
+    }
+
+    if (format === 'Urutan') {
+      // Kolom A–H berisi langkah. Kunci opsional = urutan huruf yang benar (mis. "C, A, B"); kosong = sudah urut.
+      let items = LETTERS.map(L => String(row[L] == null ? '' : row[L]).trim()).filter(Boolean);
+      if (items.length < 2) return { error: 'Urutan: isi minimal 2 langkah di kolom A, B, …' };
+      if (keyRaw) {
+        const order = keyRaw.split(/[,;|/\s]+/).filter(Boolean).map(k => LETTERS.indexOf(k.toUpperCase()));
+        if (order.length !== items.length || order.some(i => i < 0 || i >= items.length) || new Set(order).size !== order.length) {
+          return { error: `Kunci Urutan harus memuat ${items.length} huruf berbeda, mis. "${LETTERS.slice(0, items.length).reverse().join(', ')}"` };
+        }
+        items = order.map(i => items[i]);
+      }
+      base.orderItems = items.map(wrapParagraph);
+      base.correctIndex = null;
+      return { question: base };
+    }
+
     if (format === 'Benar/Salah') {
       base.options = ['Benar', 'Salah'];
       const k = keyRaw.toLowerCase();
@@ -203,12 +235,15 @@
     row['Sub Materi'] = tl ? tl.sub : '';
     row.Pertanyaan = RichText.plain(q.text, 4000);
     const isMx = fmt === 'Majemuk Kompleks' || fmt === 'Benar/Salah Majemuk';
-    const src = isMx ? (q.statements || []).map(x => x && x.text) : (q.options || []);
+    const src = isMx ? (q.statements || []).map(x => x && x.text)
+      : fmt === 'Menjodohkan' ? (q.pairs || []).map(p => p && (RichText.plain(p.left, 400) + ' = ' + RichText.plain(p.right, 400)))
+      : fmt === 'Urutan' ? (q.orderItems || []) : (q.options || []);
     LETTERS.forEach((L, i) => {
       row[L] = src[i] ? RichText.plain(src[i], 800) : '';
     });
     row.Kolom = fmt === 'Majemuk Kompleks' ? DB.qMatrixColumns(q).join(' | ') : '';
     if (isMx) row.Kunci = DB.qKeyText(q);
+    else if (fmt === 'Menjodohkan' || fmt === 'Urutan') row.Kunci = '';
     else if (fmt === 'Esai') row.Kunci = (q.keywords || []).join(', ');
     else if (fmt === 'Isian Singkat') row.Kunci = (q.answers || []).join(', ');
     else if (fmt === 'Benar/Salah') row.Kunci = q.correctIndex === 0 ? 'Benar' : 'Salah';
@@ -278,6 +313,12 @@
         Pertanyaan: 'Berdasarkan teks, tentukan status setiap pernyataan.', A: 'Penulis setuju dengan kebijakan tersebut.',
         B: 'Kebijakan berlaku mulai tahun depan.', C: 'Semua siswa menolak kebijakan.', D: '', E: '',
         Kolom: 'Benar | Salah | Tidak dapat ditentukan', Kunci: 'Benar; Tidak dapat ditentukan; Salah', Pembahasan: '' },
+      { Subtest: 'PPU', Format: 'Menjodohkan', Tingkat: 'sedang',
+        Pertanyaan: 'Pasangkan provinsi dengan ibu kotanya.', A: 'Jawa Barat = Bandung', B: 'Jawa Tengah = Semarang', C: 'Jawa Timur = Surabaya', D: '', E: '',
+        Kunci: '', Pembahasan: '' },
+      { Subtest: 'PBM', Format: 'Urutan', Tingkat: 'sedang',
+        Pertanyaan: 'Urutkan langkah menulis paragraf.', A: 'Menentukan topik', B: 'Menyusun kerangka', C: 'Mengembangkan kalimat', D: '', E: '',
+        Kunci: '', Pembahasan: 'Kunci kosong berarti urutan kolom A, B, C sudah benar.' },
       { Subtest: 'LBIND', Format: 'Esai', Tingkat: 'sulit',
         Pertanyaan: 'Jelaskan ciri kalimat efektif.', A: '', B: '', C: '', D: '', E: '',
         Kunci: 'kesatuan, kehematan, kepaduan', Pembahasan: 'Kata kunci penilaian.' }

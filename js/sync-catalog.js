@@ -74,6 +74,11 @@
     lms_game_questions: { type: RECORDS },                  // soal khusus Game Battle (js/games-admin.js)
     lms_game_battles: { type: RECORDS, target: ['p1Id', 'p2Id'] },   // battle 1 lawan 1 (js/games.js)
     lms_game_scores: { type: RECORDS, quiet: true },        // riwayat skor game per siswa
+    lms_game_rooms: { type: RECORDS, target: ['hostId', 'playerIds'] },   // ruang Main Bareng Kelas (js/game-room.js)
+    lms_game_players: { type: RECORDS, target: ['hostId'] },             // pemain Main Bareng: peran, jawaban, posisi mobil
+    lms_study_sessions: { type: RECORDS, quiet: true },     // Ruang Belajar: sesi fokus & waktu di LMS (hanya pemilik)
+    lms_study_goals: { type: RECORDS, quiet: true },        // Ruang Belajar: tujuan belajar (hanya pemilik)
+    lms_study_stats: { type: RECORDS, idField: 'userId', quiet: true },   // ringkasan jam belajar + status langsung (terlihat semua)
     lms_settings: { type: MAP },
     lms_birthday_notified: { type: MAP, quiet: true },
     lms_class_options: { type: DOC }

@@ -6,6 +6,8 @@
  * Satu akun orang tua dapat memantau beberapa anak (user.childIds).
  */
 (function (global) {
+  // Isi lingkaran avatar: avatar almamater / foto / inisial (js/avatars.js).
+  const AV = (u) => (global.Avatars ? Avatars.inner(u) : UI.esc(UI.initials(u && u.name)));
   // Anak yang sedang dilihat (dipertahankan saat berpindah menu)
   let activeChildId = null;
 
@@ -67,7 +69,7 @@
       const c = children[0];
       return `<div class="child-switch">
         <div class="child-card is-active">
-          <div class="avatar">${UI.initials(c.name)}</div>
+          <div class="avatar">${AV(c)}</div>
           <div>
             <div class="nm">${UI.esc(c.name)}</div>
             <div class="mt">${UI.esc(c.kelas || '-')} • ${UI.esc(c.targetUniv || 'Target belum diisi')}</div>
@@ -78,7 +80,7 @@
     return `<div class="child-switch">
       ${children.map(c => `
         <button type="button" class="child-card ${activeChildId === c.id ? 'is-active' : ''}" data-child="${c.id}">
-          <div class="avatar">${UI.initials(c.name)}</div>
+          <div class="avatar">${AV(c)}</div>
           <div style="text-align:left;">
             <div class="nm">${UI.esc(c.name)}</div>
             <div class="mt">${UI.esc(c.kelas || '-')}</div>

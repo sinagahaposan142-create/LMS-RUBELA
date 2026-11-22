@@ -5,7 +5,7 @@
  *  - Soal Game  : buat/edit soal khusus game dengan editor soal LMS
  *                 (semua format otomatis), atur game tujuan, aktif/nonaktif.
  *  - Bank Soal  : salin soal dari Bank Soal ke Soal Game; kecocokan tiap
- *                 soal dengan 10 game ditampilkan otomatis.
+ *                 soal dengan semua game ditampilkan otomatis.
  *  - Buat dg AI : generate soal sesuai format yang dibutuhkan game,
  *                 wajib ditinjau sebelum disimpan.
  *  - Coba Game  : pratinjau semua game (tidak tersimpan).
@@ -51,6 +51,7 @@
   function render(container, user) {
     host = { container, user };
     const tabs = [['ringkasan', '📊 Ringkasan'], ['soal', '🧩 Soal Game'], ['bank', '📥 Ambil dari Bank Soal'], ['ai', '🤖 Buat dengan AI'], ['coba', '🎮 Coba Game']];
+    if (global.GameRoom) tabs.push(['bareng', '🎪 Main Bareng']);
     if (user.role === 'admin') tabs.push(['atur', '⚙️ Pengaturan']);
     if (!tabs.some(t => t[0] === view.tab)) view.tab = 'ringkasan';
     const st = Games.settings();
@@ -59,9 +60,9 @@
         <span class="blob b1"></span><span class="blob b2"></span>
         <div class="wh-inner">
           <div class="wh-eyebrow">⚔️ Kelola Game Battle</div>
-          <h2>10 game edukasi berbasis Bank Soal</h2>
+          <h2>${Games.GAMES.length} game edukasi berbasis Bank Soal</h2>
           <p class="wh-sub">Siapkan soal untuk setiap game: tulis sendiri dengan format soal LMS, salin dari Bank Soal, atau buat dengan AI.
-            Siswa bermain sendiri atau battle 1 lawan 1 dengan teman yang sedang online.</p>
+            Siswa bermain sendiri, battle 1 lawan 1 dengan teman yang sedang online, atau Main Bareng sekelas (Monster Co-op & Balap Kelas) dengan kode ruang.</p>
           <div class="wh-chips"><span class="wh-chip">${st.enabled ? '🟢 Aktif' : '🔴 Nonaktif'}</span>
             <span class="wh-chip">📚 Sumber: ${esc({ both: 'Bank Soal + Soal Game', game: 'Soal Game saja', bank: 'Bank Soal saja' }[st.source])}</span>
             <span class="wh-chip">🧩 ${Games.getGameQuestions().length} soal game</span></div>
@@ -69,9 +70,10 @@
       </section>
       <div class="tabs" role="tablist">${tabs.map(([k, l]) => `<button type="button" class="tab-btn ${view.tab === k ? 'active' : ''}" data-gtab="${k}">${l}</button>`).join('')}</div>
       <div id="gaBody"></div>`;
-    container.querySelectorAll('[data-gtab]').forEach(b => b.addEventListener('click', () => { Games.stopSession('tab'); view.tab = b.dataset.gtab; render(container, user); }));
+    container.querySelectorAll('[data-gtab]').forEach(b => b.addEventListener('click', () => { Games.stopSession('tab'); if (global.GameRoom) GameRoom.stop(); view.tab = b.dataset.gtab; render(container, user); }));
     const body = container.querySelector('#gaBody');
-    ({ ringkasan: paintSummary, soal: paintQuestions, bank: paintBank, ai: paintAi, coba: paintTry, atur: paintSettings })[view.tab](body, user);
+    const paintBareng = (el, u) => { GameRoom.tidy(u); GameRoom.renderHost(el, u); };
+    ({ ringkasan: paintSummary, soal: paintQuestions, bank: paintBank, ai: paintAi, coba: paintTry, atur: paintSettings, bareng: paintBareng })[view.tab](body, user);
     if (global.Effects) Effects.enhance(container);
     if (global.Responsive) Responsive.apply(container);
   }
@@ -97,7 +99,7 @@
       ${global.GamesStarter ? (() => {
         const total = GamesStarter.count(), have = GamesStarter.installed();
         return have >= total ? '' : `<div class="card ga-starter">
-          <div class="card-header">${UI.secHead('📦', 'Paket Soal Contoh', `${total} soal siap pakai untuk semua format — langsung bisa dimainkan di 10 game`)}
+          <div class="card-header">${UI.secHead('📦', 'Paket Soal Contoh', `${total} soal siap pakai untuk semua format — langsung bisa dimainkan di semua game`)}
             <button type="button" class="btn btn-primary btn-sm" id="gaStarter">📦 Pasang ${have ? `${total - have} soal tersisa` : 'Paket Soal'}</button></div>
           <p class="muted small" style="margin:0;">Berisi Pilihan Ganda, Pilihan Lebih dari Satu, Benar/Salah, Benar/Salah Majemuk, Isian Singkat, Menjodohkan, dan Urutan
             dari 7 subtest UTBK. Soal dapat diedit atau dihapus setelah dipasang.</p></div>`;
@@ -480,7 +482,7 @@
     }));
   }
 
-  function stop() { if (global.Games) Games.stopSession('nav'); host = null; }
+  function stop() { if (global.Games) Games.stopSession('nav'); if (global.GameRoom) GameRoom.stop(); host = null; }
 
   global.GamesAdmin = { render, stop, rowToGameQuestion, AI_FORMATS };
 })(window);

@@ -334,13 +334,16 @@ function sanitizePresence(p) {
   const tab = str(p.tab, 60);
   if (!/^[A-Za-z0-9_-]{4,60}$/.test(tab)) return null;
   if (p.gone) return { tab, gone: true };
-  return {
-    tab,
-    data: {
-      page: str(p.page, 60), visibility: p.visibility === 'hidden' ? 'hidden' : 'visible',
-      idle: Math.max(0, Math.min(86400000, int(p.idle, 0))), browser: str(p.browser, 30), os: str(p.os, 30), device: str(p.device, 30)
-    }
+  const data = {
+    page: str(p.page, 60), visibility: p.visibility === 'hidden' ? 'hidden' : 'visible',
+    idle: Math.max(0, Math.min(86400000, int(p.idle, 0))), browser: str(p.browser, 30), os: str(p.os, 30), device: str(p.device, 30)
   };
+  // Kesehatan koneksi tab (js/safe-save.js): antrean belum terkirim & riwayat putus sambung.
+  if (p.net && typeof p.net === 'object') {
+    const n = (v, max) => Math.max(0, Math.min(max, int(v, 0)));
+    data.net = { pending: n(p.net.pending, 100000), drops: n(p.net.drops, 10000), offlineMs: n(p.net.offlineMs, 7 * 86400000), lastDropAt: n(p.net.lastDropAt, 9e15) };
+  }
+  return { tab, data };
 }
 
 function presenceStmts(tokenHash, pres, now) {
@@ -699,7 +702,13 @@ async function applyChanges(db, req, tokenHash, changes, now, afterStmts) {
       const meta = catalog.info(k) || {};
       if (meta.quiet) return;
       if (meta.target) {
-        [value, before].forEach(r => { if (r) meta.target.forEach(f => { if (typeof r[f] === 'string') targets.add(r[f]); }); });
+        [value, before].forEach(r => {
+          if (!r) return;
+          meta.target.forEach(f => {
+            if (typeof r[f] === 'string') targets.add(r[f]);
+            else if (Array.isArray(r[f])) r[f].slice(0, 300).forEach(u => { if (typeof u === 'string') targets.add(u); });
+          });
+        });
       } else broadcastAll = true;
     };
     const activeAdmins = () => [...userIdx.entries()].filter(([, x]) => x.r === 'admin' && x.s !== 'Dikeluarkan').length;

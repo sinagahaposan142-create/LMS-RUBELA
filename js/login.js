@@ -43,6 +43,15 @@
       if (h.reachable && h.configured && h.ok === false) {
         showNote('Server sedang tidak dapat mengakses database. Coba beberapa saat lagi atau hubungi admin.', 'alert-warning');
       }
+      // Domain hosting (mis. Vercel) tanpa database: akun server tidak dapat dipakai masuk.
+      const hosted = !/^(localhost|127\.|0\.0\.0\.0|\[::1\])/.test(location.hostname);
+      if (hosted && h.reachable && h.configured === false) {
+        showNote(h.missing
+          ? '<strong>Server LMS tidak ditemukan di domain ini</strong> (/api/rubela). Pastikan domain diarahkan ke deployment Vercel proyek LMS ini, lalu muat ulang.'
+          : '<strong>Server belum tersambung ke database.</strong> Di Vercel → Settings → Environment Variables, isi <code>TURSO_DATABASE_URL</code> dan <code>TURSO_AUTH_TOKEN</code> untuk environment <b>Production</b>, lalu Redeploy. Sampai itu selesai, hanya akun demo di browser ini yang bisa masuk.', 'alert-warning');
+      } else if (hosted && !h.reachable && server()) {
+        showNote('Server LMS sedang tidak dapat dihubungi. Periksa koneksi internet, lalu coba lagi.', 'alert-warning');
+      }
     });
   }
   if (!server()) {

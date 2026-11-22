@@ -7,6 +7,8 @@
  * ===================================================================*/
 (function (global) {
   'use strict';
+  // Isi lingkaran avatar: avatar almamater / foto / inisial (js/avatars.js).
+  const AV = (u) => (global.Avatars ? Avatars.inner(u) : UI.esc(UI.initials(u && u.name)));
 
   const KEY = 'lms_presence_v1';
   const CHANNEL = 'lms-presence-v1';
@@ -191,7 +193,8 @@
     return {
       tabId, userId: currentUser.id, page: currentPage, lastActivity,
       visibility: document.visibilityState || 'visible',
-      browser: info.browser, os: info.os, device: info.device
+      browser: info.browser, os: info.os, device: info.device,
+      net: global.SafeSave && SafeSave.net ? SafeSave.net() : null
     };
   }
 
@@ -249,7 +252,7 @@
       'jadwal-kelas': 'Jadwal Kelas', 'jadwal-siswa': 'Jadwal Kelas',
       'ai-tools': 'AI Tools', 'ai-analytics': 'AI Analytics', online: 'Status Online',
       'game-battle': 'Game Battle', 'game-admin': 'Kelola Game Battle', berita: 'Berita',
-      'kalkulator-utbk': 'Kalkulator UTBK', 'kalender-seleksi': 'Kalender Seleksi', 'data-ptn': 'Data PTN', grup: 'Grup Belajar', lainnya: 'Halaman lain'
+      'kalkulator-utbk': 'Kalkulator UTBK', 'kalender-seleksi': 'Kalender Seleksi', 'data-ptn': 'Data PTN', grup: 'Grup Belajar', 'ruang-belajar': 'Ruang Belajar', lainnya: 'Halaman lain'
     };
     return labels[key] || String(key || '-').replace(/-/g, ' ');
   }
@@ -276,7 +279,7 @@
           ${list.length ? `<div class="online-grid">${list.map(r => `
             <article class="online-card">
               <span class="presence-dot ${r.state}" aria-label="${stateLabel(r.state)}"></span>
-              <div class="online-avatar">${UI.initials(r.user.name)}</div>
+              <div class="online-avatar">${AV(r.user)}</div>
               <div class="online-main"><strong>${UI.esc(r.user.name)}</strong>
                 <span>${UI.esc(Auth.ROLE_LABELS[r.user.role] || r.user.role)} • ${UI.esc(pageLabel(r.page))}</span>
                 <small>${UI.esc(r.device)} • ${UI.esc(r.browser)} / ${UI.esc(r.os)} • ${UI.fmtRelative(r.lastSeen)}</small>

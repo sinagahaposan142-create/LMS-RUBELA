@@ -2,6 +2,8 @@
  * CBT (take/grade), video embed helper, attendance rendering.
  */
 (function (global) {
+  // Isi lingkaran avatar: avatar almamater / foto / inisial (js/avatars.js).
+  const AV = (u) => (global.Avatars ? Avatars.inner(u) : UI.esc(UI.initials(u && u.name)));
 
   /* ===== YouTube / Video embed helper ===== */
   /** URL embed Vimeo (YouTube ditangani YTPlayer: thumbnail dulu, youtube-nocookie saat diputar). */
@@ -902,7 +904,6 @@
   /* ===== Live Chat ===== */
   function renderChat(container, user) {
     let activeChatUserId = null;
-    const allUsers = DB.getUsers().filter(u => u.id !== user.id && u.role !== 'admin' || (user.role !== 'admin' && u.role === 'admin'));
     // Show relevant contacts: admin sees all, guru sees students+admin, siswa sees guru+admin
     let contacts;
     if (user.role === 'admin') {
@@ -934,7 +935,7 @@
               ${sorted.map(c => {
                 const lastMsg = getLastMessage(user.id, c.id);
                 return `<div class="chat-contact ${activeChatUserId === c.id ? 'active' : ''}" data-uid="${c.id}">
-                  <div class="avatar" style="width:32px;height:32px;font-size:12px;">${UI.initials(c.name)}</div>
+                  <div class="avatar" style="width:32px;height:32px;font-size:12px;">${AV(c)}</div>
                   <div style="flex:1;min-width:0;">
                     <div style="font-size:13px;font-weight:500;">${UI.esc(c.name)}</div>
                     <div class="muted small" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${lastMsg ? UI.esc(previewText(lastMsg, 30)) : '<i>Belum ada pesan</i>'}</div>
@@ -1045,7 +1046,7 @@
       chatMain.innerHTML = `
         <div class="chat-header">
           <button type="button" class="chat-back" id="chatBack" aria-label="Kembali ke daftar kontak">←</button>
-          <div class="avatar" style="width:32px;height:32px;font-size:12px;">${UI.initials(partner.name)}</div>
+          <div class="avatar" style="width:32px;height:32px;font-size:12px;">${AV(partner)}</div>
           <div>
             <strong>${UI.esc(partner.name)}</strong>
             <div class="muted small">${UI.esc(partner.role)} ${partner.subject ? '• ' + UI.esc(partner.subject) : ''}</div>
@@ -1231,7 +1232,7 @@
             ${list.map(c => `
               <label class="chat-fwd-item" data-name="${UI.esc(c.name.toLowerCase())}">
                 <input type="checkbox" value="${UI.esc(c.id)}" />
-                <span class="avatar" style="width:30px;height:30px;font-size:11px;">${UI.initials(c.name)}</span>
+                <span class="avatar" style="width:30px;height:30px;font-size:11px;">${AV(c)}</span>
                 <span class="chat-fwd-name">${UI.esc(c.name)}<small>${UI.esc(c.role)}</small></span>
               </label>`).join('')}
             <div class="chat-empty" id="fwdEmpty" hidden>Tidak ada kontak yang cocok.</div>
@@ -1467,7 +1468,6 @@
   function renderAiTools(container, user) {
     const enrolled = DB.getEnrollmentsByStudent(user.id);
     const courses = enrolled.map(e => DB.getCourse(e.courseId)).filter(Boolean);
-    const subs = DB.getSubmissionsByStudent(user.id);
     const attempts = DB.getCbtAttemptsByStudent(user.id).filter(a => a.submittedAt);
     const avgScore = attempts.length ? Math.round(attempts.reduce((s, a) => s + (a.score || 0), 0) / attempts.length) : null;
 
@@ -2267,7 +2267,7 @@
                 const cls = i === 0 ? 'top1' : i === 1 ? 'top2' : i === 2 ? 'top3' : '';
                 return `<div class="lb-row ${cls} ${r.s.id === user.id ? 'is-me' : ''}" style="animation-delay:${Math.min(0.4, i * 0.04)}s;">
                   <div class="rank">${medal}</div>
-                  <div class="avatar">${UI.initials(r.s.name)}</div>
+                  <div class="avatar">${AV(r.s)}</div>
                   <div class="who">
                     <div class="nm">${UI.esc(r.s.name)}${r.s.id === user.id ? ' <span class="badge badge-info">Saya</span>' : ''}</div>
                     <div class="mt">Level ${r.st.level} • ${UI.esc(r.s.kelas || '-')} • Kehadiran ${r.st.attendancePct}% • ${r.st.submissions} tugas • ${r.st.cbtDone} CBT</div>
@@ -2489,7 +2489,7 @@
       return `
         <div class="att-row ${p.isSession ? 'is-session' : ''}" data-uid="${p.u.id}" data-role="${p.role}">
           <div class="att-person">
-            <div class="avatar">${UI.initials(p.u.name)}</div>
+            <div class="avatar">${AV(p.u)}</div>
             <div>
               <div class="nm">${UI.esc(p.u.name)}${p.isSession ? ' <span class="badge badge-success">sesi ini</span>' : ''}</div>
               <div class="sub">${UI.esc(p.tag)}${p.role === 'guru' ? ' • presensi tutor' : ''}</div>

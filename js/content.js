@@ -807,7 +807,6 @@
       draft.description = (wsEl.querySelector('#ceDesc') || {}).innerHTML || draft.description;
       draft.rubric = (wsEl.querySelector('#ceRubric') || {}).value || draft.rubric;
       let sub = course.subtest || (DB.SUBTESTS[0] && DB.SUBTESTS[0].name);
-      let q = '';
 
       Editor.openSubDialog('Ambil Soal dari Bank Soal', `
         <div class="form-row">
