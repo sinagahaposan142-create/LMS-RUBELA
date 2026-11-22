@@ -1,0 +1,263 @@
+/* =====================================================================
+ * css/study-room.css — Ruang Belajar (js/study-room.js)
+ * Ruang kelas: papan tulis, lantai kayu, meja; figur = avatar almamater
+ * tanpa lingkaran (Avatars.svg bare) yang duduk di balik meja. Token
+ * aplikasi dipakai sehingga mode gelap ikut otomatis. Animasi kecil
+ * (pensil, uap, kedip laptop) dimatikan untuk prefers-reduced-motion.
+ * ===================================================================*/
+
+.rb { display: grid; grid-template-columns: minmax(0, 1fr); gap: 14px; min-width: 0; }
+.rb-tabs { display: flex; gap: 4px; padding: 4px; width: max-content; max-width: 100%; overflow-x: auto; scrollbar-width: none;
+  border: 1px solid var(--border); border-radius: var(--r-md); background: var(--surface); }
+.rb-tabs::-webkit-scrollbar { display: none; }
+.rb-tab { flex: none; border: 0; background: none; padding: 8px 14px; border-radius: 10px; font: inherit; font-size: 13.5px; font-weight: 600; color: var(--gray-600); cursor: pointer; white-space: nowrap; }
+.rb-tab:hover { color: var(--gray-900); }
+.rb-tab.is-on { background: var(--primary-light); color: var(--primary-dark); }
+.rb-tab:focus-visible, .rb-chip:focus-visible, .rb-seg button:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+.card-flat { padding: 14px 16px; border: 1px solid var(--border); border-radius: var(--r-md); background: var(--surface); }
+.rb-sec-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; margin-bottom: 10px; }
+.rb-sec-head h3 { margin: 0; font-size: 15px; color: var(--gray-900); }
+.rb-empty { margin: 6px 0; font-size: 13.5px; color: var(--gray-500); }
+.rb-note { margin: 0; font-size: 13px; line-height: 1.5; color: var(--gray-600); }
+.rb-pill { display: inline-flex; align-items: center; gap: 5px; padding: 3px 9px; border-radius: var(--r-pill); font-size: 12px; font-weight: 700; background: var(--primary-light); color: var(--primary-dark); }
+.rb-pill.is-focus { background: var(--success-bg); color: var(--success); }
+.rb-pill.is-break { background: var(--warning-bg); color: var(--warning); }
+.rb-filter { display: flex; gap: 6px; flex-wrap: wrap; }
+.rb-chip { padding: 5px 12px; border-radius: var(--r-pill); border: 1px solid var(--border); background: var(--surface); color: var(--gray-700); font: inherit; font-size: 12.5px; font-weight: 600; cursor: pointer; }
+.rb-chip.is-on { border-color: var(--primary); background: var(--primary-light); color: var(--primary-dark); }
+
+/* ------------------------------------------------- Timer & Tujuan */
+.rb-timer { display: grid; grid-template-columns: minmax(0, 1fr); gap: 14px; }
+.rb-active { display: flex; align-items: center; gap: 22px; padding: 18px 22px; border-radius: var(--r-lg); border: 1px solid var(--border); background: var(--surface); }
+.rb-active.is-run { border-color: color-mix(in srgb, var(--primary) 35%, var(--border)); }
+.rb-active.is-pause { border-color: color-mix(in srgb, var(--warning) 45%, var(--border)); }
+.rb-ring { position: relative; flex: none; width: 172px; height: 172px; }
+.rb-ring svg { width: 100%; height: 100%; transform: rotate(-90deg); }
+.rb-ring-bg { fill: none; stroke: var(--gray-100); stroke-width: 9; }
+.rb-ring-fg { fill: none; stroke: var(--c); stroke-width: 9; stroke-linecap: round; transition: stroke-dashoffset .95s linear; }
+.rb-active.is-pause .rb-ring-fg { stroke: var(--warning); }
+.rb-ring-in { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; text-align: center; }
+.rb-ring-in strong { font-size: 30px; line-height: 1.1; color: var(--gray-900); font-variant-numeric: tabular-nums; }
+.rb-ring-lbl, .rb-kicker { font-size: 11.5px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--gray-500); }
+.rb-kicker { color: var(--primary); }
+.rb-ring-sub { font-size: 12px; color: var(--gray-500); font-variant-numeric: tabular-nums; }
+.rb-active-info { flex: 1; min-width: 0; }
+.rb-active-info h3 { margin: 4px 0 6px; font-size: 20px; color: var(--gray-900); }
+.rb-active-info p { margin: 0 0 12px; max-width: 560px; font-size: 13.5px; line-height: 1.5; color: var(--gray-600); }
+.rb-controls { display: flex; gap: 8px; flex-wrap: wrap; }
+.rb-controls .btn, .rb-goal-act .btn, .rb-goal-form .btn, .rb-rank-tools .btn { display: inline-flex; align-items: center; gap: 6px; }
+.rb-ask { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 12px; padding: 10px 12px; border-radius: 10px; background: var(--warning-bg); color: var(--gray-900); font-size: 13.5px; }
+.rb-done-ic, .rb-idle-ic { flex: none; display: grid; place-items: center; width: 76px; height: 76px; border-radius: 22px; }
+.rb-done-ic { background: var(--success-bg); color: var(--success); }
+.rb-idle-ic { background: var(--gray-100); color: var(--gray-500); }
+.rb-today { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
+.rb-today > div { display: flex; flex-direction: column; gap: 2px; padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--r-sm); background: var(--surface); }
+.rb-today span { font-size: 12px; color: var(--gray-500); }
+.rb-today strong { font-size: 17px; color: var(--gray-900); font-variant-numeric: tabular-nums; }
+
+.rb-goal-form { display: grid; grid-template-columns: minmax(0, 1fr) 120px auto; align-items: end; gap: 8px 10px; margin-bottom: 12px; padding-bottom: 12px; border-bottom: 1px solid var(--border); }
+.rb-goal-form label > span { display: block; margin-bottom: 4px; font-size: 12px; font-weight: 600; color: var(--gray-600); }
+.rb-goal-form input[name="title"], .rb-goal-form input[name="min"] { width: 100%; min-height: 38px; padding: 7px 10px; border-radius: 10px; border: 1px solid var(--border); background: var(--surface); color: var(--gray-900); font: inherit; font-size: 14px; }
+.rb-goal-form input:focus { outline: none; border-color: var(--primary); box-shadow: 0 0 0 3px var(--ring); }
+.rb-f-quick { display: flex; gap: 4px; }
+.rb-f-quick button { min-height: 38px; padding: 0 10px; border-radius: 10px; border: 1px solid var(--border); background: var(--surface); color: var(--gray-700); font: inherit; font-size: 12.5px; font-weight: 600; cursor: pointer; }
+.rb-f-quick button:hover { border-color: var(--primary); color: var(--primary-dark); }
+.rb-f-colors { grid-column: 1 / 3; display: flex; gap: 8px; align-items: center; }
+.rb-f-colors label { position: relative; cursor: pointer; }
+.rb-f-colors input { position: absolute; opacity: 0; width: 1px; height: 1px; }
+.rb-f-colors span { display: block; width: 22px; height: 22px; border-radius: 50%; background: var(--c); box-shadow: inset 0 0 0 2px rgba(255, 255, 255, .35); }
+.rb-f-colors input:checked + span { box-shadow: 0 0 0 2px var(--surface), 0 0 0 4px var(--c); }
+.rb-f-colors input:focus-visible + span { outline: 2px solid var(--primary); outline-offset: 3px; }
+.rb-goal-form > .btn { grid-column: 3; }
+.rb-goal-list { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; }
+.rb-goal { position: relative; display: flex; align-items: center; gap: 12px; padding: 10px 12px 10px 16px; overflow: hidden; border: 1px solid var(--border); border-radius: var(--r-sm); background: var(--surface); }
+.rb-goal-bar { position: absolute; left: 0; top: 0; bottom: 0; width: 4px; background: var(--c); }
+.rb-goal.is-running { border-color: color-mix(in srgb, var(--c) 45%, var(--border)); background: color-mix(in srgb, var(--c) 6%, var(--surface)); }
+.rb-goal-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+.rb-goal-main strong { font-size: 14px; color: var(--gray-900); overflow-wrap: anywhere; }
+.rb-goal-main > span:not(.rb-prog) { font-size: 12.5px; color: var(--gray-500); }
+.rb-prog { display: block; height: 6px; overflow: hidden; border-radius: var(--r-pill); background: var(--gray-100); }
+.rb-prog i { display: block; height: 100%; border-radius: inherit; background: var(--c, var(--primary)); }
+.rb-goal-act { flex: none; display: flex; align-items: center; gap: 4px; }
+.rb-log-list { display: grid; margin: 0; padding: 0; list-style: none; }
+.rb-log-list li { display: grid; grid-template-columns: 82px minmax(0, 1fr) auto auto; align-items: center; gap: 10px; padding: 6px 0; border-bottom: 1px dashed var(--border); font-size: 13.5px; }
+.rb-log-list li:last-child { border-bottom: 0; }
+.rb-log-list time { font-size: 12.5px; color: var(--gray-500); font-variant-numeric: tabular-nums; }
+.rb-log-list strong { font-variant-numeric: tabular-nums; }
+
+/* ------------------------------------------------- Ruang kelas */
+.rb-room { display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; }
+.rb-board { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 16px 22px; border: 8px solid #8a6a4c; border-radius: var(--r-md);
+  background: #24463b; color: #e9f2ed; box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .06), var(--shadow-sm); }
+.rb-board-txt span { font-size: 11.5px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; opacity: .72; }
+.rb-board-txt strong { display: block; margin-top: 2px; font-size: 22px; letter-spacing: .01em; }
+.rb-board-txt p { margin: 4px 0 0; font-size: 13.5px; opacity: .9; }
+.rb-clock { position: relative; flex: none; width: 58px; height: 58px; border-radius: 50%; background: #f8fafc; border: 4px solid #d8dee6; }
+.rb-clock::after { content: ''; position: absolute; left: 50%; top: 50%; width: 6px; height: 6px; margin: -3px 0 0 -3px; border-radius: 50%; background: #1f2937; }
+.rb-clock span { position: absolute; left: 50%; bottom: 50%; width: 3px; margin-left: -1.5px; border-radius: 2px; background: #1f2937; transform-origin: 50% 100%; }
+.rb-clock .rb-h { height: 14px; }
+.rb-clock .rb-m { height: 20px; width: 2px; margin-left: -1px; }
+.rb-floor { padding: 18px 14px; border: 1px solid var(--border); border-radius: var(--r-md);
+  background: repeating-linear-gradient(90deg, color-mix(in srgb, #c89b6d 16%, var(--surface)) 0 58px, color-mix(in srgb, #c89b6d 24%, var(--surface)) 58px 60px); }
+.rb-seats { display: grid; grid-template-columns: repeat(auto-fill, minmax(124px, 1fr)); gap: 16px 10px; }
+.rb-seat { display: flex; flex-direction: column; align-items: center; gap: 1px; min-width: 0; padding: 6px 4px 10px; border: 0; border-radius: 14px; background: transparent;
+  font: inherit; color: var(--gray-900); text-align: center; cursor: pointer; }
+button.rb-seat:hover, button.rb-seat:focus-visible { outline: none; background: color-mix(in srgb, var(--surface) 75%, transparent); box-shadow: 0 0 0 2px var(--ring); }
+.rb-seat-stage { position: relative; display: block; width: 112px; height: 96px; }
+.rb-fig { position: absolute; left: 50%; top: 0; width: 80px; height: 80px; transform: translateX(-50%); }
+.rb-fig .av-svg { width: 100%; height: 100%; border-radius: 0; }
+.rb-desk { position: absolute; left: 0; bottom: 0; width: 112px; height: 48.5px; overflow: visible; }
+.rb-desk-top { fill: #c08a5a; }
+.rb-desk-front { fill: #a8744a; }
+html[data-theme="dark"] .rb-desk-top { fill: #8b6444; }
+html[data-theme="dark"] .rb-desk-front { fill: #6f4f35; }
+.rb-state { position: absolute; top: 0; right: -2px; padding: 1px 7px; border-radius: var(--r-pill); border: 1px solid var(--border); background: var(--surface); font-size: 10.5px; font-weight: 700; color: var(--primary-dark); }
+.rb-seat.is-focus .rb-state { color: var(--success); border-color: color-mix(in srgb, var(--success) 40%, var(--border)); }
+.rb-seat.is-break .rb-state { color: var(--warning); border-color: color-mix(in srgb, var(--warning) 40%, var(--border)); }
+.rb-seat-name { margin-top: 4px; font-size: 13px; font-weight: 700; }
+.rb-seat-goal { max-width: 118px; overflow: hidden; font-size: 11.5px; color: var(--gray-500); white-space: nowrap; text-overflow: ellipsis; }
+.rb-seat-time { font-size: 12.5px; font-weight: 700; color: var(--success); font-variant-numeric: tabular-nums; }
+.rb-seat.is-break .rb-seat-time { color: var(--warning); }
+.rb-seat-time.is-muted { font-weight: 600; color: var(--gray-500); }
+.rb-seat.is-empty { cursor: default; opacity: .5; }
+.rb-seat.is-empty .rb-seat-name { font-size: 12px; font-weight: 500; color: var(--gray-500); }
+.rb-legend { display: flex; flex-wrap: wrap; gap: 6px 16px; margin: 0; font-size: 12px; color: var(--gray-500); }
+.rb-legend span::before { content: ''; display: inline-block; width: 8px; height: 8px; margin-right: 6px; border-radius: 50%; background: var(--gray-400); vertical-align: 1px; }
+.rb-legend .is-focus::before { background: var(--success); }
+.rb-legend .is-break::before { background: var(--warning); }
+.rb-legend .is-web::before { background: var(--primary); }
+.rb-legend span:not([class])::before { display: none; }
+@media (prefers-reduced-motion: no-preference) {
+  .rb-seat.is-focus .rb-pencil { transform-box: fill-box; transform-origin: center; animation: rbWrite 1.7s ease-in-out infinite; }
+  .rb-seat.is-focus .rb-fig { animation: rbNod 7s ease-in-out infinite; }
+  .rb-seat.is-break .rb-steam { animation: rbSteam 2.4s ease-in-out infinite; }
+  .rb-seat.is-web .rb-glow { animation: rbGlow 2.8s ease-in-out infinite; }
+}
+@keyframes rbWrite { 0%, 100% { transform: translate(0, 0) rotate(0); } 50% { transform: translate(-6px, 2px) rotate(-8deg); } }
+@keyframes rbNod { 0%, 100% { transform: translateX(-50%) translateY(0); } 50% { transform: translateX(-50%) translateY(2px); } }
+@keyframes rbSteam { 0% { opacity: 0; transform: translateY(2px); } 50% { opacity: .9; } 100% { opacity: 0; transform: translateY(-4px); } }
+@keyframes rbGlow { 50% { opacity: .3; } }
+
+.rb-person { display: grid; grid-template-columns: minmax(0, 1fr); gap: 14px; }
+.rb-person-head { display: flex; align-items: center; gap: 14px; }
+.rb-person-av { flex: none; width: 64px; height: 64px; }
+.rb-person-head > div { display: flex; flex-direction: column; gap: 3px; align-items: flex-start; }
+.rb-person-head span { font-size: 13px; color: var(--gray-600); }
+.rb-person-stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; margin: 0; }
+.rb-person-stats div { padding: 8px 10px; border: 1px solid var(--border); border-radius: var(--r-sm); }
+.rb-person-stats dt { font-size: 11.5px; color: var(--gray-500); }
+.rb-person-stats dd { margin: 2px 0 0; font-size: 15px; font-weight: 700; color: var(--gray-900); }
+
+/* ------------------------------------------------- Statistik */
+.rb-statsview { display: grid; grid-template-columns: minmax(0, 1fr); gap: 14px; }
+.rb-stats-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
+.rb-stat { display: flex; flex-direction: column; gap: 2px; padding: 12px 14px; border: 1px solid var(--border); border-radius: var(--r-md); background: var(--surface); }
+.rb-stat span { font-size: 12px; font-weight: 600; color: var(--gray-500); }
+.rb-stat strong { font-size: 22px; color: var(--gray-900); font-variant-numeric: tabular-nums; }
+.rb-stat small { font-size: 11.5px; color: var(--gray-500); }
+.rb-two { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr); gap: 14px; }
+.rb-bars { display: flex; flex-direction: column; gap: 10px; margin: 0; }
+.rb-bars-g { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); align-items: end; gap: 8px; height: 190px; }
+.rb-bar { display: flex; flex-direction: column; align-items: center; gap: 4px; height: 100%; min-width: 0; }
+.rb-bar-val { min-height: 15px; font-size: 11.5px; font-weight: 700; color: var(--gray-700); font-variant-numeric: tabular-nums; }
+.rb-bar-col { flex: 1; display: flex; flex-direction: column-reverse; width: 100%; max-width: 34px; overflow: hidden; border-radius: 8px 8px 3px 3px; background: var(--gray-100); }
+.rb-bar-col i { display: block; width: 100%; }
+.rb-bar-col .is-f { background: var(--primary); }
+.rb-bar-col .is-w { background: color-mix(in srgb, var(--primary) 38%, var(--surface)); }
+.rb-bar-d { font-size: 11.5px; color: var(--gray-500); }
+.rb-bars figcaption { display: flex; gap: 14px; font-size: 11.5px; color: var(--gray-500); }
+.rb-bars figcaption span::before { content: ''; display: inline-block; width: 9px; height: 9px; margin-right: 5px; border-radius: 3px; vertical-align: -1px; }
+.rb-bars figcaption .is-f::before { background: var(--primary); }
+.rb-bars figcaption .is-w::before { background: color-mix(in srgb, var(--primary) 38%, var(--surface)); }
+.rb-bars figcaption span:last-child::before { display: none; }
+.rb-heat { display: grid; gap: 6px; max-width: 420px; }
+.rb-heat-h, .rb-heat-g { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 4px; }
+.rb-heat-h span { font-size: 11px; color: var(--gray-500); text-align: center; }
+.rb-heat-c { display: grid; place-items: center; aspect-ratio: 1; border-radius: 6px; background: var(--gray-100); font-size: 11px; color: var(--gray-600); }
+.rb-heat-c.is-pad { background: transparent; }
+.rb-heat-c.l1, .rb-heat-legend .l1 { background: color-mix(in srgb, var(--success) 22%, var(--surface)); }
+.rb-heat-c.l2, .rb-heat-legend .l2 { background: color-mix(in srgb, var(--success) 42%, var(--surface)); }
+.rb-heat-c.l3, .rb-heat-legend .l3 { background: color-mix(in srgb, var(--success) 66%, var(--surface)); color: #fff; }
+.rb-heat-c.l4, .rb-heat-legend .l4 { background: var(--success); color: #fff; }
+html[data-theme="dark"] .rb-heat-c.l3, html[data-theme="dark"] .rb-heat-c.l4 { color: #0b1a10; }
+.rb-heat-c.is-today { outline: 2px solid var(--primary); outline-offset: 1px; }
+.rb-heat-legend { display: flex; align-items: center; justify-content: flex-end; gap: 4px; font-size: 11px; color: var(--gray-500); }
+.rb-heat-legend i { width: 12px; height: 12px; border-radius: 3px; }
+.rb-goalstat { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; }
+.rb-goalstat li { display: grid; grid-template-columns: minmax(0, 1fr) minmax(80px, 1.2fr) auto; align-items: center; gap: 10px; font-size: 13.5px; }
+.rb-goalstat li > span:first-child { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+
+/* ------------------------------------------------- Peringkat & rekap */
+.rb-rank, .rb-rekap { display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; }
+.rb-rank-tools { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.rb-seg { display: inline-flex; padding: 3px; border: 1px solid var(--border); border-radius: 12px; background: var(--gray-100); overflow-x: auto; max-width: 100%; }
+.rb-seg button { flex: none; border: 0; background: none; padding: 6px 12px; border-radius: 9px; font: inherit; font-size: 13px; font-weight: 600; color: var(--gray-600); cursor: pointer; white-space: nowrap; }
+.rb-seg button.is-on { background: var(--surface); color: var(--gray-900); box-shadow: var(--shadow-sm); }
+.rb-select select { min-height: 36px; padding: 6px 10px; border-radius: 10px; border: 1px solid var(--border); background: var(--surface); color: var(--gray-900); font: inherit; font-size: 13px; }
+.rb-rank-list { display: grid; gap: 6px; margin: 0; padding: 0; list-style: none; }
+.rb-rank-list.is-mine { margin-top: 2px; padding-top: 8px; border-top: 1px dashed var(--border); }
+.rb-rank-row { display: grid; grid-template-columns: 34px 38px minmax(120px, 1.2fr) minmax(80px, 1fr) auto; align-items: center; gap: 10px; padding: 8px 12px;
+  border: 1px solid var(--border); border-radius: var(--r-sm); background: var(--surface); }
+.rb-rank-row.is-me { border-color: var(--primary); background: var(--primary-light); }
+.rb-rank-n { font-size: 15px; font-weight: 800; color: var(--gray-500); text-align: center; font-variant-numeric: tabular-nums; }
+.rb-rank-row.top1 .rb-rank-n { color: #b7791f; }
+.rb-rank-row.top2 .rb-rank-n { color: #64748b; }
+.rb-rank-row.top3 .rb-rank-n { color: #a0522d; }
+.rb-rank-av { display: grid; place-items: center; width: 38px; height: 38px; overflow: hidden; border-radius: 50%; background: var(--primary); color: #fff; font-size: 13px; font-weight: 700; }
+.rb-rank-av:has(> .av-svg) { background: transparent; }
+.rb-rank-av img { width: 100%; height: 100%; object-fit: cover; }
+.rb-rank-who { display: flex; flex-direction: column; min-width: 0; }
+.rb-rank-who strong { overflow: hidden; font-size: 14px; color: var(--gray-900); white-space: nowrap; text-overflow: ellipsis; }
+.rb-rank-who small { font-size: 12px; color: var(--gray-500); }
+.rb-rank-bar { display: flex; height: 8px; overflow: hidden; border-radius: var(--r-pill); background: var(--gray-100); }
+.rb-rank-bar .is-f { background: var(--primary); }
+.rb-rank-bar .is-w { background: color-mix(in srgb, var(--primary) 38%, var(--surface)); }
+.rb-rank-t { font-size: 14px; color: var(--gray-900); white-space: nowrap; font-variant-numeric: tabular-nums; }
+.rb-rekap-t th, .rb-rekap-t td { white-space: nowrap; }
+.rb-rekap-t th small { font-weight: 500; color: var(--gray-500); }
+.rb-rekap-t td.is-zero { color: var(--gray-400); }
+.rb-rekap-t tfoot th { border-top: 2px solid var(--border); }
+.rb-link { padding: 0; border: 0; background: none; font: inherit; font-weight: 700; color: var(--primary-dark); text-align: left; cursor: pointer; }
+.rb-link:hover { text-decoration: underline; }
+
+/* ------------------------------------------------- Chip timer mengambang */
+.rb-mini { position: fixed; right: 16px; bottom: calc(env(safe-area-inset-bottom, 0px) + 16px); z-index: 90; display: inline-flex; align-items: center; gap: 8px;
+  max-width: min(320px, calc(100vw - 32px)); padding: 8px 14px 8px 11px; border-radius: var(--r-pill); border: 1px solid var(--border);
+  background: var(--surface); color: var(--gray-900); box-shadow: var(--shadow-lg); font: inherit; font-size: 13px; cursor: pointer; }
+.rb-mini-dot { flex: none; width: 10px; height: 10px; border-radius: 50%; background: var(--c); box-shadow: 0 0 0 4px color-mix(in srgb, var(--c) 22%, transparent); }
+.rb-mini-t { font-weight: 800; font-variant-numeric: tabular-nums; }
+.rb-mini-n { overflow: hidden; color: var(--gray-600); white-space: nowrap; text-overflow: ellipsis; }
+.rb-mini.is-paused .rb-mini-dot { background: var(--warning); box-shadow: 0 0 0 4px var(--warning-bg); }
+.rb-mini.is-ask { border-color: var(--warning); }
+.rb-mini:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+
+/* ------------------------------------------------- Layar kecil */
+@media (max-width: 767px) {
+  .rb-mini { bottom: calc(var(--bottom-nav-h, 64px) + var(--sa-b, 0px) + 12px); right: 12px; }
+}
+@media (max-width: 720px) {
+  .rb-active { flex-direction: column; gap: 14px; padding: 16px; text-align: center; }
+  .rb-active-info p { margin-left: auto; margin-right: auto; }
+  .rb-controls { justify-content: center; }
+  .rb-today { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .rb-goal-form { grid-template-columns: minmax(0, 1fr) 100px; }
+  .rb-f-quick { grid-column: 1 / -1; }
+  .rb-f-colors { grid-column: 1 / 2; }
+  .rb-goal-form > .btn { grid-column: 2; }
+  .rb-goal { flex-wrap: wrap; }
+  .rb-goal-main { flex-basis: calc(100% - 20px); }
+  .rb-goal-act { margin-left: auto; }
+  .rb-log-list li { grid-template-columns: 70px minmax(0, 1fr) auto auto; gap: 6px; }
+  .rb-board { padding: 12px 14px; border-width: 6px; }
+  .rb-board-txt strong { font-size: 18px; }
+  .rb-seats { grid-template-columns: repeat(auto-fill, minmax(102px, 1fr)); gap: 12px 4px; }
+  .rb-seat-stage { width: 96px; height: 84px; }
+  .rb-fig { width: 70px; height: 70px; }
+  .rb-desk { width: 96px; height: 41.5px; }
+  .rb-stats-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .rb-two { grid-template-columns: minmax(0, 1fr); }
+  .rb-person-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .rb-rank-row { grid-template-columns: 26px 34px minmax(0, 1fr) auto; gap: 8px; }
+  .rb-rank-av { width: 34px; height: 34px; }
+  .rb-rank-bar { grid-column: 3 / -1; grid-row: 2; }
+}

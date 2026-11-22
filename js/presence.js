@@ -252,7 +252,7 @@
       'jadwal-kelas': 'Jadwal Kelas', 'jadwal-siswa': 'Jadwal Kelas',
       'ai-tools': 'AI Tools', 'ai-analytics': 'AI Analytics', online: 'Status Online',
       'game-battle': 'Game Battle', 'game-admin': 'Kelola Game Battle', berita: 'Berita',
-      'kalkulator-utbk': 'Kalkulator UTBK', 'kalender-seleksi': 'Kalender Seleksi', 'data-ptn': 'Data PTN', grup: 'Grup Belajar', lainnya: 'Halaman lain'
+      'kalkulator-utbk': 'Kalkulator UTBK', 'kalender-seleksi': 'Kalender Seleksi', 'data-ptn': 'Data PTN', grup: 'Grup Belajar', 'ruang-belajar': 'Ruang Belajar', lainnya: 'Halaman lain'
     };
     return labels[key] || String(key || '-').replace(/-/g, ' ');
   }

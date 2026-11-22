@@ -305,6 +305,68 @@ function checkGroupAnswer(ctx, op, id, before, after) {
   return allow(out);
 }
 
+/* ============================ RUANG BELAJAR ============================
+ * lms_study_goals    : tujuan belajar milik mentee (judul, target menit, warna).
+ * lms_study_sessions : sesi fokus (timer, tidak dapat diubah setelah tercatat) & waktu aktif di LMS
+ *                      per perangkat per hari (id web:<user>:<hari>:<perangkat>). Hanya pemilik.
+ * lms_study_stats    : ringkasan jam belajar per mentee (id = userId), terlihat semua peran.
+ * Admin hanya dapat menghapus (mis. data tidak wajar), tidak dapat menulis atas nama mentee. */
+const STUDY_DAY = 86400000;
+const STUDY_MAX_FOCUS = 12 * 3600000;
+const HEX6 = /^#[0-9a-f]{6}$/i;
+function studyDayOk(ymd, now, back) {
+  if (!YMD.test(ymd || '')) return false;
+  const t = Date.parse(ymd + 'T00:00:00Z');
+  return Number.isFinite(t) && t <= now + 2 * STUDY_DAY && t >= now - back;
+}
+function checkStudy(ctx, op, k, id, before, after) {
+  const me = ctx.id;
+  const owner = (before && before.userId) || (after && after.userId);
+  if (op === 'delete') return owner === me || ctx.isAdmin ? allow(null) : deny('Data Ruang Belajar milik pengguna lain.');
+  if (after.userId !== me || (before && before.userId !== me)) return deny('Data Ruang Belajar hanya dapat ditulis pemiliknya.');
+  if (ctx.role !== 'siswa') return deny('Ruang Belajar mencatat jam belajar mentee.');
+  const now = Date.now();
+  const n = (v, lo, hi) => typeof v === 'number' && Number.isFinite(v) && v >= lo && v <= hi;
+  if (k === 'lms_study_goals') {
+    if (!strOk(after.title, 80, 2) || !n(after.targetMin, 5, 600) || (after.color != null && !HEX6.test(after.color))) return deny('Tujuan belajar tidak valid.');
+    return allow(after);
+  }
+  if (k === 'lms_study_sessions') {
+    const ms = after.durationMs;
+    if (after.kind === 'web') {
+      if (!/^[a-z0-9]{6,20}$/.test(after.dev || '') || id !== `web:${me}:${after.day}:${after.dev}`) return deny('Catatan waktu di LMS tidak valid.');
+      if (!studyDayOk(after.day, now, 8 * STUDY_DAY) || !n(ms, 0, STUDY_DAY)) return deny('Catatan waktu di LMS di luar batas.');
+      return allow(after);
+    }
+    if (after.kind !== 'focus') return deny('Jenis sesi belajar tidak dikenal.');
+    if (before) {
+      const fixed = ['kind', 'durationMs', 'startedAt', 'endedAt', 'day'].every(f => same(before[f], after[f]));
+      return fixed ? allow(after) : deny('Sesi belajar yang sudah tercatat tidak dapat diubah.');
+    }
+    const s = after.startedAt, e = after.endedAt;
+    if (!n(s, now - 3 * STUDY_DAY, now + 5 * 60000) || !n(e, s, now + 5 * 60000)) return deny('Waktu sesi belajar tidak valid.');
+    if (!n(ms, 0, STUDY_MAX_FOCUS) || ms > e - s + 60000) return deny('Durasi sesi melebihi rentang mulai–selesai.');
+    if (!studyDayOk(after.day, now, 4 * STUDY_DAY) || !optStr(after.title, 80) || !optStr(after.goalId, 200)) return deny('Isi sesi belajar tidak valid.');
+    return allow(after);
+  }
+  // lms_study_stats: angka per hari dibatasi 24 jam; status langsung dibatasi bentuknya.
+  const days = after.days, months = after.months, live = after.live;
+  if (JSON.stringify(after).length > 30000) return deny('Ringkasan jam belajar terlalu besar.');
+  if (!days || typeof days !== 'object' || Array.isArray(days) || Object.keys(days).length > 80) return deny('Ringkasan jam belajar tidak valid.');
+  for (const d of Object.keys(days)) {
+    const v = days[d];
+    if (!studyDayOk(d, now, 400 * STUDY_DAY) || !v || typeof v !== 'object' || !n(v.f, 0, STUDY_DAY) || !n(v.w, 0, STUDY_DAY) ||
+        v.f + v.w > STUDY_DAY || (v.n != null && !n(v.n, 0, 500))) return deny('Jam belajar per hari di luar batas.');
+  }
+  if (months != null && (typeof months !== 'object' || Array.isArray(months) || Object.keys(months).length > 600 ||
+      Object.keys(months).some(m => !/^\d{4}-\d{2}$/.test(m) || !n(months[m], 0, 31 * STUDY_DAY)))) return deny('Rekap bulanan tidak valid.');
+  if (!n(after.total, 0, 1e12)) return deny('Total jam belajar tidak valid.');
+  if (live != null && (typeof live !== 'object' || !['focus', 'break'].includes(live.state) || !optStr(live.title, 80) || !optStr(live.goalId, 200) ||
+      !(live.since == null || n(live.since, now - 2 * STUDY_DAY, now + 5 * 60000)) || !n(live.accMs, 0, STUDY_MAX_FOCUS) ||
+      !n(live.targetMs, 0, 600 * 60000) || !n(live.at, 0, now + 5 * 60000))) return deny('Status Ruang Belajar tidak valid.');
+  return allow(after);
+}
+
 /* ============================ REMEDIAL ============================ */
 const REMEDIAL_GRACE_MS = 10 * 60 * 1000;      // toleransi selisih jam perangkat
 /** Percobaan baru pada ujian remedial: hanya peserta terpilih, di dalam jadwal, sistem aktif. */
@@ -400,6 +462,10 @@ function present(ctx, k, id, rec) {
     case 'lms_hub_payments':
       if (ctx.isAdmin || rec.studentId === me) return rec;
       return ctx.role === 'orangtua' && ctx.childIds.includes(rec.studentId) ? rec : undefined;
+    case 'lms_study_sessions':
+    case 'lms_study_goals':
+      // Data mentah Ruang Belajar hanya untuk pemiliknya; peran lain membaca ringkasan (lms_study_stats).
+      return rec.userId === me ? rec : undefined;
     case 'lms_hub_courses':
       // Course berbayar: isi pelajaran hanya untuk admin dan siswa yang pembayarannya disetujui.
       if (ctx.isAdmin || rec.accessType !== 'paid') return rec;
@@ -529,6 +595,7 @@ function checkWrite(ctx, k, id, before, after) {
     const okOwner = (before == null || before.userId === me) && (after == null || after.userId === me);
     return okOwner ? allow(after) : deny('Riwayat chat AI milik pengguna lain.');
   }
+  if (/^lms_study_/.test(k)) return checkStudy(ctx, op, k, id, before, after);
   // Pesan divalidasi untuk semua peran (termasuk admin): bentuk, panjang, balasan, terusan.
   if (k === 'lms_messages') return checkMessage(ctx, op, before, after);
   if (k === 'lms_group_posts') return checkGroupPost(ctx, op, before, after);

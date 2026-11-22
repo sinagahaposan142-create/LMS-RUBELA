@@ -38,6 +38,7 @@
         { key: 'arena-admin', label: 'Arena Belajar', icon: '🎮', group: 'Motivasi & Gamifikasi' },
         { key: 'game-admin', label: 'Game Battle', icon: '⚔️', group: 'Motivasi & Gamifikasi' },
         { key: 'leaderboard', label: 'Papan Peringkat', icon: '🏆', group: 'Motivasi & Gamifikasi' },
+        { key: 'ruang-belajar', label: 'Ruang Belajar', icon: '⏱️', group: 'Motivasi & Gamifikasi' },
         { key: 'birthday', label: 'Ulang Tahun', icon: '🎂', group: 'Motivasi & Gamifikasi' },
         { key: 'motivasi', label: 'Kata Motivasi', icon: '💡', group: 'Motivasi & Gamifikasi' },
         { key: 'ayat-admin', label: 'Ayat Harian', icon: '📖', group: 'Motivasi & Gamifikasi' },
@@ -74,6 +75,7 @@
         { key: 'kalender-seleksi', label: 'Kalender Seleksi', icon: '📆', group: 'Tools' },
         { key: 'rekap', label: 'Rekapan Kelas', icon: '📈', group: 'Siswa & Laporan' },
         { key: 'streak-siswa', label: 'Streak Siswa', icon: '🔥', group: 'Siswa & Laporan' },
+        { key: 'ruang-belajar', label: 'Ruang Belajar', icon: '⏱️', group: 'Siswa & Laporan' },
         { key: 'game-admin', label: 'Game Battle', icon: '⚔️', group: 'Siswa & Laporan' },
         { key: 'leaderboard', label: 'Papan Peringkat', icon: '🏆', group: 'Siswa & Laporan' },
         { key: 'ai-asisten', label: 'Asisten AI', icon: '💬', group: 'Siswa & Laporan' },
@@ -92,6 +94,7 @@
         { key: 'overview', label: 'Overview', icon: '📊', group: 'Utama' },
         { key: 'notifikasi', label: 'Notifikasi', icon: '🔔', group: 'Utama' },
         { key: 'my-courses', label: 'Kelas Saya', icon: '📚', group: 'Belajar' },
+        { key: 'ruang-belajar', label: 'Ruang Belajar', icon: '⏱️', group: 'Belajar' },
         { key: 'course', label: 'Course', icon: '🎓', group: 'Belajar' },
         { key: 'browse', label: 'Jelajah Kelas', icon: '🔎', group: 'Belajar' },
         { key: 'modul', label: 'Modul', icon: '📘', group: 'Belajar' },
@@ -131,6 +134,7 @@
         { key: 'anak-jadwal', label: 'Jadwal Kelas', icon: '🗓️', group: 'Pantau Anak' },
         { key: 'anak-perkembangan', label: 'Perkembangan', icon: '📈', group: 'Pantau Anak' },
         { key: 'anak-streak', label: 'Streak Anak', icon: '🔥', group: 'Pantau Anak' },
+        { key: 'ruang-belajar', label: 'Jam Belajar Anak', icon: '⏱️', group: 'Pantau Anak' },
         { key: 'birthday', label: 'Ulang Tahun Anak', icon: '🎂', group: 'Pantau Anak' },
         { key: 'kalkulator-utbk', label: 'Kalkulator UTBK', icon: '🧮', group: 'Tools' },
         { key: 'kalender-seleksi', label: 'Kalender Seleksi', icon: '📆', group: 'Tools' },
@@ -314,7 +318,9 @@
       'kalkulator-utbk': (c) => UtbkCalc.render(c, user),
       'kalender-seleksi': (c) => AdmissionCal.render(c, user),
       'data-ptn': (c) => PtnAdmin.render(c, user),
-      grup: (c) => Groups.render(c, user)
+      grup: (c) => Groups.render(c, user),
+      // Ruang Belajar ala YPT (js/study-room.js): timer, ruang kelas, peringkat, rekap.
+      'ruang-belajar': (c) => StudyRoom.render(c, user)
     };
 
     /* ================= Routing ================= */
@@ -343,6 +349,7 @@
       if (window.Arena) Arena.stop();
       if (window.Games) Games.stop();
       if (window.GamesAdmin) GamesAdmin.stop();
+      if (window.StudyRoom) StudyRoom.stop();
       if (window.CourseHub && key !== 'course' && key !== 'course-admin') CourseHub.reset();
       if (content.__presenceDispose) {
         content.__presenceDispose();
@@ -411,7 +418,7 @@
      * Halaman ringkasan diperbarui otomatis; halaman lain menampilkan tombol
      * "Muat ulang" agar isian/tab yang sedang dibuka tidak tiba-tiba berubah. */
     const AUTO_REFRESH = new Set(['overview', 'notifikasi', 'pengumuman', 'kalender', 'online', 'hub-pay', 'kalender-seleksi']);
-    const SELF_LIVE = new Set(['chat', 'game-battle', 'game-admin', 'grup']);
+    const SELF_LIVE = new Set(['chat', 'game-battle', 'game-admin', 'grup', 'ruang-belajar']);
     let lastInputAt = 0;
     let liveTimer = null;
     let lastLiveAt = 0;
@@ -794,6 +801,8 @@
 
     // Jawaban aman saat sinyal putus: pulihkan jurnal perangkat & siapkan salinan halaman offline.
     if (window.SafeSave) { try { SafeSave.init(user); } catch (e) { console.warn('[LMS] simpan aman', e); } }
+    // Ruang Belajar: timer tetap berjalan & waktu aktif di LMS dihitung di halaman mana pun (mentee).
+    if (window.StudyRoom) { try { StudyRoom.init(user); } catch (e) { console.warn('[LMS] ruang belajar', e); } }
 
     navigate('overview');
     // Notifikasi perangkat (Web Push): daftarkan service worker, pulihkan langganan, ajakan aktifkan.

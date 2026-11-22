@@ -403,6 +403,49 @@ async function main() {
   r = await push(s1, [gpost('m10', 'u_s1', { text: 'diarsipkan?' })]);
   check('grup yang diarsipkan menolak kiriman baru', r.rejected.length === 1 && /diarsipkan/.test(r.rejected[0].reason), r.rejected);
 
+  /* ---------- Ruang Belajar ---------- */
+  console.log('\n[Ruang Belajar]');
+  const TS = Date.now();
+  const ymdUtc = (t) => new Date(t).toISOString().slice(0, 10);
+  const D0 = ymdUtc(TS);
+  r = await push(s1, [{ k: 'lms_study_goals', id: 'stg1', v: { id: 'stg1', userId: 'u_s1', title: 'Latihan PK', targetMin: 50, color: '#4f46e5', createdAt: TS } }]);
+  check('mentee menambah tujuan belajar', r.rejected.length === 0, r.rejected);
+  r = await push(s1, [{ k: 'lms_study_goals', id: 'stg2', v: { id: 'stg2', userId: 'u_s2', title: 'Palsu', targetMin: 50 } }]);
+  check('tujuan atas nama mentee lain ditolak', r.rejected.length === 1, r.rejected);
+  const sess = (id, extra) => ({ k: 'lms_study_sessions', id, v: Object.assign({ id, userId: 'u_s1', kind: 'focus', goalId: 'stg1', title: 'Latihan PK', startedAt: TS - 3600000, endedAt: TS - 600000, durationMs: 3000000, day: D0, createdAt: TS }, extra || {}) });
+  r = await push(s1, [sess('sts1')]);
+  check('sesi fokus yang wajar diterima', r.rejected.length === 0, r.rejected);
+  r = await push(s1, [sess('sts2', { durationMs: 4 * 3600000 })]);
+  check('durasi melebihi rentang mulai–selesai ditolak', r.rejected.length === 1 && /melebihi/.test(r.rejected[0].reason), r.rejected);
+  r = await push(s1, [sess('sts3', { startedAt: TS - 10 * 86400000, endedAt: TS - 10 * 86400000 + 3600000, durationMs: 3600000, day: ymdUtc(TS - 10 * 86400000) })]);
+  check('sesi lama (mengisi mundur) ditolak', r.rejected.length === 1, r.rejected);
+  r = await push(s1, [sess('sts1', { durationMs: 3500000 })]);
+  check('sesi yang sudah tercatat tidak dapat diubah', r.rejected.length === 1 && /tidak dapat diubah/.test(r.rejected[0].reason), r.rejected);
+  r = await push(s1, [{ k: 'lms_study_sessions', id: `web:u_s1:${D0}:dabc1234`, v: { id: `web:u_s1:${D0}:dabc1234`, userId: 'u_s1', kind: 'web', day: D0, dev: 'dabc1234', durationMs: 1800000 } }]);
+  check('waktu di LMS per perangkat diterima', r.rejected.length === 0, r.rejected);
+  r = await push(s1, [{ k: 'lms_study_sessions', id: 'web:lain', v: { id: 'web:lain', userId: 'u_s1', kind: 'web', day: D0, dev: 'dabc1234', durationMs: 1800000 } }]);
+  check('id waktu di LMS yang tidak cocok ditolak', r.rejected.length === 1, r.rejected);
+  const stat = (extra) => ({ k: 'lms_study_stats', id: 'u_s1', v: Object.assign({ userId: 'u_s1', days: { [D0]: { f: 3000000, w: 1800000, n: 1 } }, months: { [D0.slice(0, 7)]: 4800000 }, total: 4800000,
+    live: { state: 'focus', title: 'Latihan PK', goalId: 'stg1', since: TS - 60000, accMs: 0, targetMs: 3000000, at: TS }, updatedAt: TS }, extra || {}) });
+  r = await push(s1, [stat()]);
+  check('ringkasan jam belajar & status langsung diterima', r.rejected.length === 0, r.rejected);
+  r = await push(s1, [stat({ days: { [D0]: { f: 20 * 3600000, w: 6 * 3600000, n: 1 } } })]);
+  check('lebih dari 24 jam per hari ditolak', r.rejected.length === 1 && /per hari/.test(r.rejected[0].reason), r.rejected);
+  r = await push(s1, [stat({ live: { state: 'tidur', at: TS, accMs: 0, targetMs: 0 } })]);
+  check('status langsung yang tidak dikenal ditolak', r.rejected.length === 1, r.rejected);
+  r = await push(guru, [{ k: 'lms_study_stats', id: 'u_g1', v: { userId: 'u_g1', days: {}, months: {}, total: 0, live: null } }]);
+  check('tutor tidak mencatat jam belajar mentee', r.rejected.length === 1, r.rejected);
+  r = await push(admin, [{ k: 'lms_study_stats', id: 'u_s1', v: Object.assign(stat().v, { total: 999 }) }]);
+  check('admin tidak dapat mengubah ringkasan mentee', r.rejected.length === 1, r.rejected);
+  const pS2b = await pull(s2);
+  check('mentee lain melihat ringkasan, bukan sesi & tujuan', !!(pS2b.lms_study_stats && pS2b.lms_study_stats.u_s1) && !pS2b.lms_study_sessions && !pS2b.lms_study_goals, Object.keys(pS2b).filter(k => /study/.test(k)));
+  const pAdm = await pull(admin);
+  check('admin melihat ringkasan tanpa data mentah', !!(pAdm.lms_study_stats && pAdm.lms_study_stats.u_s1) && !pAdm.lms_study_sessions, Object.keys(pAdm).filter(k => /study/.test(k)));
+  const pS1b = await pull(s1);
+  check('pemilik menerima sesi & tujuannya', !!(pS1b.lms_study_sessions && pS1b.lms_study_sessions.sts1 && pS1b.lms_study_goals && pS1b.lms_study_goals.stg1));
+  r = await push(admin, [{ k: 'lms_study_stats', id: 'u_s1', op: 'del' }]);
+  check('admin dapat menghapus ringkasan yang tidak wajar', r.rejected.length === 0, r.rejected);
+
   const failed = results.filter(x => !x.ok);
   console.log(`\n${results.length - failed.length}/${results.length} lulus`);
   server.close(); turso.close && turso.close();

@@ -57,7 +57,7 @@
     'lms_hub_courses', 'lms_hub_progress', 'lms_hub_payments', 'lms_capsule_vaults', 'lms_capsules',
     'lms_music_tracks', 'lms_ai_chats', 'lms_game_questions', 'lms_game_battles', 'lms_game_scores',
     'lms_topics', 'lms_news', 'lms_ptn_campuses', 'lms_ptn_faculties', 'lms_ptn_majors', 'lms_admission_events', 'lms_utbk_plans',
-    'lms_groups', 'lms_group_posts', 'lms_group_answers'
+    'lms_groups', 'lms_group_posts', 'lms_group_answers', 'lms_study_sessions', 'lms_study_goals', 'lms_study_stats'
   ];
 
   /* ===== Hari & jadwal ===== */

@@ -148,6 +148,8 @@
         ${p.style === 4 ? '<g fill="none" stroke="#2a2522" stroke-width="1.8"><circle cx="51" cy="59" r="6.2"/><circle cx="69" cy="59" r="6.2"/><path d="M57.2 59h5.6M44.8 58l-6-2M75.2 58l6-2"/></g>' : ''}`;
     }
     const label = (opts && opts.label) || `Avatar ${p.gender === 'f' ? 'cewek' : 'cowok'} jas almamater ${c.name}`;
+    // bare: tanpa lingkaran latar (figur di Ruang Belajar duduk di balik meja).
+    if (opts && opts.bare) return `<svg class="av-svg av-bare" viewBox="0 0 120 120" aria-hidden="true" xmlns="http://www.w3.org/2000/svg">${body}</svg>`;
     return `<svg class="av-svg" viewBox="0 0 120 120" role="img" aria-label="${esc(label)}" xmlns="http://www.w3.org/2000/svg">
       <defs><clipPath id="${uid}c"><circle cx="60" cy="60" r="60"/></clipPath></defs>
       <g clip-path="url(#${uid}c)"><rect width="120" height="120" fill="${bg}"/>${body}</g></svg>`;
@@ -160,6 +162,17 @@
     if (isPreset(v)) return svg(v, { label: 'Avatar ' + (user.name || '') });
     if (v && /^data:image\/(png|jpe?g|webp);base64,/i.test(v)) return `<img src="${esc(v)}" alt="" loading="lazy" />`;
     return esc(initials(user ? user.name : '?'));
+  }
+
+  /** Kode figur pengguna: avatar pilihannya, atau figur tetap (dari id) bila belum memilih. */
+  function codeFor(user) {
+    if (user && isPreset(user.photo)) return user.photo;
+    let h = 2166136261;
+    const s = String((user && user.id) || '?');
+    for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); }
+    h >>>= 0;
+    const campus = user && user.targetUniv ? suggestCampus(user) : CAMPUS[h % CAMPUS.length].id;
+    return idOf(campus, (h >> 4) % 2 ? 'f' : 'm', (h >> 8) % 6);
   }
 
   /* ---------------- pemilih avatar ---------------- */
@@ -247,5 +260,5 @@
     }));
   }
 
-  global.Avatars = { CAMPUS, campuses, parse, isPreset, idOf, svg, inner, mountPicker, renderAdmin, suggestCampus, STYLE_NAMES };
+  global.Avatars = { CAMPUS, campuses, parse, isPreset, idOf, svg, inner, codeFor, mountPicker, renderAdmin, suggestCampus, STYLE_NAMES };
 })(window);
