@@ -1233,6 +1233,7 @@
       `${global.Topics ? '<button class="btn btn-secondary btn-sm" id="wsTopics">🗂 Materi & Sub Materi</button>' : ''}
        <button class="btn btn-secondary btn-sm" id="wsBulkQ">⚡ Buat Massal</button>
        <button class="btn btn-secondary btn-sm" id="wsImportQ">⬆ Impor</button>
+       <button class="btn btn-secondary btn-sm" id="wsDocQ" title="Baca soal dari PDF/Word, dibantu AI"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="vertical-align:-2px"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6M9 14h6M9 17h4"/></svg> Impor PDF/Word</button>
        <button class="btn btn-secondary btn-sm" id="wsExportQ">⬇ Ekspor</button>
        <button class="btn btn-primary btn-sm" id="wsAddQ">+ Tambah Soal</button>`);
     wsEl.__onBack = () => { closeWorkspace(); if (typeof onDone === 'function') onDone(); };
@@ -1244,6 +1245,8 @@
       BankTools.openBulk(user, paintAll, { subtest: activeSub }));
     document.getElementById('wsImportQ').addEventListener('click', () =>
       BankTools.openImport(user, paintAll, { subtest: activeSub }));
+    document.getElementById('wsDocQ').addEventListener('click', () =>
+      DocImport.open(user, paintAll, { subtest: activeSub }));
     document.getElementById('wsExportQ').addEventListener('click', () => openExportMenu());
     const tpBtn = document.getElementById('wsTopics');
     if (tpBtn) tpBtn.addEventListener('click', () => Topics.openManager(user, () => { if (tf.topicId && !Topics.get(tf.topicId)) { tf.topicId = ''; tf.subtopicId = ''; } paintAll(); }, activeSub));
@@ -1797,6 +1800,7 @@
           <div class="flex-gap">
             <button class="btn btn-secondary btn-sm" id="bsBulkBtn">⚡ Buat Massal</button>
             <button class="btn btn-secondary btn-sm" id="bsImportBtn">⬆ Impor</button>
+            <button class="btn btn-secondary btn-sm" id="bsDocBtn" title="Baca soal dari PDF/Word, dibantu AI"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="vertical-align:-2px"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6M9 14h6M9 17h4"/></svg> Impor PDF/Word</button>
             <button class="btn btn-secondary btn-sm" id="bsExportBtn">⬇ Ekspor</button>
             <button class="btn btn-secondary btn-sm" id="bsAddBtn">+ Tambah Soal</button>
             <button class="btn btn-primary btn-sm" id="bsOpenBtn">📖 Buka Soal Tersedia</button>
@@ -1834,6 +1838,7 @@
     document.getElementById('bsAddBtn').addEventListener('click', () => openQuestionForm(user, null, reload));
     document.getElementById('bsBulkBtn').addEventListener('click', () => BankTools.openBulk(user, reload));
     document.getElementById('bsImportBtn').addEventListener('click', () => BankTools.openImport(user, reload));
+    document.getElementById('bsDocBtn').addEventListener('click', () => DocImport.open(user, reload));
     document.getElementById('bsExportBtn').addEventListener('click', () => BankTools.exportQuestions(null, 'xlsx'));
     /* Klik kartu subtest membuka browser LANGSUNG pada subtest itu; dulu
      * nama subtest di data-open-sub dibuang sehingga selalu mendarat di PU. */
