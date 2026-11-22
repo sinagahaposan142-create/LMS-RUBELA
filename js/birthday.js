@@ -58,10 +58,6 @@
   }
 
   /* ------------------------- hadiah & bingkai ------------------------- */
-  function rewardFor(student) {
-    const win = DB.birthdayWishWindow(student);
-    return win ? DB.birthdayRewardFor(student.id, win.year) : null;
-  }
   /** Bingkai spesial tampil pada pekan ulang tahun (hari H atau setelah kado dibuka). */
   function hasFrame(user) {
     if (!enabled() || !user || user.role !== 'siswa') return false;
@@ -74,8 +70,8 @@
   function avatarHtml(user, size) {
     const s = size || 44;
     const frame = hasFrame(user);
-    const inner = user && user.photo
-      ? `<img src="${esc(user.photo)}" alt="Foto ${esc(user.name)}" loading="lazy" />`
+    const inner = global.Avatars && user && Avatars.isPreset(user.photo) ? Avatars.svg(user.photo, { label: 'Avatar ' + user.name })
+      : user && user.photo ? `<img src="${esc(user.photo)}" alt="Foto ${esc(user.name)}" loading="lazy" />`
       : `<span>${esc(UI.initials(user ? user.name : '?'))}</span>`;
     return `<span class="bd-avatar ${frame ? 'bd-frame' : ''}" style="--bd-s:${s}px">${inner}${frame ? '<i class="bd-crown" aria-hidden="true">👑</i>' : ''}</span>`;
   }

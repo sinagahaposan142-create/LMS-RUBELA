@@ -212,7 +212,7 @@
             <label for="ceLink">Tautan pendukung</label>
             <input id="ceLink" name="link" type="url" value="${esc(draft.link)}"
                    placeholder="https://drive.google.com/..." />
-            <div class="muted small">Tautan Google Drive, YouTube, atau situs rujukan. Tampil sebagai tombol di halaman siswa.</div>
+            <div class="muted small">Tautan Google Drive, YouTube, atau situs rujukan. Tampil sebagai tombol di halaman mentee.</div>
           </div>
         </div>
       </form>`;
@@ -234,8 +234,8 @@
     function paintPreview() {
       wsEl.querySelector('#ceSide').innerHTML = `
         <div class="ce-side-head">
-          <h3>👁️ Pratinjau Siswa</h3>
-          <p class="muted small">Tampilan materi ini di halaman siswa</p>
+          <h3>👁️ Pratinjau Mentee</h3>
+          <p class="muted small">Tampilan materi ini di halaman mentee</p>
         </div>
         <div class="ce-preview">
           <div class="list-item">
@@ -409,7 +409,7 @@
       const filled = draft.sections.filter(s => (s.title || '').trim() || RichText.plain(s.content, 50).trim());
       wsEl.querySelector('#ceSide').innerHTML = `
         <div class="ce-side-head">
-          <h3>👁️ Pratinjau Siswa</h3>
+          <h3>👁️ Pratinjau Mentee</h3>
           <p class="muted small">${filled.length} bagian akan tampil</p>
         </div>
         <div class="ce-preview">
@@ -540,8 +540,8 @@
       const dur = Number(main.querySelector('#ceDur').value) || 0;
       wsEl.querySelector('#ceSide').innerHTML = `
         <div class="ce-side-head">
-          <h3>👁️ Pratinjau Siswa</h3>
-          <p class="muted small">Tampilan rekaman di halaman siswa</p>
+          <h3>👁️ Pratinjau Mentee</h3>
+          <p class="muted small">Tampilan rekaman di halaman mentee</p>
         </div>
         <div class="ce-preview">
           <div class="list-item">
@@ -601,7 +601,7 @@
    * ===================================================================*/
   const ASSIGN_MODES = [
     { key: 'uraian', icon: '✍️', label: 'Jawaban Uraian',
-      desc: 'Siswa menulis jawaban bebas. Dinilai manual oleh tutor.' },
+      desc: 'Mentee menulis jawaban bebas. Dinilai manual oleh tutor.' },
     { key: 'soal', icon: '🧮', label: 'Berbasis Soal',
       desc: 'Susun dari Bank Soal dengan 8 format soal. Nilai otomatis untuk format objektif.' }
   ];
@@ -704,7 +704,7 @@
             <h3 class="ce-h">3. Instruksi Tugas</h3>
             ${Editor.toolbarHtml('ceDesc')}
             <div id="ceDesc" class="qe-editor" contenteditable="true"
-                 data-ph="Jelaskan apa yang harus dikerjakan siswa. Rumus, tabel, gambar, dan tautan tersedia.">${draft.description}</div>
+                 data-ph="Jelaskan apa yang harus dikerjakan mentee. Rumus, tabel, gambar, dan tautan tersedia.">${draft.description}</div>
           </div>
 
           <div class="ce-card">
@@ -807,7 +807,6 @@
       draft.description = (wsEl.querySelector('#ceDesc') || {}).innerHTML || draft.description;
       draft.rubric = (wsEl.querySelector('#ceRubric') || {}).value || draft.rubric;
       let sub = course.subtest || (DB.SUBTESTS[0] && DB.SUBTESTS[0].name);
-      let q = '';
 
       Editor.openSubDialog('Ambil Soal dari Bank Soal', `
         <div class="form-row">
@@ -890,7 +889,7 @@
       const autoCount = qs.filter(q => (q.questionType || 'Pilihan Ganda') !== 'Esai').length;
       wsEl.querySelector('#ceSide').innerHTML = `
         <div class="ce-side-head">
-          <h3>👁️ Pratinjau Siswa</h3>
+          <h3>👁️ Pratinjau Mentee</h3>
           <p class="muted small">${isSoal ? `${qs.length} soal • ${autoCount} dinilai otomatis` : 'jawaban uraian'}</p>
         </div>
         <div class="ce-preview">
@@ -906,7 +905,7 @@
             ${isSoal ? (qs.length ? `<ol class="ce-prev-q">${qs.map(q =>
               `<li><span class="muted small">${esc(q.questionType || '')}</span><div class="rt-content">${RichText.render(q.text || '')}</div></li>`).join('')}</ol>`
               : '<div class="empty" style="padding:16px;"><div class="empty-icon">📚</div>Belum ada soal.</div>')
-              : '<div class="ce-prev-answer">Kolom jawaban uraian siswa</div>'}
+              : '<div class="ce-prev-answer">Kolom jawaban uraian mentee</div>'}
           </div>
         </div>`;
     }

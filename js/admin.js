@@ -2,6 +2,8 @@
  * Manage guru, siswa, courses, view stats, reset data.
  */
 (function (global) {
+  // Isi lingkaran avatar: avatar almamater / foto / inisial (js/avatars.js).
+  const AV = (u) => (global.Avatars ? Avatars.inner(u) : UI.esc(UI.initials(u && u.name)));
   // Kelas yang sedang dibuka di tampilan detail admin (null = daftar)
   let adminCourseId = null;
 
@@ -11,6 +13,7 @@
     if (section === 'siswa') return renderUsers(container, 'siswa');
     if (section === 'orangtua') return renderParents(container);
     if (section === 'staff') return renderStaff(container, user);
+    if (section === 'data-ganda') return Duplicates.render(container, user);
     if (section === 'streak-admin') return StreakAPI.renderAdmin(container, user);
     if (section === 'arena-admin') return Arena.renderAdmin(container, user);
     if (section === 'game-admin') return GamesAdmin.render(container, user);
@@ -72,10 +75,10 @@
         <div class="wh-inner">
           <div class="wh-eyebrow">${UI.esc(UI.greeting())} • ${UI.esc(UI.fmtFullDateTime(UI.nowInTz()))}</div>
           <h2>Selamat Datang, <span class="hl">Administrator</span></h2>
-          <p class="wh-sub">Pusat kendali LMS Rubela — kelola guru, siswa, orang tua, kelas, presensi, dan keuangan dari satu tempat.</p>
+          <p class="wh-sub">Pusat kendali LMS Rubela — kelola tutor, mentee, orang tua, kelas, presensi, dan keuangan dari satu tempat.</p>
           <div class="wh-chips">
-            <span class="wh-chip">👨‍🏫 ${gurus.length} guru</span>
-            <span class="wh-chip">👨‍🎓 ${siswas.length} siswa</span>
+            <span class="wh-chip">👨‍🏫 ${gurus.length} tutor</span>
+            <span class="wh-chip">👨‍🎓 ${siswas.length} mentee</span>
             <span class="wh-chip">👨‍👩‍👦 ${parents.length} orang tua</span>
             <span class="wh-chip">🔒 ${lockedCourses}/${courses.length} kelas terkunci</span>
             <span class="wh-chip">📋 ${todayAtt} presensi hari ini</span>
@@ -90,12 +93,12 @@
 
       <div class="stats-grid">
         <div class="stat-card accent-primary is-clickable" id="kpiGuru">
-          <div class="label">Total Guru</div>
+          <div class="label">Total Tutor</div>
           <div class="value">${gurus.length}</div>
           <div class="sub">Pengajar terdaftar</div>
         </div>
         <div class="stat-card accent-success is-clickable" id="kpiSiswa">
-          <div class="label">Total Siswa</div>
+          <div class="label">Total Mentee</div>
           <div class="value">${siswas.length}</div>
           <div class="sub">Peserta didik aktif</div>
         </div>
@@ -157,7 +160,7 @@
         ${courses.length === 0
           ? emptyState('Belum ada kelas.')
           : `<div class="table-wrap"><table class="table">
-              <thead><tr><th>Judul</th><th>Guru</th><th>Kategori</th><th>Siswa</th><th>Dibuat</th></tr></thead>
+              <thead><tr><th>Judul</th><th>Tutor</th><th>Kategori</th><th>Mentee</th><th>Dibuat</th></tr></thead>
               <tbody>${courses.slice().sort((a,b)=>b.createdAt-a.createdAt).slice(0,5).map(c => {
                 const teacher = DB.getUser(c.teacherId);
                 const count = DB.getEnrollmentsByCourse(c.id).length;
@@ -188,16 +191,25 @@
   function renderUsers(container, role) {
     const list = DB.getUsers().filter(u => u.role === role);
     const isGuru = role === 'guru';
+    const counts = DB.classCountByUser();
+    const unplaced = list.filter(u => (u.status || 'Aktif') === 'Aktif' && !counts.get(u.id));
+    const placeOf = (u) => (counts.get(u.id) ? 'yes' : 'no');
     container.innerHTML = `
+      ${unplaced.length ? `<div class="place-banner" role="status">
+        <span class="pb-ic" aria-hidden="true">${isGuru ? '🧑‍🏫' : '🎒'}</span>
+        <div class="pb-main"><strong>${unplaced.length} ${isGuru ? 'tutor aktif belum mengajar kelas mana pun' : 'mentee aktif belum terdaftar di kelas mana pun'}</strong>
+          <span>${UI.esc(unplaced.slice(0, 4).map(u => u.name).join(', '))}${unplaced.length > 4 ? ` dan ${unplaced.length - 4} lainnya` : ''}</span></div>
+        <button type="button" class="btn btn-sm btn-secondary" id="showUnplaced">Tampilkan</button>
+      </div>` : ''}
       <div class="card">
         <div class="card-header">
-          <h3>${isGuru ? 'Daftar Guru' : 'Daftar Siswa'} (${list.length})</h3>
+          <h3>${isGuru ? 'Daftar Tutor' : 'Daftar Mentee'} (${list.length})</h3>
           <div class="flex-gap">
             <button class="btn btn-sm btn-secondary" id="exportBtn">Export Excel</button>
             <label class="btn btn-sm btn-secondary" style="cursor:pointer;">Import Excel
               <input type="file" id="importFile" accept=".xlsx,.xls,.csv" style="display:none;" />
             </label>
-            <button class="btn btn-primary btn-sm" id="addUserBtn">+ Tambah ${isGuru ? 'Guru' : 'Siswa'}</button>
+            <button class="btn btn-primary btn-sm" id="addUserBtn">+ Tambah ${isGuru ? 'Tutor' : 'Mentee'}</button>
           </div>
         </div>
         <details class="demo-accounts" style="margin:0 0 14px;">
@@ -217,6 +229,14 @@
     `;
 
     document.getElementById('addUserBtn').addEventListener('click', () => openUserForm(role));
+    const showUn = document.getElementById('showUnplaced');
+    if (showUn) showUn.addEventListener('click', () => {
+      const sel = container.querySelector('.ds-filter[data-f="place"]');
+      if (!sel) return;
+      sel.value = 'no';
+      sel.dispatchEvent(new Event('change', { bubbles: true }));
+      sel.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    });
     // Pencarian menyeluruh: nama, username, ID, email, telepon, kelas/subtest, kampus tujuan, status.
     const statusOf = (u) => u.status || 'Aktif';
     DataSearch.mount({
@@ -224,15 +244,17 @@
       items: list,
       stateKey: 'admin-users-' + role,
       placeholder: isGuru ? 'Cari nama, username, ID, email, WhatsApp, atau subtest…' : 'Cari nama, username, ID, email, telepon, kelas, atau kampus tujuan…',
-      fields: u => [u.name, u.username, u.id, u.email, u.phone, u.whatsapp, u.subject, u.kelas, u.targetUniv, u.targetMajor, statusOf(u), u.birthDate],
+      fields: u => [u.name, u.username, u.id, u.email, u.phone, u.whatsapp, DB.userSubjects(u), DB.userSubjectsLabel(u), u.kelas, u.targetUniv, u.targetMajor, statusOf(u), u.birthDate],
       filters: [
         { key: 'status', label: 'Semua status', get: statusOf,
           options: ['Aktif', 'Nonaktif', 'Dikeluarkan', 'Alumni'].map(v => ({ value: v, label: v })) },
         isGuru
-          ? { key: 'subject', label: 'Semua subtest', get: u => u.subject || '',
-              options: [...new Set(list.map(u => u.subject).filter(Boolean))].map(v => ({ value: v, label: v })) }
+          ? { key: 'subject', label: 'Semua subtest', get: u => DB.userSubjects(u),
+              options: [...new Set(DB.SUBTEST_NAMES.concat(...list.map(u => DB.userSubjects(u))))].map(v => ({ value: v, label: (DB.subtestByName(v) || {}).short || v })) }
           : { key: 'kelas', label: 'Semua kelas', get: u => u.kelas || '',
-              options: [...new Set(DB.getClassOptions().concat(list.map(u => u.kelas).filter(Boolean)))].map(v => ({ value: v, label: v })) }
+              options: [...new Set(DB.getClassOptions().concat(list.map(u => u.kelas).filter(Boolean)))].map(v => ({ value: v, label: v })) },
+        { key: 'place', label: 'Semua penempatan', get: placeOf,
+          options: [{ value: 'no', label: isGuru ? 'Belum mengajar kelas' : 'Belum punya kelas' }, { value: 'yes', label: isGuru ? 'Sudah mengajar kelas' : 'Sudah punya kelas' }] }
       ],
       sorts: [
         { key: 'name', label: 'Nama A–Z', cmp: (a, b) => a.name.localeCompare(b.name) },
@@ -246,7 +268,7 @@
       empty: 'Belum ada data.',
       render: (rows, ctx) => `<div class="table-wrap"><table class="table">
           <thead><tr>
-            <th>Nama</th><th>Username</th><th>${isGuru ? 'Subtest' : 'Kelas'}</th><th>${isGuru ? 'WhatsApp' : 'Telepon'}</th><th>Tgl Lahir</th><th>Status</th><th>Aksi</th>
+            <th>Nama</th><th>Username</th><th>${isGuru ? 'Subtest' : 'Kelas Utama'}</th><th>${isGuru ? 'Kelas Diajar' : 'Kelas Subtest'}</th><th>${isGuru ? 'WhatsApp' : 'Telepon'}</th><th>Tgl Lahir</th><th>Status</th><th>Aksi</th>
           </tr></thead>
           <tbody>
             ${rows.map(u => {
@@ -256,7 +278,10 @@
               return `<tr>
               <td><div class="user-cell">${Birthday.avatarHtml(u, 34)}<div><strong>${ctx.highlight(u.name)}</strong><div class="muted small">${ctx.highlight(u.email || '-')}</div></div></div></td>
               <td>${ctx.highlight(u.username)}</td>
-              <td>${ctx.highlight(isGuru ? (u.subject || '-') : (u.kelas || '-'))}</td>
+              <td>${isGuru
+                ? (DB.userSubjects(u).length ? `<span class="chip-row">${DB.userSubjects(u).map(n => { const st = DB.subtestByName(n); return `<span class="badge badge-info" title="${UI.esc(n)}">${st ? st.icon + ' ' + UI.esc(st.short) : UI.esc(n)}</span>`; }).join('')}</span>` : '<span class="muted small">-</span>')
+                : ctx.highlight(u.kelas || '-')}</td>
+              <td class="nowrap">${counts.get(u.id) ? `<strong>${counts.get(u.id)}</strong> kelas` : `<span class="badge badge-warning">${isGuru ? 'Belum mengajar' : 'Belum ada kelas'}</span>`}</td>
               <td>${ctx.highlight(isGuru ? (u.whatsapp || '-') : (u.phone || '-'))}</td>
               <td>${u.birthDate ? `${UI.fmtYMD(u.birthDate)}${bd && bd.isToday ? ' <span class="badge badge-warning">🎂 hari ini</span>' : ''}` : '<span class="muted small">-</span>'}</td>
               <td><span class="badge ${statusBadge}">${UI.esc(statusOf(u))}</span></td>
@@ -287,7 +312,7 @@
       if (isGuru) {
         rows = users.map(u => ({
           Nama: u.name, Username: u.username, Password: u.password || '', Email: u.email || '',
-          WhatsApp: u.whatsapp || '', Subtest: u.subject || '',
+          WhatsApp: u.whatsapp || '', Subtest: DB.userSubjectsLabel(u),
           'Tarif Gaji': u.salaryRate || 0, 'Tanggal Lahir': u.birthDate || '', Status: u.status || 'Aktif'
         }));
       } else {
@@ -301,16 +326,16 @@
       // Baris contoh agar kolom tetap terlihat walau data masih kosong
       if (rows.length === 0) {
         rows = [isGuru
-          ? { Nama: 'Contoh Guru', Username: 'guru_baru', Password: 'password123', Email: 'guru@rubela.edu',
+          ? { Nama: 'Contoh Tutor', Username: 'guru_baru', Password: 'password123', Email: 'guru@rubela.edu',
               WhatsApp: '08123456789', Subtest: DB.SUBTESTS[0].name, 'Tarif Gaji': 3000000, 'Tanggal Lahir': '1995-08-17', Status: 'Aktif' }
-          : { Nama: 'Contoh Siswa', Username: 'siswa_baru', Password: 'password123', Email: 'siswa@rubela.edu',
+          : { Nama: 'Contoh Mentee', Username: 'siswa_baru', Password: 'password123', Email: 'siswa@rubela.edu',
               Telepon: '08123456789', Kelas: (DB.getClassOptions()[0] || 'X-A'),
               'Universitas Tujuan': 'Universitas Indonesia', 'Jurusan Tujuan': 'Teknik Informatika', 'Tanggal Lahir': '2008-05-21', Agama: 'Islam', Status: 'Aktif' }];
       }
       if (typeof XLSX === 'undefined') { UI.toast('Library Excel belum termuat. Coba reload halaman.', 'error'); return; }
       const ws = XLSX.utils.json_to_sheet(rows);
       const wb = XLSX.utils.book_new();
-      XLSX.utils.book_append_sheet(wb, ws, isGuru ? 'Guru' : 'Siswa');
+      XLSX.utils.book_append_sheet(wb, ws, isGuru ? 'Tutor' : 'Mentee');
       XLSX.writeFile(wb, `data_${role}_${UI.todayYMD()}.xlsx`);
       UI.toast(Auth.isServer()
         ? 'File Excel diunduh. Kolom Password sengaja kosong karena password disimpan terenkripsi di server.'
@@ -347,7 +372,8 @@
             const relMatch = DB.RELIGIONS.find(r => r.toLowerCase() === rel.toLowerCase());
             if (relMatch) record.religion = relMatch;
             if (isGuru) {
-              record.subject = row.Subtest || row.subtest || row['Mata Pelajaran'] || '';
+              record.subjects = DB.resolveSubjectNames(row.Subtest || row.subtest || row['Mata Pelajaran'] || '');
+              record.subject = record.subjects[0] || '';
               record.whatsapp = String(row.WhatsApp || row.whatsapp || row.WA || '');
               record.salaryRate = Number(row['Tarif Gaji'] || row.salaryRate || 0);
             } else {
@@ -409,48 +435,83 @@
               <div class="muted small">Opsional. Ulang tahun mentee dirayakan otomatis.</div></div>
             <div class="form-group"><label>Foto Profil</label>
               <div class="photo-field">
-                <span class="photo-prev" data-photo-prev>${editing?.photo ? `<img src="${UI.esc(editing.photo)}" alt="" />` : UI.esc(UI.initials(editing?.name || '?'))}</span>
-                <label class="btn btn-sm btn-secondary" style="cursor:pointer;">Pilih foto
+                <span class="photo-prev" data-photo-prev>${avatarInner(editing)}</span>
+                ${global.Avatars ? '<button type="button" class="btn btn-sm btn-primary" data-avatar-open aria-expanded="false">Pilih avatar</button>' : ''}
+                <label class="btn btn-sm btn-secondary" style="cursor:pointer;">Unggah foto
                   <input type="file" accept="image/png,image/jpeg,image/webp" data-photo-file style="display:none;" /></label>
                 <button type="button" class="btn btn-sm btn-ghost ${editing?.photo ? '' : 'hidden'}" data-photo-del>Hapus</button>
-              </div></div>
+                <div class="avp-host" data-avatar-panel hidden></div>
+              </div>
+              <div class="muted small">Avatar almamater lebih ringan daripada foto karena tidak menyimpan gambar.</div></div>
           </div>`;
   }
-  /** Mengikat input foto; foto dikompres lewat Editor.compressImage. */
+  const avatarInner = (u) => (global.Avatars ? Avatars.inner(u || { name: '?' }) : (u && u.photo ? `<img src="${UI.esc(u.photo)}" alt="" />` : UI.esc(UI.initials(u?.name || '?'))));
+  /**
+   * Mengikat kolom foto profil: avatar almamater (kode pendek, js/avatars.js) atau
+   * foto unggahan yang dikompres ke 320 px lewat Editor.compressImage.
+   */
   function bindPhotoField(form, editing) {
     let value = editing?.photo || '';
     const prev = form.querySelector('[data-photo-prev]');
     const file = form.querySelector('[data-photo-file]');
     const del = form.querySelector('[data-photo-del]');
+    const openBtn = form.querySelector('[data-avatar-open]');
+    const panel = form.querySelector('[data-avatar-panel]');
+    let picker = null;
     const paint = () => {
-      prev.innerHTML = value ? `<img src="${UI.esc(value)}" alt="" />` : UI.esc(UI.initials(editing?.name || '?'));
+      prev.innerHTML = avatarInner(Object.assign({}, editing || {}, { photo: value, name: editing?.name || '?' }));
       del.classList.toggle('hidden', !value);
     };
+    if (openBtn && panel) openBtn.addEventListener('click', () => {
+      const show = panel.hidden;
+      panel.hidden = !show;
+      openBtn.setAttribute('aria-expanded', String(show));
+      openBtn.textContent = show ? 'Tutup pilihan' : 'Pilih avatar';
+      if (show && !picker) picker = Avatars.mountPicker(panel, { value, user: editing, onPick: (code) => { value = code; paint(); } });
+    });
     file.addEventListener('change', async () => {
       const f = file.files[0];
       if (!f) return;
       if (!/^image\/(png|jpe?g|webp)$/i.test(f.type)) { UI.toast('Gunakan gambar PNG, JPG, atau WEBP.', 'error'); return; }
       prev.innerHTML = '<span class="spinner"></span>';
-      try { value = await Editor.compressImage(f); } catch (e) { UI.toast(e.message || 'Gagal membaca gambar.', 'error'); }
+      try { value = await Editor.compressImage(f, { maxW: 320 }); if (picker) picker.set(''); } catch (e) { UI.toast(e.message || 'Gagal membaca gambar.', 'error'); }
       paint();
       file.value = '';
     });
-    del.addEventListener('click', () => { value = ''; paint(); });
+    del.addEventListener('click', () => { value = ''; if (picker) picker.set(''); paint(); });
     return { value: () => value };
   }
-  global.ProfileFields = { profileExtraFields, bindPhotoField, validateBirthDate, religionOf };
+  /* ===== Subtest yang diampu tutor (boleh lebih dari satu) ===== */
+  function subjectPickerHtml(selected, opts) {
+    const o = opts || {};
+    const sel = new Set(selected || []);
+    const others = [...sel].filter(n => !DB.SUBTEST_NAMES.includes(n));
+    return `<fieldset class="form-group subj-pick" data-subj-pick>
+        <legend>${UI.esc(o.label || 'Subtest yang diampu')} <span class="muted small">(boleh lebih dari satu)</span></legend>
+        <div class="day-chips subj-chips">${DB.SUBTESTS.map(st => `
+          <label class="day-chip ${sel.has(st.name) ? 'is-on' : ''}" title="${UI.esc(st.name)}">
+            <input type="checkbox" name="subjects" value="${UI.esc(st.name)}" ${sel.has(st.name) ? 'checked' : ''} />
+            <span>${st.icon} ${UI.esc(st.short)}</span></label>`).join('')}</div>
+        <label class="small" for="subjOther" style="display:block;margin-top:10px;">Materi lain di luar 7 subtest UTBK <span class="muted">(opsional, pisahkan koma)</span></label>
+        <input id="subjOther" name="subjectsOther" value="${UI.esc(others.join(', '))}" placeholder="mis. Kimia Dasar, Kelas Intensif Saintek" />
+      </fieldset>`;
+  }
+  function readSubjects(form) {
+    const fd = new FormData(form);
+    return [...new Set(fd.getAll('subjects').map(String).concat(DB.resolveSubjectNames(fd.get('subjectsOther') || '')))].filter(Boolean);
+  }
+  /** Sorot chip yang dicentang (dipakai form akun tutor & profil tutor). */
+  function bindSubjectPicker(root) {
+    (root || document).querySelectorAll('[data-subj-pick] input[type="checkbox"]').forEach(cb =>
+      cb.addEventListener('change', () => cb.closest('.day-chip').classList.toggle('is-on', cb.checked)));
+  }
+
+  global.ProfileFields = { profileExtraFields, bindPhotoField, validateBirthDate, religionOf, subjectPickerHtml, readSubjects, bindSubjectPicker };
 
   function openUserForm(role, editId) {
     const isGuru = role === 'guru';
     const editing = editId ? DB.getUser(editId) : null;
-    const title = editing ? `Edit ${isGuru ? 'Guru' : 'Siswa'}` : `Tambah ${isGuru ? 'Guru' : 'Siswa'}`;
-
-    /* Daftar subtest diambil dari konstanta bersama DB.SUBTESTS supaya tidak
-     * ada dua sumber kebenaran, dan selalu tersedia opsi "Lainnya" agar
-     * bimbel bisa menambah materi di luar tujuh subtest UTBK. */
-    const SUBTESTS = DB.SUBTEST_NAMES;
-    const curSubject = editing ? (editing.subject || '') : '';
-    const isOtherSubject = !!curSubject && !SUBTESTS.includes(curSubject);
+    const title = editing ? `Edit ${isGuru ? 'Tutor' : 'Mentee'}` : `Tambah ${isGuru ? 'Tutor' : 'Mentee'}`;
 
     // Status options
     const STATUSES = ['Aktif', 'Nonaktif', 'Dikeluarkan'];
@@ -479,24 +540,13 @@
               </select>
             </div>
           </div>
-          <div class="form-group"><label for="guSubject">Guru Subtest</label>
-            <select name="subject" id="guSubject" required>
-              <option value="">-- Pilih Subtest --</option>
-              ${SUBTESTS.map(s => `<option value="${UI.esc(s)}" ${curSubject === s ? 'selected' : ''}>${UI.esc(s)}</option>`).join('')}
-              <option value="__OTHER__" ${isOtherSubject ? 'selected' : ''}>✏️ Lainnya (tulis manual)</option>
-            </select>
-          </div>
-          <div class="form-group ${isOtherSubject ? '' : 'hidden'}" id="guSubjectOtherBox">
-            <label for="guSubjectOther">Nama Subtest / Materi (manual)</label>
-            <input name="subjectOther" id="guSubjectOther" value="${UI.esc(isOtherSubject ? curSubject : '')}"
-                   placeholder="mis. Kimia Dasar, Kelas Intensif Saintek" />
-            <div class="muted small">Dipakai bila materi yang diampu di luar tujuh subtest UTBK.</div>
-          </div>
+          ${subjectPickerHtml(DB.userSubjects(editing))}
           <div class="form-group"><label>Tarif Gaji per Bulan (Rp)</label>
             <input name="salaryRate" type="number" min="0" value="${editing?.salaryRate || 0}" /></div>
           ${profileExtraFields(editing)}
           <div class="form-group"><label>Password ${editing ? '(kosongkan jika tidak diubah)' : ''}</label>
             <input type="password" name="password" ${editing ? '' : 'required minlength="6"'} /></div>
+          <div id="userDupWarn" class="alert alert-warning small dup-warn" hidden></div>
           <div id="userFormError" class="alert alert-error hidden"></div>
           <div class="flex-gap" style="justify-content:flex-end;">
             <button type="button" class="btn btn-secondary" id="cancelBtn">Batal</button>
@@ -538,6 +588,7 @@
           ${profileExtraFields(editing)}
           <div class="form-group"><label>Password ${editing ? '(kosongkan jika tidak diubah)' : ''}</label>
             <input type="password" name="password" ${editing ? '' : 'required minlength="6"'} /></div>
+          <div id="userDupWarn" class="alert alert-warning small dup-warn" hidden></div>
           <div id="userFormError" class="alert alert-error hidden"></div>
           <div class="flex-gap" style="justify-content:flex-end;">
             <button type="button" class="btn btn-secondary" id="cancelBtn">Batal</button>
@@ -550,22 +601,28 @@
     document.getElementById('cancelBtn').addEventListener('click', () => UI.modal.close());
     const photo = bindPhotoField(document.getElementById('userForm'), editing);
 
-    /* Opsi "Lainnya" pada subtest tutor: tampilkan kolom manual bila dipilih.
-     * Pola yang sama dipakai pada form kelas agar konsisten. */
-    const subjSel = document.getElementById('guSubject');
-    const subjBox = document.getElementById('guSubjectOtherBox');
-    const subjInp = document.getElementById('guSubjectOther');
-    const syncSubject = () => {
-      if (!subjSel) return;
-      const other = subjSel.value === '__OTHER__';
-      subjBox.classList.toggle('hidden', !other);
-      subjInp.required = other;
+    bindSubjectPicker(document.getElementById('userForm'));
+    // Peringatan langsung bila nama/email/nomor sudah dipakai akun lain (data ganda).
+    const dupBox = document.getElementById('userDupWarn');
+    const dupDraft = () => {
+      const f = document.getElementById('userForm');
+      const v = (n) => { const el = f.querySelector(`[name="${n}"]`); return el ? el.value : ''; };
+      return { role, name: v('name'), email: v('email'), phone: v('phone'), whatsapp: v('whatsapp') };
     };
-    if (subjSel) { subjSel.addEventListener('change', syncSubject); syncSubject(); }
-    const currentSubject = () => {
-      if (!subjSel) return '';
-      return subjSel.value === '__OTHER__' ? (subjInp.value || '').trim() : subjSel.value;
+    const dupList = () => (global.Duplicates ? Duplicates.similarUsers(dupDraft(), editing && editing.id) : []);
+    let dupT = null;
+    const paintDup = () => {
+      const list = dupList();
+      dupBox.hidden = !list.length;
+      dupBox.innerHTML = list.length ? `<strong>Kemungkinan data ganda:</strong><ul>${list.slice(0, 4).map(x =>
+        `<li>${UI.esc(x.u.name)} (@${UI.esc(x.u.username)}, ${UI.esc({ siswa: 'mentee', guru: 'tutor', orangtua: 'orang tua', admin: 'admin' }[x.u.role] || x.u.role)}) — ${UI.esc(x.why)}</li>`).join('')}</ul>` : '';
     };
+    ['name', 'email', 'phone', 'whatsapp'].forEach(n => {
+      const el = document.querySelector(`#userForm [name="${n}"]`);
+      if (el) el.addEventListener('input', () => { clearTimeout(dupT); dupT = setTimeout(paintDup, 250); });
+    });
+    if (editing) paintDup();
+    const currentSubjects = () => readSubjects(document.getElementById('userForm'));
 
     document.getElementById('userForm').addEventListener('submit', (e) => {
       e.preventDefault();
@@ -587,14 +644,17 @@
           err.classList.remove('hidden');
           return;
         }
-        if (isGuru && !currentSubject()) {
-          err.textContent = 'Pilih subtest atau tulis nama materinya secara manual.';
+        const dups = dupList();
+        if (dups.length && !UI.confirmDialog(`${dups[0].u.name} (@${dups[0].u.username}) sudah terdaftar dengan ${dups[0].why}. Tetap buat akun baru?`)) return;
+        if (isGuru && !currentSubjects().length) {
+          err.textContent = 'Pilih minimal satu subtest, atau tulis nama materinya secara manual.';
           err.classList.remove('hidden');
           return;
         }
         const record = { id: DB.uid('u'), role, name, username, email, password, status, birthDate, photo: photo.value(), religion: religionOf(fd) };
         if (isGuru) {
-          record.subject = currentSubject();
+          record.subjects = currentSubjects();
+          record.subject = record.subjects[0];
           record.whatsapp = fd.get('whatsapp').trim();
           record.salaryRate = Number(fd.get('salaryRate') || 0);
         } else {
@@ -606,14 +666,15 @@
         DB.addUser(record);
         UI.toast('Berhasil menambahkan.');
       } else {
-        if (isGuru && !currentSubject()) {
-          err.textContent = 'Pilih subtest atau tulis nama materinya secara manual.';
+        if (isGuru && !currentSubjects().length) {
+          err.textContent = 'Pilih minimal satu subtest, atau tulis nama materinya secara manual.';
           err.classList.remove('hidden');
           return;
         }
         const patch = { name, email, status, birthDate, photo: photo.value(), religion: religionOf(fd) };
         if (isGuru) {
-          patch.subject = currentSubject();
+          patch.subjects = currentSubjects();
+          patch.subject = patch.subjects[0];
           patch.whatsapp = fd.get('whatsapp').trim();
           patch.salaryRate = Number(fd.get('salaryRate') || 0);
         } else {
@@ -652,11 +713,11 @@
           <p class="muted small" style="margin:8px 0 0;">
             Kolom yang dikenali: <strong>Judul Kelas</strong>, <strong>Subtest</strong>,
             <strong>Kelas Utama</strong> (pisahkan koma, mis. "Kelas 11-A, Kelas 11-B"),
-            <strong>Username Guru</strong> (boleh beberapa, pisahkan koma untuk kelas dengan lebih dari satu tutor),
+            <strong>Username Tutor</strong> (boleh beberapa, pisahkan koma untuk kelas dengan lebih dari satu tutor),
             <strong>Hari</strong>, <strong>Jam Mulai</strong>, <strong>Jam Selesai</strong>,
             <strong>Tanggal Mulai</strong>, <strong>Jumlah Pertemuan</strong>, <strong>Tautan Kelas</strong>,
             <strong>Kategori</strong>, <strong>Deskripsi</strong>, <strong>Biaya</strong>, dan <strong>Password</strong>.
-            Siswa pada kelas utama yang dicantumkan otomatis terdaftar. Kelas dengan judul yang sama akan dilewati.
+            Mentee pada kelas utama yang dicantumkan otomatis terdaftar. Kelas dengan judul yang sama akan dilewati.
           </p>
         </details>
         <div id="courseSearch"></div>
@@ -702,46 +763,46 @@
       ],
       sorts: [
         { key: 'title', label: 'Judul A–Z', cmp: (a, b) => DB.courseTitle(a).localeCompare(DB.courseTitle(b)) },
-        { key: 'students', label: 'Siswa terbanyak', cmp: (a, b) => DB.getEnrollmentsByCourse(b.id).length - DB.getEnrollmentsByCourse(a.id).length },
+        { key: 'students', label: 'Mentee terbanyak', cmp: (a, b) => DB.getEnrollmentsByCourse(b.id).length - DB.getEnrollmentsByCourse(a.id).length },
         { key: 'new', label: 'Terbaru', cmp: (a, b) => (b.createdAt || 0) - (a.createdAt || 0) }
       ],
       pageSize: 15,
       empty: 'Belum ada kelas.',
-      render: (rows, ctx) => `<div class="table-wrap"><table class="table">
-          <thead><tr><th>Kelas</th><th>Subtest</th><th>Kelas Utama</th><th>Tutor</th><th>Jadwal</th><th>Password</th><th>Siswa</th><th>Status</th><th>Aksi</th></tr></thead>
+      render: (rows, ctx) => `<div class="table-wrap"><table class="table table-courses">
+          <thead><tr><th>Kelas</th><th>Tutor</th><th>Jadwal</th><th>Mentee</th><th>Akses</th><th>Status</th><th class="nowrap" style="text-align:right;">Aksi</th></tr></thead>
           <tbody>
             ${rows.map(c => {
               const tutors = DB.courseTeachers(c);
               const enrollCount = DB.getEnrollmentsByCourse(c.id).length;
               const locked = DB.hasCoursePassword(c.id);
               const st = DB.subtestByName(c.subtest);
+              const sc = c.schedule || {};
+              const days = (sc.days || []).map(d => d.slice(0, 3)).join(', ');
+              const time = sc.time ? (sc.endTime ? `${sc.time}–${sc.endTime}` : sc.time) : '';
+              const desc = RichText ? RichText.plain(c.description, 90) : (c.description || '');
+              const off = c.active === false;
               return `<tr>
-                <td><strong>${ctx.highlight(DB.courseTitle(c))}</strong>
-                  <div class="small muted">${UI.esc(RichText ? RichText.plain(c.description, 70) : (c.description || ''))}</div></td>
-                <td>${st ? `<span class="badge badge-info">${st.icon} ${UI.esc(st.short)}</span>`
-                          : `<span class="badge badge-gray">${UI.esc(c.subtest || c.category || '-')}</span>`}</td>
-                <td>${(c.mainClasses || []).length
-                  ? (c.mainClasses).map(k => `<span class="badge badge-gray" style="margin:1px;">${UI.esc(k)}</span>`).join('')
-                  : '<span class="muted small">-</span>'}</td>
-                <td>${tutors.length
-                  ? tutors.map(t => `<div class="small">${ctx.highlight(t.name)}</div>`).join('')
-                  : '<span class="muted small">-</span>'}</td>
-                <td class="small">${UI.esc(DB.courseScheduleLabel(c))}</td>
-                <td>${locked
-                  ? `<span class="badge badge-warning" title="Password kelas">🔒 ${UI.esc(c.password)}</span>`
+                <td><div class="cls-cell"><span class="cls-ic" aria-hidden="true">${st ? st.icon : '📘'}</span>
+                  <div class="cls-main"><strong>${ctx.highlight(DB.courseTitle(c))}</strong>
+                    ${desc ? `<span class="cls-desc" title="${UI.esc(desc)}">${UI.esc(desc)}</span>` : ''}</div></div></td>
+                <td>${UI.peopleStack(tutors, 3)}</td>
+                <td>${days || time ? `<span class="sched-cell"><b>${UI.esc(time || '—')}</b><span class="muted">${UI.esc(days || 'hari belum diatur')}</span></span>` : '<span class="muted small">Belum diatur</span>'}</td>
+                <td class="nowrap"><strong>${enrollCount}</strong></td>
+                <td><span class="pw-cell">${locked
+                  ? `<span class="badge badge-warning" title="Password kelas: ${UI.esc(c.password)}">🔒 Berpassword</span>`
                   : '<span class="badge badge-gray">Terbuka</span>'}
-                  <button class="btn btn-sm btn-secondary" data-set-pw="${c.id}" style="margin-left:6px;">Atur</button>
-                </td>
-                <td>${enrollCount}</td>
-                <td>${c.active === false ? '<span class="badge badge-gray">Nonaktif</span>' : '<span class="badge badge-success">Aktif</span>'}
-                  ${c.newStudentPolicy === 'fromJoin' ? '<div class="muted small">siswa baru: konten baru</div>' : ''}</td>
-                <td class="actions">
-                  <button class="btn btn-sm btn-primary" data-open-course="${c.id}">📂 Lihat Kelas</button>
-                  <button class="btn btn-sm btn-secondary" data-manage-students="${c.id}">Kelola Siswa</button>
-                  <button class="btn btn-sm btn-secondary" data-edit-course="${c.id}">Edit</button>
-                  <button class="btn btn-sm btn-secondary" data-vis-toggle="course:${c.id}" data-on="${c.active === false ? 0 : 1}">${c.active === false ? '▶ Aktifkan' : '⏸ Matikan'}</button>
-                  <button class="btn btn-sm btn-danger" data-del="${c.id}">Hapus</button>
-                </td>
+                  <button type="button" class="icon-xs" data-set-pw="${c.id}" aria-label="Atur password kelas" title="Atur password kelas"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg></button></span></td>
+                <td>${off ? '<span class="badge badge-gray">Nonaktif</span>' : '<span class="badge badge-success">Aktif</span>'}
+                  ${c.newStudentPolicy === 'fromJoin' ? '<div class="muted small">mentee baru: konten baru</div>' : ''}</td>
+                <td class="actions"><div class="row-acts">
+                  <button class="btn btn-sm btn-primary" data-open-course="${c.id}">Buka</button>
+                  ${UI.actionMenu([
+                    { label: 'Kelola mentee', icon: '👥', attrs: `data-manage-students="${c.id}"` },
+                    { label: 'Edit kelas', icon: '✏️', attrs: `data-edit-course="${c.id}"` },
+                    { label: off ? 'Aktifkan kelas' : 'Matikan kelas', icon: off ? '▶' : '⏸', attrs: `data-vis-toggle="course:${c.id}" data-on="${off ? 0 : 1}"` },
+                    { label: 'Hapus kelas', icon: '🗑', danger: true, attrs: `data-del="${c.id}"` }
+                  ], 'Aksi kelas ' + DB.courseTitle(c))}
+                </div></td>
               </tr>`;
             }).join('')}
           </tbody>
@@ -763,23 +824,23 @@
           Deskripsi: c.description || '',
           Biaya: c.price || 0,
           Password: c.password || '',
-          'Username Guru': tutors.map(t => t.username).join(', '),
-          'Nama Guru': tutors.map(t => t.name).join(', '),
+          'Username Tutor': tutors.map(t => t.username).join(', '),
+          'Nama Tutor': tutors.map(t => t.name).join(', '),
           Hari: (sc.days || []).join(', '),
           'Jam Mulai': sc.time || '',
           'Jam Selesai': sc.endTime || '',
           'Tanggal Mulai': sc.startDate || '',
           'Jumlah Pertemuan': sc.sessions || '',
           'Tautan Kelas': c.meetingLink || '',
-          'Jumlah Siswa': DB.getEnrollmentsByCourse(c.id).length
+          'Jumlah Mentee': DB.getEnrollmentsByCourse(c.id).length
         };
       });
       if (rows.length === 0) {
         const g = DB.getUsers().find(u => u.role === 'guru');
         rows = [{
           'Judul Kelas': DB.SUBTESTS[0].name, Kategori: 'TPS', Deskripsi: 'Kelas persiapan Penalaran Umum.',
-          Biaya: 500000, Password: 'pu2026', 'Username Guru': g ? g.username : 'guru1',
-          'Nama Guru': g ? g.name : '', 'Jumlah Siswa': 0
+          Biaya: 500000, Password: 'pu2026', 'Username Tutor': g ? g.username : 'guru1',
+          'Nama Tutor': g ? g.name : '', 'Jumlah Mentee': 0
         }];
       }
       const ws = XLSX.utils.json_to_sheet(rows);
@@ -810,7 +871,7 @@
             if (!title) { skipped++; return; }
             if (existingTitles.has(title.toLowerCase())) { skipped++; return; }
 
-            const uname = String(row['Username Guru'] || row['username guru'] || row.Guru || row.guru || '').trim();
+            const uname = String(row['Username Tutor'] || row['username tutor'] || row['Username Guru'] || row['username guru'] || row.Tutor || row.Guru || row.guru || '').trim();
             let teacher = uname ? DB.findUserByUsername(uname) : null;
             if (!teacher || teacher.role !== 'guru') {
               teacher = gurus[0] || null;
@@ -819,7 +880,7 @@
             if (!teacher) { skipped++; return; }
 
             // Kolom opsional: beberapa username tutor & beberapa kelas utama
-            const extraTutors = String(row['Username Guru'] || '').split(/[,;]/).map(x => x.trim()).filter(Boolean)
+            const extraTutors = String(row['Username Tutor'] || row['Username Guru'] || '').split(/[,;]/).map(x => x.trim()).filter(Boolean)
               .map(u => DB.findUserByUsername(u)).filter(t => t && t.role === 'guru').map(t => t.id);
             const teacherIds = extraTutors.length ? [...new Set(extraTutors)] : [teacher.id];
             const mains = String(row['Kelas Utama'] || row['kelas utama'] || '').split(/[,;]/)
@@ -850,7 +911,7 @@
           });
 
           let msg = `Import selesai: ${added} kelas ditambahkan, ${skipped} dilewati (duplikat/kosong).`;
-          if (noTeacher) msg += ` ${noTeacher} baris memakai guru default karena username guru tidak ditemukan.`;
+          if (noTeacher) msg += ` ${noTeacher} baris memakai tutor default karena username tutor tidak ditemukan.`;
           UI.toast(msg, added > 0 ? 'success' : 'info');
           renderCourses(container);
         } catch (err) {
@@ -904,24 +965,24 @@
                   <input type="checkbox" name="mainClass" value="${UI.esc(mc.name)}" ${selMains.has(mc.name) ? 'checked' : ''} />
                   <div>
                     <div class="tgt-name">${UI.esc(mc.name)}</div>
-                    <div class="tgt-meta">${mc.active} siswa aktif</div>
+                    <div class="tgt-meta">${mc.active} mentee aktif</div>
                   </div>
                 </label>`).join('')}
           </div>
-          <p class="muted small" style="margin:8px 0 0;">Seluruh siswa pada kelas utama yang dicentang otomatis terdaftar di kelas ini.</p>
+          <p class="muted small" style="margin:8px 0 0;">Seluruh mentee pada kelas utama yang dicentang otomatis terdaftar di kelas ini.</p>
         </div>
 
         <div class="form-group">
           <label>Tutor Pengajar <span class="muted small">(boleh lebih dari satu)</span></label>
           <div class="tgt-grid">
             ${gurus.length === 0
-              ? '<div class="muted small">Belum ada guru aktif.</div>'
+              ? '<div class="muted small">Belum ada tutor aktif.</div>'
               : gurus.map(g => `
                 <label class="tgt-box ${selTeachers.has(g.id) ? 'is-on' : ''}">
                   <input type="checkbox" name="teacherIds" value="${g.id}" ${selTeachers.has(g.id) ? 'checked' : ''} />
                   <div>
                     <div class="tgt-name">${UI.esc(g.name)}</div>
-                    <div class="tgt-meta">${UI.esc(g.subject ? (DB.subtestByName(g.subject)?.short || g.subject) : 'Tanpa subtest')}</div>
+                    <div class="tgt-meta">${UI.esc(DB.userSubjectsLabel(g) || 'Tanpa subtest')}</div>
                   </div>
                 </label>`).join('')}
           </div>
@@ -969,15 +1030,15 @@
         <div class="form-group">
           <label>🔒 Password Kelas (untuk "Jelajah Kelas")</label>
           <input name="password" value="${UI.esc(editing?.password || '')}" placeholder="Kosongkan bila kelas terbuka tanpa password" />
-          <p class="muted small" style="margin:6px 0 0;">Hanya diminta saat siswa bergabung sendiri lewat halaman
+          <p class="muted small" style="margin:6px 0 0;">Hanya diminta saat mentee bergabung sendiri lewat halaman
           <strong>Jelajah Kelas</strong>. Pendaftaran lewat kelas utama tidak memerlukan password.</p>
         </div>
 
         <div class="form-row">
           <div class="form-group"><label>Status kelas</label>
-            <select name="active"><option value="1" ${editing?.active !== false ? 'selected' : ''}>Aktif — terlihat siswa</option>
-              <option value="0" ${editing?.active === false ? 'selected' : ''}>Nonaktif — disembunyikan dari siswa & orang tua</option></select></div>
-          <div class="form-group"><label>Siswa yang bergabung belakangan</label>
+            <select name="active"><option value="1" ${editing?.active !== false ? 'selected' : ''}>Aktif — terlihat mentee</option>
+              <option value="0" ${editing?.active === false ? 'selected' : ''}>Nonaktif — disembunyikan dari mentee & orang tua</option></select></div>
+          <div class="form-group"><label>Mentee yang bergabung belakangan</label>
             <select name="newStudentPolicy"><option value="all" ${editing?.newStudentPolicy !== 'fromJoin' ? 'selected' : ''}>Langsung melihat semua materi, tugas & ujian</option>
               <option value="fromJoin" ${editing?.newStudentPolicy === 'fromJoin' ? 'selected' : ''}>Hanya konten baru; konten lama dibuka lewat "Aktifkan ulang"</option></select></div>
         </div>
@@ -1028,12 +1089,13 @@
       const tutorNames = tIds.map(id => (DB.getUser(id) || {}).name).filter(Boolean);
       const studentCount = mains.reduce((n, k) =>
         n + DB.getStudentsByMainClass(k).filter(x => (x.status || 'Aktif') === 'Aktif').length, 0);
-      const title = [mains.join(', '), st ? st.short : currentSubtest(), tutorNames.join(' & ')]
+      const title = [mains.join(', '), st ? st.short : currentSubtest()]
         .filter(Boolean).join(' • ') || '(lengkapi data di atas)';
       document.getElementById('acPreview').innerHTML =
         `<strong>Nama kelas:</strong> ${UI.esc(title)}<br>
+         <strong>Tutor:</strong> ${tutorNames.length ? UI.esc(tutorNames.join(', ')) : '(belum dipilih)'}<br>
          <strong>Jadwal:</strong> ${days.length ? UI.esc(days.join(', ')) : '(belum dipilih)'} ${UI.esc(fd.get('time') || '')}${fd.get('endTime') ? '–' + UI.esc(fd.get('endTime')) : ''}<br>
-         <strong>Perkiraan siswa:</strong> ${studentCount} siswa dari ${mains.length} kelas utama`;
+         <strong>Perkiraan mentee:</strong> ${studentCount} mentee dari ${mains.length} kelas utama`;
     }
     updatePreview();
 
@@ -1049,9 +1111,7 @@
       const days = fd.getAll('days');
 
       const st = DB.subtestByName(subtest);
-      const tutorNames = teacherIds.map(id => (DB.getUser(id) || {}).name).filter(Boolean);
-      const title = [mains.join(', '), st ? st.short : subtest, tutorNames.join(' & ')]
-        .filter(Boolean).join(' • ');
+      const title = [mains.join(', '), st ? st.short : subtest].filter(Boolean).join(' • ');
 
       const payload = {
         subtest,
@@ -1084,15 +1144,18 @@
         (x.mainClasses.length ? ` — kelas utama ${x.mainClasses.join(', ')}` : '') +
         (x.tutors.length ? ` — tutor ${x.tutors.map(id => (DB.getUser(id) || {}).name).filter(Boolean).join(', ')}` : '')).join('\n') +
         '\n\nIsi otomatis War Jadwal akan melewati tanggal yang bentrok. Tetap simpan jadwal rutin ini?')) return;
+      // Data ganda: kelas lain dengan judul sama atau subtest + kelas utama yang sama.
+      const twins = global.Duplicates ? Duplicates.similarCourses(payload, editing ? editing.id : null) : [];
+      if (twins.length && !UI.confirmDialog(`Kelas serupa sudah ada:\n${twins.slice(0, 5).map(c => '• ' + DB.courseTitle(c) + (DB.courseTutorsShort(c) ? ' — ' + DB.courseTutorsShort(c, 3) : '')).join('\n')}\n\nTetap simpan kelas ini?`)) return;
 
       if (editing) {
         DB.updateCourse(editing.id, payload);
         const r = DB.syncCourseMainClasses(editing.id, mains);
-        UI.toast(`Kelas diperbarui.${r && r.added ? ' ' + r.added + ' siswa baru terdaftar.' : ''}`);
+        UI.toast(`Kelas diperbarui.${r && r.added ? ' ' + r.added + ' mentee baru terdaftar.' : ''}`);
       } else {
         const created = DB.addCourse(payload);
         const n = DB.getEnrollmentsByCourse(created.id).length;
-        UI.toast(`Kelas dibuat dengan ${n} siswa dari ${mains.length} kelas utama.`);
+        UI.toast(`Kelas dibuat dengan ${n} mentee dari ${mains.length} kelas utama.`);
       }
       UI.modal.close();
       renderCourses(container);
@@ -1149,7 +1212,7 @@
     const body = `
       <div class="muted small mb-2">
         Pilih <strong>kelas utama</strong> yang mengisi kelas
-        <strong>${UI.esc(DB.courseTitle(course))}</strong>. Semua siswa di dalam kelas utama
+        <strong>${UI.esc(DB.courseTitle(course))}</strong>. Semua mentee di dalam kelas utama
         tersebut akan terdaftar otomatis — tidak perlu mencentang satu per satu.
       </div>
       <div class="tgt-grid">
@@ -1161,7 +1224,7 @@
               <input type="checkbox" name="mc" value="${UI.esc(mc.name)}" ${selMains.has(mc.name) ? 'checked' : ''} />
               <div>
                 <div class="tgt-name">${UI.esc(mc.name)}</div>
-                <div class="tgt-meta">${mc.active} siswa aktif${already ? ` • ${already} sudah terdaftar` : ''}</div>
+                <div class="tgt-meta">${mc.active} mentee aktif${already ? ` • ${already} sudah terdaftar` : ''}</div>
               </div>
             </label>`;
           }).join('')}
@@ -1169,7 +1232,7 @@
 
       ${extraStudents.length ? `
       <div class="alert alert-warning mt-2">
-        <strong>${extraStudents.length} siswa terdaftar perorangan</strong>
+        <strong>${extraStudents.length} mentee terdaftar perorangan</strong>
         (kelas utamanya tidak dicentang): ${extraStudents.map(s => UI.esc(s.name)).join(', ')}.
         Mereka tetap terdaftar kecuali Anda menghapusnya di bawah.
       </div>
@@ -1181,7 +1244,7 @@
         <button type="button" class="btn btn-primary" id="saveEnrollBtn">Simpan Perubahan</button>
       </div>`;
 
-    UI.modal.open('Kelola Siswa di Kelas', body);
+    UI.modal.open('Kelola Mentee di Kelas', body);
     document.getElementById('cancelBtn').addEventListener('click', () => UI.modal.close());
 
     const boxes = [...document.querySelectorAll('[name="mc"]')];
@@ -1191,7 +1254,7 @@
       const total = picked.reduce((n, k) =>
         n + DB.getStudentsByMainClass(k).filter(x => (x.status || 'Aktif') === 'Aktif').length, 0);
       preview.innerHTML = picked.length
-        ? `Akan terdaftar: <strong>${total} siswa</strong> dari ${picked.length} kelas utama (${UI.esc(picked.join(', '))}).`
+        ? `Akan terdaftar: <strong>${total} mentee</strong> dari ${picked.length} kelas utama (${UI.esc(picked.join(', '))}).`
         : 'Belum ada kelas utama dipilih — seluruh pendaftaran berbasis kelas utama akan dilepas.';
     };
     boxes.forEach(b => b.addEventListener('change', () => {
@@ -1209,7 +1272,7 @@
         extraStudents.forEach(s => { DB.unenroll(courseId, s.id); dropped++; });
       }
       const total = DB.getEnrollmentsByCourse(courseId).length;
-      UI.toast(`Tersimpan: ${total} siswa terdaftar${res && res.added ? ` (+${res.added} baru)` : ''}${dropped ? `, ${dropped} perorangan dilepas` : ''}.`);
+      UI.toast(`Tersimpan: ${total} mentee terdaftar${res && res.added ? ` (+${res.added} baru)` : ''}${dropped ? `, ${dropped} perorangan dilepas` : ''}.`);
       UI.modal.close();
       renderCourses(container);
     });
@@ -1232,7 +1295,7 @@
         <button class="btn btn-secondary btn-sm" id="acBack">← Kembali ke Semua Kelas</button>
         <div class="flex-gap">
           <button class="btn btn-secondary btn-sm" id="acPw">🔒 Password Kelas</button>
-          <button class="btn btn-secondary btn-sm" id="acStudents">👥 Kelola Siswa</button>
+          <button class="btn btn-secondary btn-sm" id="acStudents">👥 Kelola Mentee</button>
           <button class="btn btn-primary btn-sm" id="acEdit">Edit Kelas</button>
         </div>
       </div>
@@ -1243,7 +1306,7 @@
             <h3 class="mt-0">${st ? st.icon + ' ' : ''}${UI.esc(DB.courseTitle(course))}</h3>
             <div class="muted small">
               ${UI.esc(course.subtest || course.category || 'Umum')} •
-              ${enrollments.length} siswa • ${tutors.length} tutor
+              ${enrollments.length} mentee • ${tutors.length} tutor
             </div>
           </div>
           <span class="badge ${DB.hasCoursePassword(course.id) ? 'badge-warning' : 'badge-gray'}">
@@ -1254,7 +1317,7 @@
         <div class="table-wrap"><table class="table">
           <tbody>
             <tr><th style="width:170px;">Kelas Utama</th><td>${(course.mainClasses || []).length
-              ? (course.mainClasses).map(k => `<span class="badge badge-info" style="margin:2px;">${UI.esc(k)} (${DB.getStudentsByMainClass(k).length} siswa)</span>`).join('')
+              ? (course.mainClasses).map(k => `<span class="badge badge-info" style="margin:2px;">${UI.esc(k)} (${DB.getStudentsByMainClass(k).length} mentee)</span>`).join('')
               : '<span class="muted">Belum diisi</span>'}</td></tr>
             <tr><th>Tutor</th><td>${tutors.length
               ? tutors.map(t => `<span class="badge badge-success" style="margin:2px;">${UI.esc(t.name)}</span>`).join('')
@@ -1279,7 +1342,7 @@
         <button class="tab-btn" data-atab="cbts">CBT (${DB.getCbtsByCourse(course.id).length})</button>
         <button class="tab-btn" data-atab="whiteboard">Whiteboard</button>
         <button class="tab-btn" data-atab="attendance">Presensi</button>
-        <button class="tab-btn" data-atab="students">Siswa (${enrollments.length})</button>
+        <button class="tab-btn" data-atab="students">Mentee (${enrollments.length})</button>
       </div>
       <div id="tabContent"></div>
     `;
@@ -1328,7 +1391,7 @@
         </div>
         ${batches.length === 0 ? emptyState('Belum ada tahun akademik. Buat yang pertama!') : `
         <div class="table-wrap"><table class="table">
-          <thead><tr><th>Nama Batch</th><th>Mulai</th><th>Berakhir</th><th>Siswa</th><th>Konten angkatan lama</th><th>Status</th><th>Aksi</th></tr></thead>
+          <thead><tr><th>Nama Batch</th><th>Mulai</th><th>Berakhir</th><th>Mentee</th><th>Konten angkatan lama</th><th>Status</th><th>Aksi</th></tr></thead>
           <tbody>
             ${batches.map(b => {
               const isExpired = b.endDate && b.endDate < today;
@@ -1358,8 +1421,8 @@
       </div>
 
       <div class="card">
-        <div class="card-header"><h3>Assign Siswa ke Batch</h3></div>
-        <p class="muted small">Pilih batch lalu assign siswa yang belum memiliki batch.</p>
+        <div class="card-header"><h3>Assign Mentee ke Batch</h3></div>
+        <p class="muted small">Pilih batch lalu assign mentee yang belum memiliki batch.</p>
         <div class="form-row" style="max-width:500px;">
           <div class="form-group"><label>Batch</label>
             <select id="assignBatch">
@@ -1377,7 +1440,7 @@
     document.getElementById('addBatchBtn').addEventListener('click', () => openBatchForm(container));
     container.querySelectorAll('[data-edit-batch]').forEach(b => b.addEventListener('click', () => openBatchForm(container, b.dataset.editBatch)));
     container.querySelectorAll('[data-del-batch]').forEach(b => b.addEventListener('click', () => {
-      if (!UI.confirmDialog('Hapus batch ini? Siswa di batch ini akan kehilangan assignment batch.')) return;
+      if (!UI.confirmDialog('Hapus batch ini? Mentee di batch ini akan kehilangan assignment batch.')) return;
       // Remove batchId from students
       DB.getUsers().filter(u => u.batchId === b.dataset.delBatch).forEach(u => DB.updateUser(u.id, { batchId: null }));
       DB.deleteBatch(b.dataset.delBatch);
@@ -1391,10 +1454,10 @@
     container.querySelectorAll('[data-graduate]').forEach(b => b.addEventListener('click', () => {
       const batchId = b.dataset.graduate;
       const batch = DB.getBatch(batchId);
-      if (!UI.confirmDialog(`Luluskan semua siswa di batch "${batch.name}" ke Alumni?`)) return;
+      if (!UI.confirmDialog(`Luluskan semua mentee di batch "${batch.name}" ke Alumni?`)) return;
       const students = DB.getUsers().filter(u => u.role === 'siswa' && u.batchId === batchId);
       students.forEach(u => DB.updateUser(u.id, { status: 'Alumni', batchId: batchId }));
-      UI.toast(`${students.length} siswa dipindahkan ke Alumni.`);
+      UI.toast(`${students.length} mentee dipindahkan ke Alumni.`);
       renderBatch(container);
     }));
 
@@ -1469,7 +1532,7 @@
     const inBatch = new Set(allStudents.filter(u => u.batchId === batchId).map(u => u.id));
 
     const body = `
-      <div class="muted small mb-1">Centang siswa untuk batch <strong>${UI.esc(batch.name)}</strong></div>
+      <div class="muted small mb-1">Centang mentee untuk batch <strong>${UI.esc(batch.name)}</strong></div>
       <div style="max-height:350px;overflow-y:auto;border:1px solid var(--gray-200);border-radius:6px;">
         ${allStudents.map(s => `
           <label style="display:flex;align-items:center;gap:8px;padding:8px 12px;border-bottom:1px solid var(--gray-100);cursor:pointer;">
@@ -1484,7 +1547,7 @@
         <button type="button" class="btn btn-secondary" id="cancelBtn">Batal</button>
         <button type="button" class="btn btn-primary" id="saveBatchAssign">Simpan</button>
       </div>`;
-    UI.modal.open('Assign Siswa ke Batch', body);
+    UI.modal.open('Assign Mentee ke Batch', body);
     document.getElementById('cancelBtn').addEventListener('click', () => UI.modal.close());
     document.getElementById('saveBatchAssign').addEventListener('click', () => {
       const checks = document.querySelectorAll('#modalBody input[name="sid"]');
@@ -1510,7 +1573,7 @@
     container.innerHTML = `
       <div class="card">
         <div class="card-header"><h3>Daftar Alumni (${alumni.length})</h3></div>
-        ${alumni.length === 0 ? emptyState('Belum ada alumni. Siswa otomatis masuk alumni saat batch-nya selesai dan diluluskan.') : `
+        ${alumni.length === 0 ? emptyState('Belum ada alumni. Mentee otomatis masuk alumni saat batch-nya selesai dan diluluskan.') : `
         <div class="table-wrap"><table class="table">
           <thead><tr><th>Nama</th><th>Email</th><th>Batch</th><th>Universitas Tujuan</th><th>Jurusan</th><th>Aksi</th></tr></thead>
           <tbody>
@@ -1530,9 +1593,9 @@
       </div>
     `;
     container.querySelectorAll('[data-reactivate]').forEach(b => b.addEventListener('click', () => {
-      if (!UI.confirmDialog('Aktifkan kembali siswa ini? Status akan berubah ke Aktif.')) return;
+      if (!UI.confirmDialog('Aktifkan kembali mentee ini? Status akan berubah ke Aktif.')) return;
       DB.updateUser(b.dataset.reactivate, { status: 'Aktif' });
-      UI.toast('Siswa diaktifkan kembali.');
+      UI.toast('Mentee diaktifkan kembali.');
       renderAlumni(container);
     }));
   }
@@ -1542,7 +1605,7 @@
    * Kalimatnya berbeda per peran dan sepenuhnya dikelola dari sini.
    */
   const MOTIV_ROLES = [
-    { key: 'siswa', label: '👨‍🎓 Siswa', hint: 'Tampil di Overview siswa' },
+    { key: 'siswa', label: '👨‍🎓 Mentee', hint: 'Tampil di Overview mentee' },
     { key: 'guru', label: '👨‍🏫 Tutor', hint: 'Tampil di Overview tutor' },
     { key: 'orangtua', label: '👨‍👩‍👦 Orang Tua', hint: 'Tampil di Overview orang tua' }
   ];
@@ -1774,7 +1837,7 @@
       if (q.active !== false) bySubtest[k].active++;
     });
     const roleOpts = [
-      { key: 'siswa', label: 'Siswa' },
+      { key: 'siswa', label: 'Mentee' },
       { key: 'guru', label: 'Tutor' },
       { key: 'orangtua', label: 'Orang Tua' },
       { key: 'admin', label: 'Admin' }
@@ -2084,7 +2147,7 @@
     container.innerHTML = `
       <div class="card">
         <div class="card-header"><h3>Daftar Nama Kelas</h3></div>
-        <p class="muted small">Kelas yang tersedia di dropdown formulir siswa. Klik + untuk menambah, x untuk menghapus.</p>
+        <p class="muted small">Kelas yang tersedia di dropdown formulir mentee. Klik + untuk menambah, x untuk menghapus.</p>
         <div id="classOptList" style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px;">
           ${classOpts.map((c, i) => `<span class="badge badge-info" style="padding:6px 10px;font-size:13px;">${UI.esc(c)} <button type="button" data-rm-class="${i}" style="border:none;background:none;cursor:pointer;font-weight:700;color:var(--danger);margin-left:4px;">&times;</button></span>`).join('')}
         </div>
@@ -2165,12 +2228,12 @@
       </div>
 
       <div class="card">
-        <div class="card-header">${UI.secHead('📋', 'Kebijakan Kehadiran', 'dipakai di semua panel: admin, tutor, siswa, dan orang tua')}</div>
+        <div class="card-header">${UI.secHead('📋', 'Kebijakan Kehadiran', 'dipakai di semua panel: admin, tutor, mentee, dan orang tua')}</div>
         <form id="attPolicyForm" class="form">
           <div class="form-row">
             <div class="form-group"><label for="attThreshold">Standar minimal kehadiran (%)</label>
               <input type="number" id="attThreshold" min="0" max="100" step="1" required value="${DB.attendanceThreshold()}" />
-              <div class="muted small">Di bawah angka ini, siswa/tutor diberi peringatan.</div></div>
+              <div class="muted small">Di bawah angka ini, mentee/tutor diberi peringatan.</div></div>
             <div class="form-group"><label for="attExcused">Izin & sakit</label>
               <select id="attExcused">
                 <option value="count" ${st.attendanceExcusedPolicy !== 'exclude' ? 'selected' : ''}>Tetap dihitung sebagai sesi (tidak hadir)</option>
@@ -2350,12 +2413,14 @@
           <button class="btn btn-danger" id="resetBtn">Reset Semua Data</button>
         </div>
       </div>`}
+      ${global.Avatars ? '<div class="card" id="avatarColorsCard"></div>' : ''}
       <div class="card">
         <div class="card-header"><h3>Tentang</h3></div>
         <p><strong>LMS Rubela</strong> v2.0 — Learning Management System berbasis web dengan fitur lengkap.</p>
         <p class="muted small">Dibuat dengan HTML, CSS, dan JavaScript murni.</p>
       </div>
     `;
+    if (global.Avatars) Avatars.renderAdmin(document.getElementById('avatarColorsCard'));
     // Class management
     document.getElementById('addClassBtn').addEventListener('click', () => {
       const inp = document.getElementById('newClassName');
@@ -2843,16 +2908,16 @@
 
     container.innerHTML = `
       <div class="stats-grid">
-        <div class="stat-card accent-success"><div class="label">Kehadiran Siswa</div><div class="value">${sumS.pct}%</div><div class="sub">${sumS.present}/${sumS.sessions} sesi • standar ${threshold}%</div></div>
-        <div class="stat-card accent-primary"><div class="label">Kehadiran Guru</div><div class="value">${sumG.pct}%</div><div class="sub">${sumG.present}/${sumG.sessions} sesi</div></div>
+        <div class="stat-card accent-success"><div class="label">Kehadiran Mentee</div><div class="value">${sumS.pct}%</div><div class="sub">${sumS.present}/${sumS.sessions} sesi • standar ${threshold}%</div></div>
+        <div class="stat-card accent-primary"><div class="label">Kehadiran Tutor</div><div class="value">${sumG.pct}%</div><div class="sub">${sumG.present}/${sumG.sessions} sesi</div></div>
         <div class="stat-card accent-warning"><div class="label">Total Record</div><div class="value">${allAtt.length}</div><div class="sub">${sumS.cancelled + sumG.cancelled} pada sesi dibatalkan</div></div>
         <div class="stat-card accent-danger"><div class="label">Tercatat Hari Ini</div><div class="value">${todayCount}</div><div class="sub">${UI.fmtYMD(UI.todayYMD())}</div></div>
       </div>
 
       <div class="subtabs">
         <button class="subtab-btn active" data-stab="ambil">📝 Ambil Presensi</button>
-        <button class="subtab-btn" data-stab="siswa">Rekap Siswa</button>
-        <button class="subtab-btn" data-stab="guru">Rekap Guru</button>
+        <button class="subtab-btn" data-stab="siswa">Rekap Mentee</button>
+        <button class="subtab-btn" data-stab="guru">Rekap Tutor</button>
         <button class="subtab-btn" data-stab="log">Log Presensi</button>
       </div>
 
@@ -2902,7 +2967,7 @@
             return [u ? u.name : '', u ? u.username : '', c ? DB.courseTitle(c) : '', DB.attStatusMeta(a.status).label, a.note, a.date, UI.fmtYMD(a.date), a.role]; },
           filters: [
             { key: 'course', label: 'Semua kelas', get: a => a.courseId, options: courses.map(c => ({ value: c.id, label: DB.courseTitle(c) })) },
-            { key: 'role', label: 'Semua peran', get: a => a.role, options: [{ value: 'siswa', label: 'Siswa' }, { value: 'guru', label: 'Guru' }] },
+            { key: 'role', label: 'Semua peran', get: a => a.role, options: [{ value: 'siswa', label: 'Mentee' }, { value: 'guru', label: 'Tutor' }] },
             { key: 'status', label: 'Semua status', get: a => a.status, options: DB.ATT_STATUSES.map(st => ({ value: st.key, label: st.label })) }
           ],
           dateRange: a => a.date,
@@ -2919,7 +2984,7 @@
               const c = DB.getCourse(a.courseId);
               return `<tr>
                 <td>${UI.fmtYMD(a.date)}${DB.isCancelledSession(a.courseId, a.date) ? ' <span class="badge badge-gray">dibatalkan</span>' : ''}</td>
-                <td><span class="badge ${a.role === 'guru' ? 'badge-info' : 'badge-gray'}">${UI.esc(a.role.toUpperCase())}</span></td>
+                <td><span class="badge ${a.role === 'guru' ? 'badge-info' : 'badge-gray'}">${UI.esc((Auth.ROLE_LABELS[a.role] || a.role).toUpperCase())}</span></td>
                 <td><strong>${ctx.highlight(u ? u.name : '-')}</strong></td>
                 <td>${ctx.highlight(c ? DB.courseTitle(c) : '-')}</td>
                 <td>${AttendanceInsights.statusBadge(a.status)}</td>
@@ -3096,8 +3161,8 @@
     container.innerHTML = `
       <div class="stats-grid">
         <div class="stat-card accent-primary"><div class="label">Akun Orang Tua</div><div class="value">${parents.length}</div></div>
-        <div class="stat-card accent-success"><div class="label">Siswa Terpantau</div><div class="value">${linkedIds.size}</div><div class="sub">dari ${students.length} siswa</div></div>
-        <div class="stat-card accent-warning"><div class="label">Belum Terhubung</div><div class="value">${unlinked.length}</div><div class="sub">siswa tanpa akun wali</div></div>
+        <div class="stat-card accent-success"><div class="label">Mentee Terpantau</div><div class="value">${linkedIds.size}</div><div class="sub">dari ${students.length} mentee</div></div>
+        <div class="stat-card accent-warning"><div class="label">Belum Terhubung</div><div class="value">${unlinked.length}</div><div class="sub">mentee tanpa akun wali</div></div>
       </div>
 
       <div class="card">
@@ -3116,7 +3181,7 @@
           <p class="muted small" style="margin:8px 0 0;">
             Kolom yang dikenali: <strong>Nama</strong>, <strong>Username</strong>, <strong>Password</strong>,
             <strong>Email</strong>, <strong>Telepon</strong>, <strong>Hubungan</strong> (Ayah/Ibu/Wali),
-            dan <strong>Username Anak</strong> (username siswa, pisahkan dengan koma bila lebih dari satu).
+            dan <strong>Username Anak</strong> (username mentee, pisahkan dengan koma bila lebih dari satu).
             Baris dengan username yang sudah ada akan dilewati. Bila Password kosong, dipakai <code>password123</code>.
           </p>
         </details>
@@ -3125,7 +3190,7 @@
 
       ${unlinked.length ? `
       <div class="card">
-        <div class="card-header">${UI.secHead('🔗', 'Siswa Belum Punya Akun Wali', 'Buat akun orang tua lalu hubungkan')}</div>
+        <div class="card-header">${UI.secHead('🔗', 'Mentee Belum Punya Akun Wali', 'Buat akun orang tua lalu hubungkan')}</div>
         <div class="flex-gap">
           ${unlinked.map(s => `<span class="badge badge-gray" style="padding:6px 10px;font-size:12px;">${UI.esc(s.name)} • ${UI.esc(s.kelas || '-')}</span>`).join('')}
         </div>
@@ -3177,7 +3242,7 @@
         box.querySelectorAll('[data-edit-parent]').forEach(b => b.addEventListener('click', () => openParentForm(container, b.dataset.editParent)));
         box.querySelectorAll('[data-link-child]').forEach(b => b.addEventListener('click', () => openLinkChildModal(container, b.dataset.linkChild)));
         box.querySelectorAll('[data-del-parent]').forEach(b => b.addEventListener('click', () => {
-          if (!UI.confirmDialog('Hapus akun orang tua ini? Data siswa tidak akan terhapus.')) return;
+          if (!UI.confirmDialog('Hapus akun orang tua ini? Data mentee tidak akan terhapus.')) return;
           DB.deleteUser(b.dataset.delParent);
           UI.toast('Akun orang tua dihapus.');
           renderParents(container);
@@ -3291,12 +3356,12 @@
     const inputName = o.name || 'childIds';
     const idPrefix = o.idPrefix || 'pick';
     if (students.length === 0) {
-      return `<div class="pick-wrap"><div class="pick-empty">Belum ada siswa terdaftar.</div></div>`;
+      return `<div class="pick-wrap"><div class="pick-empty">Belum ada mentee terdaftar.</div></div>`;
     }
     return `
       <div class="pick-wrap" id="${idPrefix}Wrap">
         <div class="pick-toolbar">
-          <input type="search" class="pick-search" id="${idPrefix}Search" placeholder="Cari nama, username, atau kelas siswa..." autocomplete="off" />
+          <input type="search" class="pick-search" id="${idPrefix}Search" placeholder="Cari nama, username, atau kelas mentee..." autocomplete="off" />
           <span class="pick-count" id="${idPrefix}Count">${selectedSet.size} dipilih</span>
         </div>
         <div class="pick-list" id="${idPrefix}List">
@@ -3305,7 +3370,7 @@
             const hay = `${s.name} ${s.username || ''} ${s.kelas || ''} ${s.targetUniv || ''}`.toLowerCase();
             return `<label class="pick-item ${on ? 'is-checked' : ''}" data-hay="${UI.esc(hay)}">
               <input type="checkbox" name="${inputName}" value="${s.id}" ${on ? 'checked' : ''} />
-              <span class="pick-av">${UI.initials(s.name)}</span>
+              <span class="pick-av">${AV(s)}</span>
               <span class="pick-main">
                 <span class="pick-name">${UI.esc(s.name)}</span>
                 <span class="pick-meta">@${UI.esc(s.username || '-')} • ${UI.esc(s.kelas || 'tanpa kelas')}${s.targetUniv ? ' • ' + UI.esc(s.targetUniv) : ''}</span>
@@ -3313,10 +3378,10 @@
               <span class="badge ${(s.status || 'Aktif') === 'Aktif' ? 'badge-success' : 'badge-gray'} pick-tag">${UI.esc(s.status || 'Aktif')}</span>
             </label>`;
           }).join('')}
-          <div class="pick-empty hidden" id="${idPrefix}NoMatch">Tidak ada siswa yang cocok dengan pencarian.</div>
+          <div class="pick-empty hidden" id="${idPrefix}NoMatch">Tidak ada mentee yang cocok dengan pencarian.</div>
         </div>
         <div class="pick-foot">
-          <span id="${idPrefix}Info">${students.length} siswa tersedia</span>
+          <span id="${idPrefix}Info">${students.length} mentee tersedia</span>
           <div class="flex-gap">
             <button type="button" class="btn btn-secondary" data-pick-all="${idPrefix}">Pilih Semua</button>
             <button type="button" class="btn btn-secondary" data-pick-none="${idPrefix}">Kosongkan</button>
@@ -3403,7 +3468,7 @@
           </div>
         </div>
         <div class="form-group">
-          <label>Anak / Siswa yang Dipantau</label>
+          <label>Anak / Mentee yang Dipantau</label>
           ${studentPickerHtml(students, selected, { name: 'childIds', idPrefix: 'pf' })}
         </div>
         <div class="form-group"><label>Password ${editing ? '(kosongkan jika tidak diubah)' : ''}</label>
@@ -3462,8 +3527,8 @@
     const students = DB.getUsers().filter(u => u.role === 'siswa');
     const selected = new Set(parent.childIds || []);
     const body = `
-      <div class="muted small mb-2">Pilih siswa yang dapat dipantau oleh <strong>${UI.esc(parent.name)}</strong>.
-      Gunakan kolom pencarian untuk menemukan siswa dengan cepat.</div>
+      <div class="muted small mb-2">Pilih mentee yang dapat dipantau oleh <strong>${UI.esc(parent.name)}</strong>.
+      Gunakan kolom pencarian untuk menemukan mentee dengan cepat.</div>
       ${studentPickerHtml(students, selected, { name: 'cid', idPrefix: 'lk' })}
       <div class="flex-gap mt-2" style="justify-content:flex-end;">
         <button type="button" class="btn btn-secondary" id="cancelBtn">Batal</button>
@@ -3526,7 +3591,7 @@
         </div>
 
         <div class="card">
-          <div class="card-header">${UI.secHead('📊', 'Rincian Pemasukan per Jenis', 'SPP, pendaftaran, denda siswa, dan pemasukan lain')}</div>
+          <div class="card-header">${UI.secHead('📊', 'Rincian Pemasukan per Jenis', 'SPP, pendaftaran, denda mentee, dan pemasukan lain')}</div>
           <div class="kind-grid">
             ${DB.PAYMENT_KINDS.map(k => {
               const v = byKind[k.key] || { lunas: 0, pending: 0, count: 0 };
@@ -3548,7 +3613,7 @@
         <div class="subtabs">
           <button class="subtab-btn active" data-ftab="income">Pemasukan (${payments.length})</button>
           <button class="subtab-btn" data-ftab="expense">Pengeluaran (${expenses.length})</button>
-          <button class="subtab-btn" data-ftab="salary">Gaji Guru (${salaries.length})</button>
+          <button class="subtab-btn" data-ftab="salary">Gaji Tutor (${salaries.length})</button>
         </div>
         <div id="finBox"></div>
       `;
@@ -3572,7 +3637,7 @@
       box.innerHTML = `
         <div class="card">
           <div class="card-header">
-            ${UI.secHead('💵', `Pemasukan (${payments.length})`, 'SPP, pendaftaran, denda siswa, dan pemasukan lain')}
+            ${UI.secHead('💵', `Pemasukan (${payments.length})`, 'SPP, pendaftaran, denda mentee, dan pemasukan lain')}
             <button class="btn btn-primary btn-sm" id="addPayBtn">+ Tambah Pemasukan</button>
           </div>
           <div id="paySearch"></div>
@@ -3584,7 +3649,7 @@
         container: box.querySelector('#paySearch'),
         items: payments,
         stateKey: 'admin-fin-income',
-        placeholder: 'Cari nama siswa, ID transaksi, kelas, metode, alasan denda, atau catatan…',
+        placeholder: 'Cari nama mentee, ID transaksi, kelas, metode, alasan denda, atau catatan…',
         fields: p => { const st = DB.getUser(p.studentId); const c = p.courseId ? DB.getCourse(p.courseId) : null;
           return [st ? st.name : '', st ? st.username : '', p.id, c ? DB.courseTitle(c) : 'Umum', DB.paymentKindMeta(DB.paymentKind(p)).label,
             p.method, p.status, p.note, p.fineReason, String(p.amount || 0), UI.fmtDate(p.paidAt || p.createdAt)]; },
@@ -3603,7 +3668,7 @@
         pageSize: 20,
         empty: 'Belum ada pemasukan.',
         render: (rows, ctx) => `<div class="table-wrap"><table class="table">
-            <thead><tr><th>Tanggal</th><th>Siswa</th><th>Jenis</th><th>Kelas</th><th>Jumlah</th><th>Metode</th><th>Status</th><th>Catatan</th><th>Aksi</th></tr></thead>
+            <thead><tr><th>Tanggal</th><th>Mentee</th><th>Jenis</th><th>Kelas</th><th>Jumlah</th><th>Metode</th><th>Status</th><th>Catatan</th><th>Aksi</th></tr></thead>
             <tbody>${rows.map(p => {
               const st = DB.getUser(p.studentId);
               const c = p.courseId ? DB.getCourse(p.courseId) : null;
@@ -3644,9 +3709,9 @@
       const body = `
         <form id="payForm" class="form">
           <div class="form-row">
-            <div class="form-group"><label>Siswa</label>
+            <div class="form-group"><label>Mentee</label>
               <select name="studentId" required>
-                <option value="">-- Pilih Siswa --</option>
+                <option value="">-- Pilih Mentee --</option>
                 ${students.map(s => `<option value="${s.id}" ${editing?.studentId === s.id ? 'selected' : ''}>${UI.esc(s.name)}</option>`).join('')}
               </select>
             </div>
@@ -3838,7 +3903,7 @@
       const gurus = DB.getUsers().filter(u => u.role === 'guru');
       box.innerHTML = `
         <div class="card">
-          <div class="card-header"><h3>Gaji / Honor Guru (${salaries.length})</h3>
+          <div class="card-header"><h3>Gaji / Honor Tutor (${salaries.length})</h3>
             <button class="btn btn-primary btn-sm" id="addSalBtn">+ Catat Gaji</button></div>
           <div id="salSearch"></div>
         </div>
@@ -3848,10 +3913,10 @@
         container: box.querySelector('#salSearch'),
         items: salaries,
         stateKey: 'admin-fin-salary',
-        placeholder: 'Cari nama guru, periode, atau catatan…',
+        placeholder: 'Cari nama tutor, periode, atau catatan…',
         fields: x => { const g = DB.getUser(x.teacherId); return [g ? g.name : '', g ? g.username : '', x.period, x.status, x.note, String(x.amount || 0)]; },
         filters: [
-          { key: 'teacher', label: 'Semua guru', get: x => x.teacherId, options: gurus.map(g => ({ value: g.id, label: g.name })) },
+          { key: 'teacher', label: 'Semua tutor', get: x => x.teacherId, options: gurus.map(g => ({ value: g.id, label: g.name })) },
           { key: 'status', label: 'Semua status', get: x => x.status === 'dibayar' ? 'dibayar' : 'pending',
             options: [{ value: 'dibayar', label: 'Dibayar' }, { value: 'pending', label: 'Pending' }] },
           { key: 'period', label: 'Semua periode', get: x => x.period || '',
@@ -3864,7 +3929,7 @@
         pageSize: 20,
         empty: 'Belum ada data gaji.',
         render: (rows, ctx) => `<div class="table-wrap"><table class="table">
-            <thead><tr><th>Periode</th><th>Guru</th><th>Jumlah</th><th>Status</th><th>Dibayar</th><th>Catatan</th><th>Aksi</th></tr></thead>
+            <thead><tr><th>Periode</th><th>Tutor</th><th>Jumlah</th><th>Status</th><th>Dibayar</th><th>Catatan</th><th>Aksi</th></tr></thead>
             <tbody>${rows.map(x => {
               const g = DB.getUser(x.teacherId);
               return `<tr>
@@ -3900,9 +3965,9 @@
       const body = `
         <form id="salForm" class="form">
           <div class="form-row">
-            <div class="form-group"><label>Guru</label>
+            <div class="form-group"><label>Tutor</label>
               <select name="teacherId" required id="salTeacher">
-                <option value="">-- Pilih Guru --</option>
+                <option value="">-- Pilih Tutor --</option>
                 ${gurus.map(g => `<option value="${g.id}" data-rate="${g.salaryRate || 0}" ${editing?.teacherId === g.id ? 'selected' : ''}>${UI.esc(g.name)} (${UI.fmtRp(g.salaryRate || 0)}/bln)</option>`).join('')}
               </select>
             </div>
@@ -3929,7 +3994,7 @@
             <button type="submit" class="btn btn-primary">Simpan</button>
           </div>
         </form>`;
-      UI.modal.open(editing ? 'Edit Gaji Guru' : 'Catat Gaji Guru', body);
+      UI.modal.open(editing ? 'Edit Gaji Tutor' : 'Catat Gaji Tutor', body);
       document.getElementById('cancelBtn').addEventListener('click', () => UI.modal.close());
       // Auto-fill amount from teacher's salaryRate
       const teacherSel = document.getElementById('salTeacher');
@@ -3960,5 +4025,5 @@
     renderAll();
   }
 
-  global.AdminPanel = { render };
+  global.AdminPanel = { render, openUserForm, openCourseForm: openAdminCourseForm };
 })(window);

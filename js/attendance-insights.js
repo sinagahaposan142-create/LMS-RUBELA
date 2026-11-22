@@ -309,7 +309,7 @@
       container.innerHTML = `
         <div class="card ai-card">
           <div class="card-header">
-            ${UI.secHead('📊', role === 'guru' ? 'Persentase Kehadiran Tutor' : 'Persentase Kehadiran Siswa',
+            ${UI.secHead('📊', role === 'guru' ? 'Persentase Kehadiran Tutor' : 'Persentase Kehadiran Mentee',
               `ambang standar ${t}% • ${below.length} di bawah standar`)}
             <div class="ai-filters">
               <select class="input" data-ai="period" aria-label="Periode">
@@ -334,7 +334,7 @@
         container: container.querySelector('#aiRoster'),
         items: list,
         placeholder: `Cari nama, username, atau ${role === 'guru' ? 'subtest' : 'kelas'}…`,
-        fields: r => [r.u.name, r.u.username, r.u.id, r.u.kelas || '', r.u.subject || '', r.u.email || ''],
+        fields: r => [r.u.name, r.u.username, r.u.id, r.u.kelas || '', DB.userSubjectsLabel(r.u), r.u.email || ''],
         filters: [
           { key: 'level', label: 'Semua tingkat', get: r => !r.s.sessions ? 'none' : (r.s.pct < t ? 'below' : 'ok'),
             options: [{ value: 'below', label: `Di bawah ${t}%` }, { value: 'ok', label: `≥ ${t}%` }, { value: 'none', label: 'Belum ada data' }] }
@@ -350,7 +350,7 @@
         render: (pageRows) => `<div class="table-wrap"><table class="table">
           <thead><tr><th>Nama</th><th>Sesi</th>${DB.ATT_STATUSES.map(s => `<th>${esc(s.label)}</th>`).join('')}<th>Kehadiran</th>${opts.onOpen ? '<th>Aksi</th>' : ''}</tr></thead>
           <tbody>${pageRows.map(r => `<tr class="${r.s.sessions && r.s.pct < t ? 'ai-row-warn' : ''}">
-            <td><strong>${esc(r.u.name)}</strong><div class="muted small">${esc(role === 'guru' ? (r.u.subject || '-') : (r.u.kelas || '-'))}</div></td>
+            <td><strong>${esc(r.u.name)}</strong><div class="muted small">${esc(role === 'guru' ? (DB.userSubjectsLabel(r.u) || '-') : (r.u.kelas || '-'))}</div></td>
             <td>${r.s.sessions}</td>
             ${DB.ATT_STATUSES.map(s => `<td>${r.s.counts[s.key] || 0}</td>`).join('')}
             <td style="min-width:150px;">${r.s.sessions ? barHtml(r.s.pct) : '<span class="muted small">Belum ada data</span>'}</td>

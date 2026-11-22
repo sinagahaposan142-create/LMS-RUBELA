@@ -252,7 +252,7 @@
     if (!t) return;
     t.addEventListener('change', () => {
       const on = t.checked;
-      if (!on && !UI.confirmDialog('Matikan sistem remedial? Ujian remedial yang belum dikerjakan tidak akan dapat dibuka siswa sampai sistem diaktifkan kembali. Hasil yang sudah ada tetap tersimpan.')) {
+      if (!on && !UI.confirmDialog('Matikan sistem remedial? Ujian remedial yang belum dikerjakan tidak akan dapat dibuka mentee sampai sistem diaktifkan kembali. Hasil yang sudah ada tetap tersimpan.')) {
         t.checked = true;
         return;
       }

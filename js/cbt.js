@@ -9,6 +9,8 @@
  * Dipakai oleh Admin dan Guru. Guru hanya melihat kelas/soal miliknya.
  */
 (function (global) {
+  // Isi lingkaran avatar: avatar almamater / foto / inisial (js/avatars.js).
+  const AV = (u) => (global.Avatars ? Avatars.inner(u) : UI.esc(UI.initials(u && u.name)));
 
   /* =====================================================================
    * Utilitas
@@ -63,9 +65,11 @@
           <span class="qc-chip type">${UI.esc(q.questionType || 'Pilihan Ganda')}</span>
           ${difficultyChip(q.difficulty)}
           ${global.Topics ? Topics.chipsHtml(q) : ''}
+          ${global.Passages ? Passages.chip(q) : ''}
           <span class="qc-chip opt">${UI.esc(answerShapeLabel(q))}</span>
           ${q.points != null && Number(q.points) !== 1 ? `<span class="qc-chip">⭐ ${UI.esc(String(q.points))} poin</span>` : ''}
         </div>
+        ${q.passageId && DB.questionsOfPassage(q.passageId).length > 1 ? `<button type="button" class="btn btn-sm btn-ghost qc-psg-all" data-psg-all="${UI.esc(q.passageId)}">+ Ambil semua ${DB.questionsOfPassage(q.passageId).length} soal teks ini</button>` : ''}
       </label>`;
   }
 
@@ -97,12 +101,6 @@
       else closeWorkspace();
     });
     return wsEl.querySelector('#wsBody');
-  }
-
-  function setWorkspaceHeader(title, subtitle) {
-    if (!wsEl) return;
-    wsEl.querySelector('#wsTitle').textContent = title;
-    wsEl.querySelector('#wsSub').textContent = subtitle || '';
   }
 
   function closeWorkspace() {
@@ -379,7 +377,8 @@
       return activeSubtests()
         .map(name => ({
           subtest: name,
-          questionIds: (draft.picked[name] || []).slice(),
+          // Soal dengan teks bacaan yang sama selalu berurutan saat ujian.
+          questionIds: DB.groupByPassage((draft.picked[name] || []).slice()),
           durationMinutes: Number(draft.durations[name] || DB.subtestByName(name)?.defaultMinutes || 20)
         }))
         .filter(s => s.questionIds.length > 0)
@@ -546,13 +545,13 @@
         <div class="card">
           <div class="card-header">${UI.secHead('🎯', 'Kelas Tujuan', 'Pilih satu atau beberapa kelas tingkat — bukan kelas mata pelajaran')}</div>
           <p class="muted small">Kelas di bawah ini adalah <strong>kelas tingkat</strong> (X, XI, XII) yang diatur pada menu Pengaturan.
-          Centang beberapa sekaligus, atau pilih "Untuk Semua Kelas" agar ujian terbuka untuk seluruh siswa aktif.</p>
+          Centang beberapa sekaligus, atau pilih "Untuk Semua Kelas" agar ujian terbuka untuk seluruh mentee aktif.</p>
           <div class="tgt-grid mt-2">
             <label class="tgt-box all-box ${allOn ? 'is-on' : ''}">
               <input type="checkbox" id="tgtAll" ${allOn ? 'checked' : ''} />
               <div>
                 <div class="tgt-name">🌐 Untuk Semua Kelas</div>
-                <div class="tgt-meta">Semua siswa aktif (${DB.getUsers().filter(u => u.role === 'siswa' && (u.status || 'Aktif') === 'Aktif').length} siswa) dapat mengikuti</div>
+                <div class="tgt-meta">Semua mentee aktif (${DB.getUsers().filter(u => u.role === 'siswa' && (u.status || 'Aktif') === 'Aktif').length} mentee) dapat mengikuti</div>
               </div>
             </label>
             ${grades.length === 0
@@ -562,7 +561,7 @@
                   <input type="checkbox" name="tgtClass" value="${UI.esc(g)}" ${draft.targetClasses.includes(g) ? 'checked' : ''} />
                   <div>
                     <div class="tgt-name">${UI.esc(g)}</div>
-                    <div class="tgt-meta">${studentsInGrade(g)} siswa</div>
+                    <div class="tgt-meta">${studentsInGrade(g)} mentee</div>
                   </div>
                 </label>`).join('')}
           </div>
@@ -577,7 +576,7 @@
                 <input type="checkbox" name="tgtCourse" value="${c.id}" ${draft.courseIds.includes(c.id) ? 'checked' : ''} />
                 <div>
                   <div class="tgt-name">${UI.esc(c.title.length > 26 ? c.title.slice(0, 26) + '…' : c.title)}</div>
-                  <div class="tgt-meta">${DB.getEnrollmentsByCourse(c.id).length} siswa terdaftar</div>
+                  <div class="tgt-meta">${DB.getEnrollmentsByCourse(c.id).length} mentee terdaftar</div>
                 </div>
               </label>`).join('')}
           </div>`}
@@ -589,7 +588,7 @@
         const fake = { targetClasses: draft.targetClasses, courseIds: draft.courseIds };
         const n = targetedStudents(fake).length;
         document.getElementById('tgtSummary').innerHTML =
-          `Perkiraan peserta: <strong>${n} siswa</strong> — ${UI.esc(DB.cbtTargetLabel(fake))}` +
+          `Perkiraan peserta: <strong>${n} mentee</strong> — ${UI.esc(DB.cbtTargetLabel(fake))}` +
           (draft.courseIds.length ? ` + ${draft.courseIds.length} kelas mata pelajaran` : '');
       };
 
@@ -870,6 +869,16 @@
           ? emptyState(`Belum ada soal untuk ${st ? st.short : activeSub} dengan filter ini. Tambahkan lewat menu Bank Soal.`, '📭')
           : `<div class="q-cards">${list.map(q => questionCardHtml(q, sel.has(q.id))).join('')}</div>`;
 
+        qArea.querySelectorAll('[data-psg-all]').forEach(b => b.addEventListener('click', (e) => {
+          e.preventDefault(); e.stopPropagation();
+          const ids = DB.questionsOfPassage(b.dataset.psgAll).filter(q => q.subject === activeSub).map(q => q.id);
+          const arr = new Set(draft.picked[activeSub] || []);
+          const before = arr.size;
+          ids.forEach(id => arr.add(id));
+          draft.picked[activeSub] = [...arr];
+          UI.toast(arr.size > before ? `${arr.size - before} soal dari teks yang sama ditambahkan.` : 'Semua soal teks ini sudah dipilih.', 'success');
+          paintQuestions(); paintSubList();
+        }));
         qArea.querySelectorAll('.q-card input[type="checkbox"]').forEach(cb => cb.addEventListener('change', () => {
           const card = cb.closest('.q-card');
           const qid = card.dataset.qid;
@@ -1231,6 +1240,7 @@
       `${global.Topics ? '<button class="btn btn-secondary btn-sm" id="wsTopics">🗂 Materi & Sub Materi</button>' : ''}
        <button class="btn btn-secondary btn-sm" id="wsBulkQ">⚡ Buat Massal</button>
        <button class="btn btn-secondary btn-sm" id="wsImportQ">⬆ Impor</button>
+       <button class="btn btn-secondary btn-sm" id="wsDocQ" title="Baca soal dari PDF/Word, dibantu AI"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="vertical-align:-2px"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6M9 14h6M9 17h4"/></svg> Impor PDF/Word</button>
        <button class="btn btn-secondary btn-sm" id="wsExportQ">⬇ Ekspor</button>
        <button class="btn btn-primary btn-sm" id="wsAddQ">+ Tambah Soal</button>`);
     wsEl.__onBack = () => { closeWorkspace(); if (typeof onDone === 'function') onDone(); };
@@ -1242,6 +1252,8 @@
       BankTools.openBulk(user, paintAll, { subtest: activeSub }));
     document.getElementById('wsImportQ').addEventListener('click', () =>
       BankTools.openImport(user, paintAll, { subtest: activeSub }));
+    document.getElementById('wsDocQ').addEventListener('click', () =>
+      DocImport.open(user, paintAll, { subtest: activeSub }));
     document.getElementById('wsExportQ').addEventListener('click', () => openExportMenu());
     const tpBtn = document.getElementById('wsTopics');
     if (tpBtn) tpBtn.addEventListener('click', () => Topics.openManager(user, () => { if (tf.topicId && !Topics.get(tf.topicId)) { tf.topicId = ''; tf.subtopicId = ''; } paintAll(); }, activeSub));
@@ -1363,6 +1375,7 @@
         (q.orderItems || []).map(P).join(' '),
         q.subject, q.questionType, q.difficulty, q.id,
         global.Topics && Topics.labelOf(q) ? Topics.labelOf(q).text : '',
+        (() => { const p = global.Passages && Passages.of(q); return p ? (p.title || '') + ' ' + P(p.html).slice(0, 600) : ''; })(),
         (DB.getUser(q.authorId) || {}).name || ''
       ].join(' '));
     }
@@ -1398,6 +1411,7 @@
                   <span class="qc-chip type">${UI.esc(q.questionType || 'Pilihan Ganda')}</span>
                   ${difficultyChip(q.difficulty)}
                   ${global.Topics ? Topics.chipsHtml(q) : ''}
+                  ${global.Passages ? Passages.chip(q) : ''}
                   <span class="qc-chip opt">${UI.esc(answerShapeLabel(q))}</span>
                 </div>
                 <div class="flex-gap mt-2">
@@ -1459,8 +1473,40 @@
     wsEl.__onBack = () => { stop(); closeWorkspace(); if (typeof onDone === 'function') onDone(); };
 
     let timer = null;
+    // Koneksi peserta hanya bermakna bila data tersinkron lewat server.
+    const netOn = !!(global.Sync && Sync.isServer());
+    const NET_IC = {
+      ok: '<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5a10 10 0 0 1 14 0M8.5 16a5 5 0 0 1 7 0"/><circle cx="12" cy="19.5" r="1"/></svg>',
+      warn: '<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M17.5 19H8a5 5 0 1 1 .9-9.9A6 6 0 0 1 20 11a4 4 0 0 1-2.5 8Z"/><path d="M12 16v-5M9.5 13.5 12 11l2.5 2.5"/></svg>',
+      bad: '<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 3l18 18"/><path d="M8.6 8.7A5 5 0 0 0 8 19h9.5c.4 0 .8 0 1.1-.1M21.3 16.2A4 4 0 0 0 20 11a6 6 0 0 0-8.6-5.4"/></svg>'
+    };
+    const fmtDur = (ms) => {
+      const s = Math.round((ms || 0) / 1000);
+      if (s < 60) return s + ' dtk';
+      const m = Math.floor(s / 60);
+      return m < 60 ? `${m} mnt ${s % 60} dtk` : `${Math.floor(m / 60)} jam ${m % 60} mnt`;
+    };
+    /** Status koneksi peserta yang sedang mengerjakan: status online langsung + riwayat di attempt. */
+    function connectionOf(a, p) {
+      if (!netOn || !a || a.submittedAt) return null;
+      const n = a.net || {};
+      const live = p && p.net ? p.net : null;
+      const drops = Math.max(Number(n.drops) || 0, live ? Number(live.drops) || 0 : 0);
+      const offMs = Math.max(Number(n.offlineMs) || 0, live ? Number(live.offlineMs) || 0 : 0);
+      const hist = drops ? `Sempat terputus ${drops}× (total ${fmtDur(offMs)})` : '';
+      const saved = n.savedAt ? `jawaban terakhir diterima ${UI.fmtRelative(n.savedAt)}` : 'belum ada jawaban yang diterima';
+      if (!p) return { cls: 'bad', text: 'Tidak terhubung', sub: saved.charAt(0).toUpperCase() + saved.slice(1) + (hist ? '. ' + hist : '') };
+      if (live && live.pending > 0) return { cls: 'warn', text: `${live.pending} perubahan menunggu terkirim`, sub: hist || 'Jawaban sudah aman di perangkat peserta.' };
+      if (drops) return { cls: 'warn', text: 'Tersambung kembali', sub: hist };
+      return { cls: 'ok', text: 'Koneksi baik', sub: n.savedAt ? 'Tersimpan ' + UI.fmtRelative(n.savedAt) : '' };
+    }
+    let ticks = 0;
     paint();
-    timer = setInterval(paint, 5000);
+    timer = setInterval(() => {
+      // Tarik data & status online peserta tiap 10 detik selama pemantauan berlangsung.
+      if (netOn && ++ticks % 2 === 0) Sync.syncNow('monitor');
+      paint();
+    }, 5000);
     function stop() { if (timer) clearInterval(timer); timer = null; }
 
     function paint() {
@@ -1469,9 +1515,12 @@
       const attempts = DB.getCbtAttemptsByCbt(cbt.id);
       const byStudent = new Map(attempts.map(a => [a.studentId, a]));
       const sec = cbt.security || {};
+      const pres = new Map((global.Presence ? Presence.getAll() : []).map(r => [r.userId, r]));
       const working = attempts.filter(a => !a.submittedAt).length;
       const finished = attempts.filter(a => a.submittedAt).length;
       const totalVio = attempts.reduce((n, a) => n + (a.violations || []).length, 0);
+      const nets = new Map(students.map(s => [s.id, connectionOf(byStudent.get(s.id), pres.get(s.id))]));
+      const netBad = [...nets.values()].filter(n => n && n.cls !== 'ok').length;
 
       body.innerHTML = `
         <div class="stats-grid">
@@ -1479,6 +1528,7 @@
           <div class="stat-card accent-warning"><div class="label">Sedang Mengerjakan</div><div class="value">${working}</div></div>
           <div class="stat-card accent-success"><div class="label">Sudah Selesai</div><div class="value">${finished}</div></div>
           <div class="stat-card accent-danger"><div class="label">Total Pelanggaran</div><div class="value">${totalVio}</div></div>
+          ${netOn ? `<div class="stat-card accent-danger"><div class="label">Koneksi Bermasalah</div><div class="value">${netBad}</div><div class="sub">terputus, tertunda, atau sempat putus</div></div>` : ''}
         </div>
 
         <div class="card">
@@ -1495,7 +1545,7 @@
         </div>
 
         <div class="card">
-          <div class="card-header">${UI.secHead('👥', `Status Peserta (${students.length})`, 'Kartu merah menandai pelanggaran tinggi')}</div>
+          <div class="card-header">${UI.secHead('👥', `Status Peserta (${students.length})`, netOn ? 'Kartu merah: pelanggaran tinggi atau peserta tidak terhubung. Status koneksi diperbarui ±15–50 detik.' : 'Kartu merah menandai pelanggaran tinggi')}</div>
           ${students.length === 0 ? emptyState('Belum ada peserta yang ditargetkan ujian ini.', '👥') : `
           <div class="mon-grid">
             ${students.map(s => {
@@ -1505,9 +1555,11 @@
               let statusBadge = '<span class="badge badge-gray">Belum Mulai</span>';
               if (a && a.submittedAt) statusBadge = `<span class="badge badge-success">Selesai • ${a.score ?? 0}</span>`;
               else if (a) statusBadge = '<span class="badge badge-warning">Mengerjakan</span>';
-              return `<div class="mon-card ${risk} ${a && a.submittedAt ? 'done' : ''}">
+              const cn = nets.get(s.id);
+              const netHtml = cn ? `<div class="mon-net is-${cn.cls}">${NET_IC[cn.cls]}<span>${UI.esc(cn.text)}${cn.sub ? `<small>${UI.esc(cn.sub)}</small>` : ''}</span></div>` : '';
+              return `<div class="mon-card ${risk} ${a && a.submittedAt ? 'done' : ''} ${cn && cn.cls === 'bad' ? 'net-bad' : ''}">
                 <div class="mc-top">
-                  <div class="avatar">${UI.initials(s.name)}</div>
+                  <div class="avatar">${AV(s)}</div>
                   <div style="flex:1;min-width:0;">
                     <div class="mc-nm">${UI.esc(s.name)}</div>
                     <div class="mc-mt">${UI.esc(s.kelas || '-')}</div>
@@ -1515,6 +1567,8 @@
                 </div>
                 ${statusBadge}
                 ${a ? `<div class="muted small mt-1">Mulai ${UI.fmtDateTime(a.startedAt)}${a.currentSection != null ? ` • bagian ${a.currentSection + 1}` : ''}</div>` : ''}
+                ${netHtml}
+                ${a && a.submittedAt && a.net && a.net.drops ? `<div class="muted small mt-1">Sempat terputus ${a.net.drops}× selama ujian (total ${fmtDur(a.net.offlineMs)}); jawaban tetap terkirim.</div>` : ''}
                 ${vios.length ? `
                   <div class="mt-1"><span class="badge badge-warning">${vios.length} pelanggaran</span></div>
                   <div class="vio-list">
@@ -1755,7 +1809,10 @@
           <div class="flex-gap">
             <button class="btn btn-secondary btn-sm" id="bsBulkBtn">⚡ Buat Massal</button>
             <button class="btn btn-secondary btn-sm" id="bsImportBtn">⬆ Impor</button>
+            <button class="btn btn-secondary btn-sm" id="bsDocBtn" title="Baca soal dari PDF/Word, dibantu AI"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="vertical-align:-2px"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6M9 14h6M9 17h4"/></svg> Impor PDF/Word</button>
             <button class="btn btn-secondary btn-sm" id="bsExportBtn">⬇ Ekspor</button>
+            <button class="btn btn-secondary btn-sm" id="bsDupBtn" title="Cari soal & teks bacaan yang sama atau sangat mirip">🔁 Cek Soal Ganda</button>
+            <button class="btn btn-secondary btn-sm" id="bsPsgBtn" title="Teks bacaan yang dipakai bersama beberapa soal">📖 Teks Bacaan (${DB.getPassages().length})</button>
             <button class="btn btn-secondary btn-sm" id="bsAddBtn">+ Tambah Soal</button>
             <button class="btn btn-primary btn-sm" id="bsOpenBtn">📖 Buka Soal Tersedia</button>
           </div>
@@ -1792,7 +1849,10 @@
     document.getElementById('bsAddBtn').addEventListener('click', () => openQuestionForm(user, null, reload));
     document.getElementById('bsBulkBtn').addEventListener('click', () => BankTools.openBulk(user, reload));
     document.getElementById('bsImportBtn').addEventListener('click', () => BankTools.openImport(user, reload));
+    document.getElementById('bsDocBtn').addEventListener('click', () => DocImport.open(user, reload));
     document.getElementById('bsExportBtn').addEventListener('click', () => BankTools.exportQuestions(null, 'xlsx'));
+    document.getElementById('bsDupBtn').addEventListener('click', () => Duplicates.openQuestionCheck(user, reload));
+    document.getElementById('bsPsgBtn').addEventListener('click', () => Passages.openManager(user, reload));
     /* Klik kartu subtest membuka browser LANGSUNG pada subtest itu; dulu
      * nama subtest di data-open-sub dibuang sehingga selalu mendarat di PU. */
     container.querySelectorAll('[data-open-sub]').forEach(b => b.addEventListener('click', () =>

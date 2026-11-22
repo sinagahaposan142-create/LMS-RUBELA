@@ -149,6 +149,7 @@ html[data-theme="dark"] .table-wrap.has-overflow::after {
   table.table.as-cards td.no-label { grid-template-columns: 1fr; }
   table.table.as-cards td.actions { display: flex; flex-wrap: wrap; gap: 6px; padding-top: 10px; }
   table.table.as-cards td.actions::before { display: none; }
+  table.table.as-cards td.actions > * { margin: 0; }
   /* Sel pertama tampil sebagai judul kartu */
   table.table.as-cards td:first-child {
     grid-template-columns: 1fr;

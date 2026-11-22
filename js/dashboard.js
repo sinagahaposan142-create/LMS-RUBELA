@@ -16,10 +16,11 @@
         { key: 'overview', label: 'Overview', icon: '📊', group: 'Utama' },
         { key: 'notifikasi', label: 'Notifikasi & Aktivitas', icon: '🔔', group: 'Utama' },
         { key: 'online', label: 'Sedang Online', icon: '🟢', group: 'Utama' },
-        { key: 'guru', label: 'Kelola Guru', icon: '👨‍🏫', group: 'Pengguna' },
-        { key: 'siswa', label: 'Kelola Siswa', icon: '👨‍🎓', group: 'Pengguna' },
+        { key: 'guru', label: 'Kelola Tutor', icon: '👨‍🏫', group: 'Pengguna' },
+        { key: 'siswa', label: 'Kelola Mentee', icon: '👨‍🎓', group: 'Pengguna' },
         { key: 'orangtua', label: 'Kelola Orang Tua', icon: '👨‍👩‍👦', group: 'Pengguna' },
         { key: 'staff', label: 'Admin & Staff', icon: '🛡️', group: 'Pengguna' },
+        { key: 'data-ganda', label: 'Cek Data Ganda', icon: '🔁', group: 'Pengguna' },
         { key: 'courses', label: 'Semua Kelas', icon: '📚', group: 'Akademik' },
         { key: 'course-admin', label: 'Course Mandiri', icon: '🎓', group: 'Akademik' },
         { key: 'hub-pay', label: 'Pembayaran Course', icon: '💳', group: 'Akademik' },
@@ -38,6 +39,7 @@
         { key: 'arena-admin', label: 'Arena Belajar', icon: '🎮', group: 'Motivasi & Gamifikasi' },
         { key: 'game-admin', label: 'Game Battle', icon: '⚔️', group: 'Motivasi & Gamifikasi' },
         { key: 'leaderboard', label: 'Papan Peringkat', icon: '🏆', group: 'Motivasi & Gamifikasi' },
+        { key: 'ruang-belajar', label: 'Ruang Belajar', icon: '⏱️', group: 'Motivasi & Gamifikasi' },
         { key: 'birthday', label: 'Ulang Tahun', icon: '🎂', group: 'Motivasi & Gamifikasi' },
         { key: 'motivasi', label: 'Kata Motivasi', icon: '💡', group: 'Motivasi & Gamifikasi' },
         { key: 'ayat-admin', label: 'Ayat Harian', icon: '📖', group: 'Motivasi & Gamifikasi' },
@@ -72,12 +74,13 @@
         { key: 'grading', label: 'Penilaian Tugas', icon: '✅', group: 'Mengajar' },
         { key: 'kalkulator-utbk', label: 'Kalkulator UTBK', icon: '🧮', group: 'Tools' },
         { key: 'kalender-seleksi', label: 'Kalender Seleksi', icon: '📆', group: 'Tools' },
-        { key: 'rekap', label: 'Rekapan Kelas', icon: '📈', group: 'Siswa & Laporan' },
-        { key: 'streak-siswa', label: 'Streak Siswa', icon: '🔥', group: 'Siswa & Laporan' },
-        { key: 'game-admin', label: 'Game Battle', icon: '⚔️', group: 'Siswa & Laporan' },
-        { key: 'leaderboard', label: 'Papan Peringkat', icon: '🏆', group: 'Siswa & Laporan' },
-        { key: 'ai-asisten', label: 'Asisten AI', icon: '💬', group: 'Siswa & Laporan' },
-        { key: 'ai-analytics', label: 'AI Analytics', icon: '🤖', group: 'Siswa & Laporan' },
+        { key: 'rekap', label: 'Rekapan Kelas', icon: '📈', group: 'Mentee & Laporan' },
+        { key: 'streak-siswa', label: 'Streak Mentee', icon: '🔥', group: 'Mentee & Laporan' },
+        { key: 'ruang-belajar', label: 'Ruang Belajar', icon: '⏱️', group: 'Mentee & Laporan' },
+        { key: 'game-admin', label: 'Game Battle', icon: '⚔️', group: 'Mentee & Laporan' },
+        { key: 'leaderboard', label: 'Papan Peringkat', icon: '🏆', group: 'Mentee & Laporan' },
+        { key: 'ai-asisten', label: 'Asisten AI', icon: '💬', group: 'Mentee & Laporan' },
+        { key: 'ai-analytics', label: 'AI Analytics', icon: '🤖', group: 'Mentee & Laporan' },
         { key: 'pengumuman', label: 'Pengumuman', icon: '📢', group: 'Komunikasi' },
         { key: 'berita', label: 'Berita', icon: '📰', group: 'Komunikasi' },
         { key: 'kalender', label: 'Kalender', icon: '📅', group: 'Komunikasi' },
@@ -92,6 +95,7 @@
         { key: 'overview', label: 'Overview', icon: '📊', group: 'Utama' },
         { key: 'notifikasi', label: 'Notifikasi', icon: '🔔', group: 'Utama' },
         { key: 'my-courses', label: 'Kelas Saya', icon: '📚', group: 'Belajar' },
+        { key: 'ruang-belajar', label: 'Ruang Belajar', icon: '⏱️', group: 'Belajar' },
         { key: 'course', label: 'Course', icon: '🎓', group: 'Belajar' },
         { key: 'browse', label: 'Jelajah Kelas', icon: '🔎', group: 'Belajar' },
         { key: 'modul', label: 'Modul', icon: '📘', group: 'Belajar' },
@@ -126,18 +130,19 @@
         { key: 'anak-nilai', label: 'Nilai & Ujian', icon: '🏆', group: 'Pantau Anak' },
         { key: 'anak-absensi', label: 'Kehadiran', icon: '📋', group: 'Pantau Anak' },
         { key: 'anak-tugas', label: 'Tugas', icon: '📝', group: 'Pantau Anak' },
-        { key: 'anak-kelas', label: 'Kelas & Guru', icon: '📚', group: 'Pantau Anak' },
+        { key: 'anak-kelas', label: 'Kelas & Tutor', icon: '📚', group: 'Pantau Anak' },
         { key: 'anak-course', label: 'Course Anak', icon: '🎓', group: 'Pantau Anak' },
         { key: 'anak-jadwal', label: 'Jadwal Kelas', icon: '🗓️', group: 'Pantau Anak' },
         { key: 'anak-perkembangan', label: 'Perkembangan', icon: '📈', group: 'Pantau Anak' },
         { key: 'anak-streak', label: 'Streak Anak', icon: '🔥', group: 'Pantau Anak' },
+        { key: 'ruang-belajar', label: 'Jam Belajar Anak', icon: '⏱️', group: 'Pantau Anak' },
         { key: 'birthday', label: 'Ulang Tahun Anak', icon: '🎂', group: 'Pantau Anak' },
         { key: 'kalkulator-utbk', label: 'Kalkulator UTBK', icon: '🧮', group: 'Tools' },
         { key: 'kalender-seleksi', label: 'Kalender Seleksi', icon: '📆', group: 'Tools' },
         { key: 'pengumuman', label: 'Pengumuman', icon: '📢', group: 'Komunikasi' },
         { key: 'berita', label: 'Berita', icon: '📰', group: 'Komunikasi' },
         { key: 'kalender', label: 'Kalender', icon: '📅', group: 'Komunikasi' },
-        { key: 'chat', label: 'Chat Guru', icon: '💭', group: 'Komunikasi' },
+        { key: 'chat', label: 'Chat Tutor', icon: '💭', group: 'Komunikasi' },
         { key: 'feedback', label: 'Kritik & Saran', icon: '💬', group: 'Komunikasi' },
         { key: 'keuangan', label: 'Pembayaran', icon: '💰', group: 'Akun' },
         { key: 'profile', label: 'Profil', icon: '👤', group: 'Akun' }
@@ -146,7 +151,7 @@
 
     /* Navigasi bawah ponsel: menu yang paling sering dipakai tiap peran + "Menu". */
     const BOTTOM_NAV = {
-      admin: [['overview', 'Beranda'], ['siswa', 'Siswa'], ['courses', 'Kelas'], ['attendance', 'Presensi']],
+      admin: [['overview', 'Beranda'], ['siswa', 'Mentee'], ['courses', 'Kelas'], ['attendance', 'Presensi']],
       guru: [['overview', 'Beranda'], ['courses', 'Kelas'], ['absensi', 'Presensi'], ['grading', 'Nilai']],
       siswa: [['overview', 'Beranda'], ['my-courses', 'Kelas'], ['streak', 'Streak'], ['assignments', 'Tugas']],
       orangtua: [['overview', 'Beranda'], ['anak-nilai', 'Nilai'], ['anak-absensi', 'Hadir'], ['anak-tugas', 'Tugas']]
@@ -154,24 +159,24 @@
 
     /* Aksi cepat di Overview — hanya menu yang memang tersedia bagi peran itu. */
     const QUICK_ACTIONS = {
-      admin: [['attendance', 'Ambil presensi', 'Isi kehadiran hari ini'], ['siswa', 'Tambah siswa', 'Kelola akun mentee'],
-        ['courses', 'Kelola kelas', 'Tutor, jadwal & siswa'], ['admin-cbt', 'Buat ujian', 'CBT & tryout'],
+      admin: [['attendance', 'Ambil presensi', 'Isi kehadiran hari ini'], ['siswa', 'Tambah mentee', 'Kelola akun mentee'],
+        ['courses', 'Kelola kelas', 'Tutor, jadwal & mentee'], ['admin-cbt', 'Buat ujian', 'CBT & tryout'],
         ['pengumuman', 'Pengumuman', 'Kirim info penting'], ['keuangan', 'Keuangan', 'Pemasukan & gaji']],
       guru: [['absensi', 'Ambil presensi', 'Kelas hari ini'], ['grading', 'Nilai tugas', 'Submission menunggu'],
         ['jadwal-kelas', 'Jadwal', 'Validasi pertemuan'], ['cbt', 'Buat ujian', 'CBT kelas'],
-        ['modul', 'Modul', 'Materi berbagian'], ['chat', 'Chat', 'Pesan siswa & admin']],
+        ['modul', 'Modul', 'Materi berbagian'], ['chat', 'Chat', 'Pesan mentee & admin']],
       siswa: [['arena', 'Tantangan harian', 'Nyalakan streak'], ['assignments', 'Tugas', 'Kerjakan sebelum deadline'],
         ['cbt', 'Tryout / CBT', 'Ujian tersedia'], ['jadwal-siswa', 'Jadwal kelas', 'Masuk Zoom/Meet'],
         ['course', 'Course', 'Belajar mandiri'], ['mesin-waktu', 'Mesin Waktu', 'Surat untuk masa depan']],
       orangtua: [['anak-nilai', 'Nilai & ujian', 'Hasil terbaru'], ['anak-absensi', 'Kehadiran', 'Persentase hadir'],
         ['anak-tugas', 'Tugas', 'Status pengumpulan'], ['anak-jadwal', 'Jadwal', 'Kelas minggu ini'],
-        ['keuangan', 'Pembayaran', 'Tagihan & riwayat'], ['chat', 'Chat guru', 'Hubungi tutor']]
+        ['keuangan', 'Pembayaran', 'Tagihan & riwayat'], ['chat', 'Chat tutor', 'Hubungi tutor']]
     };
 
     const ROLE_TITLES = {
       admin: 'Admin Panel',
-      guru: 'Guru Panel',
-      siswa: 'Siswa Panel',
+      guru: 'Tutor Panel',
+      siswa: 'Mentee Panel',
       orangtua: 'Panel Orang Tua'
     };
 
@@ -299,7 +304,8 @@
       const fresh = DB.getUser(user.id) || user;
       el.classList.toggle('has-photo', !!fresh.photo);
       el.classList.toggle('bd-frame', !!(window.Birthday && Birthday.hasFrame(fresh)));
-      if (fresh.photo) el.innerHTML = `<img src="${UI.esc(fresh.photo)}" alt="" />`;
+      if (window.Avatars) el.innerHTML = Avatars.inner(fresh);
+      else if (fresh.photo) el.innerHTML = `<img src="${UI.esc(fresh.photo)}" alt="" />`;
       else el.textContent = UI.initials(fresh.name);
     }
 
@@ -313,7 +319,9 @@
       'kalkulator-utbk': (c) => UtbkCalc.render(c, user),
       'kalender-seleksi': (c) => AdmissionCal.render(c, user),
       'data-ptn': (c) => PtnAdmin.render(c, user),
-      grup: (c) => Groups.render(c, user)
+      grup: (c) => Groups.render(c, user),
+      // Ruang Belajar ala YPT (js/study-room.js): timer, ruang kelas, peringkat, rekap.
+      'ruang-belajar': (c) => StudyRoom.render(c, user)
     };
 
     /* ================= Routing ================= */
@@ -336,12 +344,13 @@
       const navItem = (NAVS[user.role] || []).find(n => n.key === key);
       document.getElementById('pageTitle').textContent = navItem ? navItem.label : 'Dashboard';
       const content = document.getElementById('content');
-      if (window.Whiteboard) Whiteboard.destroy();
+      if (window.WbHub) WbHub.destroy();
       // Ruang pribadi Mesin Waktu terkunci kembali setiap kali halaman ditinggalkan.
       if (window.TimeCapsule) TimeCapsule.lock();
       if (window.Arena) Arena.stop();
       if (window.Games) Games.stop();
       if (window.GamesAdmin) GamesAdmin.stop();
+      if (window.StudyRoom) StudyRoom.stop();
       if (window.CourseHub && key !== 'course' && key !== 'course-admin') CourseHub.reset();
       if (content.__presenceDispose) {
         content.__presenceDispose();
@@ -410,7 +419,7 @@
      * Halaman ringkasan diperbarui otomatis; halaman lain menampilkan tombol
      * "Muat ulang" agar isian/tab yang sedang dibuka tidak tiba-tiba berubah. */
     const AUTO_REFRESH = new Set(['overview', 'notifikasi', 'pengumuman', 'kalender', 'online', 'hub-pay', 'kalender-seleksi']);
-    const SELF_LIVE = new Set(['chat', 'game-battle', 'game-admin', 'grup']);
+    const SELF_LIVE = new Set(['chat', 'game-battle', 'game-admin', 'grup', 'ruang-belajar']);
     let lastInputAt = 0;
     let liveTimer = null;
     let lastLiveAt = 0;
@@ -451,9 +460,10 @@
       }
       const relevant = keys.filter(k => !['lms_birthday_notified', 'lms_activity_log'].includes(k) || currentKey === 'notifikasi');
       if (!relevant.length || SELF_LIVE.has(currentKey)) return;
-      if (document.querySelector('#content .wb-root, #content .tc-root')) return;      // whiteboard & Mesin Waktu punya pembaruan sendiri
+      if (document.querySelector('#content .wbh, #content .wb-pro, #content .tc-root')) return;      // whiteboard & Mesin Waktu punya pembaruan sendiri
       clearTimeout(liveTimer);
       liveTimer = setTimeout(() => {
+        if (SELF_LIVE.has(currentKey)) return;      // sudah pindah ke halaman yang memperbarui dirinya sendiri
         if (AUTO_REFRESH.has(currentKey) && !interactionBusy() && Date.now() - lastLiveAt > 3000) {
           lastLiveAt = Date.now();
           navigate(currentKey, { quiet: true });
@@ -465,15 +475,20 @@
     }
 
     /* ================= Riwayat notifikasi & aktivitas ================= */
-    let notifTab = 'notif';
+    // Admin & tutor membuka Ruang Perhatian lebih dulu (js/attention.js).
+    const staffNotif = (user.role === 'admin' || user.role === 'guru') && !!window.Attention;
+    let notifTab = staffNotif ? 'perhatian' : 'notif';
     function renderNotifHistory(container) {
       const isAdmin = user.role === 'admin';
-      const tab = isAdmin ? notifTab : 'notif';
+      const tabs = [];
+      if (staffNotif) tabs.push(['perhatian', 'Perlu Ditindaklanjuti']);
+      if (staffNotif || isAdmin) tabs.push(['notif', 'Notifikasi Saya']);
+      if (isAdmin) tabs.push(['log', 'Riwayat Aktivitas']);
+      const tab = tabs.some(t => t[0] === notifTab) ? notifTab : 'notif';
+      const attCount = staffNotif ? Attention.count(user) : 0;
       container.innerHTML = `
-        ${isAdmin ? `<div class="tabs">
-          <button type="button" class="tab-btn ${tab === 'notif' ? 'active' : ''}" data-ntab="notif">🔔 Notifikasi Saya</button>
-          <button type="button" class="tab-btn ${tab === 'log' ? 'active' : ''}" data-ntab="log">🧾 Riwayat Aktivitas</button>
-        </div>` : ''}
+        ${tabs.length > 1 ? `<div class="tabs" role="tablist">${tabs.map(([k, l]) => `<button type="button" role="tab" aria-selected="${tab === k}" class="tab-btn ${tab === k ? 'active' : ''}" data-ntab="${k}">${l}${k === 'perhatian' && attCount ? ` <span class="tab-count">${attCount > 99 ? '99+' : attCount}</span>` : ''}</button>`).join('')}</div>` : ''}
+        ${tab === 'perhatian' ? '<div class="card" id="attRoom"></div>' : `
         <div class="card">
           <div class="card-header">
             ${UI.secHead(tab === 'log' ? '🧾' : '🔔', tab === 'log' ? 'Riwayat Aktivitas' : 'Riwayat Notifikasi',
@@ -483,11 +498,15 @@
               <button type="button" class="btn btn-sm btn-danger" id="nhClear">Bersihkan</button></div>` : ''}
           </div>
           <div id="nhList"></div>
-        </div>`;
+        </div>`}`;
       container.querySelectorAll('[data-ntab]').forEach(b => b.addEventListener('click', () => {
         notifTab = b.dataset.ntab; renderNotifHistory(container);
       }));
       const box = container.querySelector('#nhList');
+      if (tab === 'perhatian') {
+        Attention.render(container.querySelector('#attRoom'), user);
+        return;
+      }
       if (tab === 'log') {
         const ROLE = Auth.ROLE_LABELS;
         const log = DB.getActivityLog();
@@ -680,7 +699,7 @@
 
     const genericModal = document.getElementById('genericModal');
     function closeGenericModal() {
-      if (window.Whiteboard) Whiteboard.destroy();
+      if (window.WbHub) WbHub.destroy();
       UI.modal.close();
     }
     document.getElementById('modalClose').addEventListener('click', closeGenericModal);
@@ -775,18 +794,24 @@
       const btn = document.getElementById('presenceBtn');
       if (btn && canOpen) btn.addEventListener('click', () => navigate('online'));
     }
-    let stopPresenceBadge = null;
     if (window.Presence) {
       Presence.start(user);
       renderPresenceBadge();
-      stopPresenceBadge = Presence.subscribe(renderPresenceBadge);
+      Presence.subscribe(renderPresenceBadge);
     }
+
+    // Jawaban aman saat sinyal putus: pulihkan jurnal perangkat & siapkan salinan halaman offline.
+    if (window.SafeSave) { try { SafeSave.init(user); } catch (e) { console.warn('[LMS] simpan aman', e); } }
+    // Ruang Belajar: timer tetap berjalan & waktu aktif di LMS dihitung di halaman mana pun (mentee).
+    if (window.StudyRoom) { try { StudyRoom.init(user); } catch (e) { console.warn('[LMS] ruang belajar', e); } }
 
     navigate('overview');
     // Notifikasi perangkat (Web Push): daftarkan service worker, pulihkan langganan, ajakan aktifkan.
     if (window.PushNotif) { try { PushNotif.init(user); } catch (e) { console.warn('[LMS] notifikasi perangkat', e); } }
     // Game Battle: kartu undangan battle muncul di halaman mana pun (siswa).
     if (window.Games) { try { Games.init(user); } catch (e) { console.warn('[LMS] game battle', e); } }
+    // Judul kelas lama memuat nama tutor; admin merapikannya sekali (tersinkron ke semua perangkat).
+    if (user.role === 'admin' && DB.tidyCourseTitles) { try { DB.tidyCourseTitles(); } catch (e) { console.warn('[LMS] judul kelas', e); } }
     // Musik latar hidup di shell sehingga tidak dimulai ulang saat berpindah menu.
     if (window.Music) { try { Music.init(user); } catch (e) { console.warn('[LMS] musik', e); } }
 

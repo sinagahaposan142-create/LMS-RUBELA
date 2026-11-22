@@ -70,10 +70,10 @@
         <div class="wh-inner">
           <div class="wh-eyebrow">${UI.esc(UI.greeting())} • ${UI.esc(UI.fmtFullDateTime(UI.nowInTz()))}</div>
           <h2>Selamat Datang, <span class="hl">${UI.esc(user.name)}</span></h2>
-          <p class="wh-sub">Pengajar ${UI.esc(user.subject || 'Rubela')} — terima kasih telah membimbing para calon mahasiswa.</p>
+          <p class="wh-sub">Pengajar ${UI.esc(DB.userSubjectsLabel(DB.getUser(user.id) || user) || 'Rubela')} — terima kasih telah membimbing para calon mahasiswa.</p>
           <div class="wh-chips">
             <span class="wh-chip">📚 ${myCourses.length} kelas</span>
-            <span class="wh-chip">👨‍🎓 ${studentSet.size} siswa</span>
+            <span class="wh-chip">👨‍🎓 ${studentSet.size} mentee</span>
             <span class="wh-chip">✅ ${ungraded.length} perlu dinilai</span>
             <span class="wh-chip">📋 Presensi hari ini: ${todayAtt.length ? 'sudah' : 'belum'}</span>
           </div>
@@ -92,7 +92,7 @@
           <div class="value">${myCourses.length}</div>
         </div>
         <div class="stat-card accent-success">
-          <div class="label">Total Siswa</div>
+          <div class="label">Total Mentee</div>
           <div class="value">${studentSet.size}</div>
         </div>
         <div class="stat-card accent-warning">
@@ -144,7 +144,7 @@
     return `
       <div class="course-card">
         <div class="course-banner ${UI.bannerClass(idx)}">
-          ${UI.esc((c.title || '?').slice(0, 1).toUpperCase())}
+          ${UI.esc(DB.courseMark(c))}
           <span class="lock-chip">${locked ? '🔒 Terkunci' : '🔓 Terbuka'}</span>
         </div>
         <div class="course-body">
@@ -154,7 +154,7 @@
           ${locked ? `<div class="muted small">Password kelas: <strong>${UI.esc(c.password)}</strong></div>` : ''}
         </div>
         <div class="course-footer">
-          <span>${count} siswa</span>
+          <span>${count} mentee</span>
           <div class="flex-gap">
             <button class="btn btn-sm btn-secondary" data-open="${c.id}">Buka</button>
             ${ownerActions ? `<button class="btn btn-sm btn-secondary" data-course-pw="${c.id}" title="Atur password kelas">🔒</button>` : ''}
@@ -210,7 +210,7 @@
         <div class="form-group">
           <label>🔒 Password Kelas (untuk "Jelajah Kelas")</label>
           <input name="password" value="${UI.esc(editing?.password || '')}" placeholder="Kosongkan bila kelas terbuka tanpa password" />
-          <p class="muted small" style="margin:6px 0 0;">Siswa harus memasukkan password ini bila bergabung sendiri dari halaman
+          <p class="muted small" style="margin:6px 0 0;">Mentee harus memasukkan password ini bila bergabung sendiri dari halaman
           <strong>Jelajah Kelas</strong>. Admin dan Anda dapat mengubahnya kapan saja.</p>
         </div>
         <div class="flex-gap" style="justify-content:flex-end;">
@@ -287,7 +287,7 @@
         <div class="flex-between mb-1">
           <div>
             <h3 class="mt-0">${UI.esc(course.title)}</h3>
-            <div class="muted small">${UI.esc(course.category || 'Umum')} • ${enrollments.length} siswa</div>
+            <div class="muted small">${UI.esc(course.category || 'Umum')} • ${enrollments.length} mentee</div>
           </div>
           <span class="badge ${DB.hasCoursePassword(course.id) ? 'badge-warning' : 'badge-gray'}">
             ${DB.hasCoursePassword(course.id) ? '🔒 Password: ' + UI.esc(course.password) : '🔓 Terbuka'}
@@ -306,7 +306,7 @@
         <button class="tab-btn" data-tab="cbts">CBT (${DB.getCbtsByCourse(course.id).length})</button>
         <button class="tab-btn" data-tab="whiteboard">Whiteboard</button>
         <button class="tab-btn" data-tab="attendance">Presensi</button>
-        <button class="tab-btn" data-tab="students">Siswa (${enrollments.length})</button>
+        <button class="tab-btn" data-tab="students">Mentee (${enrollments.length})</button>
       </div>
       <div id="tabContent"></div>
     `;
@@ -330,13 +330,13 @@
 
   function renderTab(tab, course, user) {
     const el = document.getElementById('tabContent');
-    if (global.Whiteboard) Whiteboard.destroy();
+    if (global.WbHub) WbHub.destroy();
     if (tab === 'materials') return renderMaterialsTab(el, course, user);
     if (tab === 'modules') return renderModulesTab(el, course, user);
     if (tab === 'recordings') return renderRecordingsTab(el, course, user);
     if (tab === 'assignments') return renderAssignmentsTab(el, course, user);
     if (tab === 'cbts') return renderCbtsTab(el, course, user);
-    if (tab === 'whiteboard') return Whiteboard.mount({ container: el, course, user });
+    if (tab === 'whiteboard') return WbHub.render({ container: el, course, user });
     if (tab === 'attendance') return renderAttendanceTab(el, course, user);
     if (tab === 'students') return renderStudentsTab(el, course, user);
   }
@@ -437,7 +437,7 @@
     el.querySelectorAll('[data-del-asg]').forEach(b => b.addEventListener('click', () => {
       const a = DB.getAssignment(b.dataset.delAsg);
       if (!DB.canManageContent(user, a, course)) { UI.toast('Hanya tutor pembuatnya yang dapat menghapus tugas ini.', 'error'); return; }
-      if (!UI.confirmDialog('Hapus tugas ini? Semua jawaban siswa juga terhapus.')) return;
+      if (!UI.confirmDialog('Hapus tugas ini? Semua jawaban mentee juga terhapus.')) return;
       DB.deleteAssignment(b.dataset.delAsg);
       UI.toast('Tugas dihapus.');
       reload();
@@ -471,7 +471,7 @@
       ${!AI.ready() ? AI.noticeHtml(user) : ''}
       <div id="batchAiStatus"></div>
       <div class="table-wrap"><table class="table">
-        <thead><tr><th>Siswa</th><th>Status</th><th>Dikirim</th><th>Nilai</th><th>Aksi</th></tr></thead>
+        <thead><tr><th>Mentee</th><th>Status</th><th>Dikirim</th><th>Nilai</th><th>Aksi</th></tr></thead>
         <tbody>
           ${rows.map(r => `<tr>
             <td><strong>${UI.esc(r.student ? r.student.name : '-')}</strong></td>
@@ -574,7 +574,7 @@
 
     const body = `
       <div class="card" style="box-shadow:none;border-color:var(--gray-100);">
-        <div class="muted small">Siswa</div>
+        <div class="muted small">Mentee</div>
         <strong>${UI.esc(student ? student.name : '-')}</strong>
         <div class="muted small mt-1">Dikirim ${UI.fmtDateTime(sub.submittedAt)}${asg ? ' • ' + UI.esc(asg.title) : ''}</div>
         ${isSoal && autoInfo ? `
@@ -584,7 +584,7 @@
             ${autoInfo.manual ? ` • ${autoInfo.manual} soal esai perlu Anda nilai sendiri` : ''}
           </div>
           <div class="table-wrap mt-1"><table class="table">
-            <thead><tr><th>#</th><th>Soal</th><th>Format</th><th>Jawaban Siswa</th><th>Hasil</th></tr></thead>
+            <thead><tr><th>#</th><th>Soal</th><th>Format</th><th>Jawaban Mentee</th><th>Hasil</th></tr></thead>
             <tbody>${autoInfo.rows}</tbody>
           </table></div>`
         : `<div class="content mt-1 rt-content">${sub.content ? RichText.render(sub.content) : '<span class="muted">(tanpa jawaban tertulis)</span>'}</div>`}
@@ -637,7 +637,7 @@
         title: `Nilai baru untuk ${student ? student.name : 'anak Anda'}`,
         link: 'anak-nilai'
       });
-      UI.toast('Nilai disimpan & notifikasi dikirim ke siswa dan orang tua.');
+      UI.toast('Nilai disimpan & notifikasi dikirim ke mentee dan orang tua.');
       openGradeModal(assignmentId, user);
     });
   }
@@ -646,8 +646,8 @@
     const enrollments = DB.getEnrollmentsByCourse(course.id);
     el.innerHTML = `
       <div class="card">
-        <div class="card-header"><h3>Siswa Terdaftar (${enrollments.length})</h3></div>
-        ${enrollments.length === 0 ? emptyState('Belum ada siswa terdaftar.') : `
+        <div class="card-header"><h3>Mentee Terdaftar (${enrollments.length})</h3></div>
+        ${enrollments.length === 0 ? emptyState('Belum ada mentee terdaftar.') : `
         <div class="table-wrap"><table class="table">
           <thead><tr><th>Nama</th><th>Kelas</th><th>Email</th><th>Bergabung</th></tr></thead>
           <tbody>
@@ -690,7 +690,7 @@
       container: container.querySelector('#gradeSearch'),
       items: mySubs,
       stateKey: 'guru-grading-' + user.id,
-      placeholder: 'Cari nama siswa, judul tugas, kelas, isi jawaban, atau feedback…',
+      placeholder: 'Cari nama mentee, judul tugas, kelas, isi jawaban, atau feedback…',
       fields: x => { const stu = DB.getUser(x.studentId); const asg = DB.getAssignment(x.assignmentId) || {};
         const c = DB.getCourse(asg.courseId);
         return [stu ? stu.name : '', stu ? stu.username : '', stu ? stu.kelas : '', asg.title, c ? DB.courseTitle(c) : '',
@@ -709,9 +709,9 @@
         { key: 'grade', label: 'Nilai tertinggi', cmp: (a, b) => (b.grade ?? -1) - (a.grade ?? -1) }
       ],
       pageSize: 20,
-      empty: 'Belum ada submission dari siswa.',
+      empty: 'Belum ada submission dari mentee.',
       render: (rows, ctx) => `<div class="table-wrap"><table class="table">
-          <thead><tr><th>Siswa</th><th>Tugas</th><th>Kelas</th><th>Status</th><th>Dikirim</th><th>Nilai</th><th>Aksi</th></tr></thead>
+          <thead><tr><th>Mentee</th><th>Tugas</th><th>Kelas</th><th>Status</th><th>Dikirim</th><th>Nilai</th><th>Aksi</th></tr></thead>
           <tbody>
             ${rows.map(x => {
               const stu = DB.getUser(x.studentId);
@@ -749,9 +749,8 @@
           <div class="form-row">
             <div class="form-group"><label>Email</label>
               <input name="email" type="email" required value="${UI.esc(user.email || '')}" /></div>
-            <div class="form-group"><label>Mata Pelajaran</label>
-              <input name="subject" value="${UI.esc(user.subject || '')}" /></div>
           </div>
+          ${ProfileFields.subjectPickerHtml(DB.userSubjects(DB.getUser(user.id) || user))}
           ${ProfileFields.profileExtraFields(DB.getUser(user.id))}
           <div class="form-group"><label>Password Baru (kosongkan jika tidak diubah)</label>
             <input name="password" type="password" minlength="6" /></div>
@@ -810,6 +809,7 @@
       });
     }
     const photoField = ProfileFields.bindPhotoField(document.getElementById('profileForm'), DB.getUser(user.id));
+    ProfileFields.bindSubjectPicker(document.getElementById('profileForm'));
     document.getElementById('profileForm').addEventListener('submit', (e) => {
       e.preventDefault();
       const fd = new FormData(e.target);
@@ -819,8 +819,9 @@
       const patch = {
         name: fd.get('name').trim(),
         email: fd.get('email').trim(),
-        subject: fd.get('subject').trim()
       };
+      const subjects = ProfileFields.readSubjects(e.target);
+      if (subjects.length) { patch.subjects = subjects; patch.subject = subjects[0]; }
       patch.birthDate = birthDate;
       patch.religion = ProfileFields.religionOf(fd);
       patch.photo = photoField.value();
@@ -960,7 +961,7 @@
             </div>
             <div class="meta">${credit(c, course)} • ${UI.fmtDateTime(c.startAt)} — ${UI.fmtDateTime(c.endAt)} • Durasi ${c.durationMinutes} menit</div>
             <div class="content rt-content">${RichText.render(c.description || '')}</div>
-            <div class="muted small">Dikerjakan: ${submitted} siswa</div>
+            <div class="muted small">Dikerjakan: ${submitted} mentee</div>
             <div class="flex-gap mt-1">
               <button class="btn btn-sm btn-primary" data-result-cbt="${c.id}">Hasil</button>
               ${mine
@@ -1071,7 +1072,7 @@
       </div>
       ${ptsMode ? `<div class="alert alert-info small">${UI.esc(Scoring.describe(cbt))}.${hasEssay ? ' Beri poin soal esai lewat tombol ✍️.' : ''}</div>` : ''}
       <div class="table-wrap"><table class="table">
-        <thead><tr><th>Siswa</th><th>Status</th><th>Benar</th><th>Skor</th><th>Dikirim</th>${hasEssay ? '<th>Esai</th>' : ''}</tr></thead>
+        <thead><tr><th>Mentee</th><th>Status</th><th>Benar</th><th>Skor</th><th>Dikirim</th>${hasEssay ? '<th>Esai</th>' : ''}</tr></thead>
         <tbody>
           ${rows.map(r => {
             const pad = hasEssay ? '<td>-</td>' : '';
@@ -1230,7 +1231,7 @@
       ${courses.length ? `
       <div class="subtabs">
         <button class="subtab-btn active" data-abstab="ambil">📝 Ambil Presensi</button>
-        <button class="subtab-btn" data-abstab="rekap">📈 Rekap Siswa</button>
+        <button class="subtab-btn" data-abstab="rekap">📈 Rekap Mentee</button>
         <button class="subtab-btn" data-abstab="saya">👤 Kehadiran Saya</button>
       </div>` : ''}
       <div id="absBox"></div>
@@ -1254,7 +1255,7 @@
         // Hanya siswa di kelas yang sedang dipilih (hak akses tutor).
         const course = DB.getCourse(activeCourse);
         const people = DB.getEnrollmentsByCourse(activeCourse).map(e => DB.getUser(e.studentId)).filter(Boolean);
-        if (people.length === 0) { box.innerHTML = emptyState('Belum ada siswa di kelas ini.'); return; }
+        if (people.length === 0) { box.innerHTML = emptyState('Belum ada mentee di kelas ini.'); return; }
         AttendanceInsights.renderRoster({
           container: box, people, role: 'siswa', courses: course ? [course] : [],
           onOpen: (u) => {
@@ -1329,13 +1330,13 @@
     renderCourseTab: (tab, course, user, el) => {
       const target = el || document.getElementById('tabContent');
       if (!target) return;
-      if (global.Whiteboard) Whiteboard.destroy();
+      if (global.WbHub) WbHub.destroy();
       if (tab === 'materials') return renderMaterialsTab(target, course, user);
       if (tab === 'modules') return renderModulesTab(target, course, user);
       if (tab === 'recordings') return renderRecordingsTab(target, course, user);
       if (tab === 'assignments') return renderAssignmentsTab(target, course, user);
       if (tab === 'cbts') return renderCbtsTab(target, course, user);
-      if (tab === 'whiteboard') return Whiteboard.mount({ container: target, course, user });
+      if (tab === 'whiteboard') return WbHub.render({ container: target, course, user });
       if (tab === 'attendance') return renderAttendanceTab(target, course, user);
       if (tab === 'students') return renderStudentsTab(target, course, user);
     },

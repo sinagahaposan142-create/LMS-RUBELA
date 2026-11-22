@@ -21,7 +21,7 @@
   const PREF_KEY = 'lms_push_prefs';
   const RESYNC_MS = 24 * 3600000;
   const REASK_MS = 3 * 86400000;
-  const ROLES = [['siswa', 'Siswa'], ['guru', 'Tutor'], ['admin', 'Admin'], ['orangtua', 'Orang Tua']];
+  const ROLES = [['siswa', 'Mentee'], ['guru', 'Tutor'], ['admin', 'Admin'], ['orangtua', 'Orang Tua']];
 
   const nav = global.navigator || {};
   const ua = nav.userAgent || '';

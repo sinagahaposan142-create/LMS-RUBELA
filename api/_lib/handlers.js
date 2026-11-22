@@ -15,7 +15,7 @@ const PRESENCE_TTL = 90 * 1000;
 const PULL_ROWS = 600;
 const PULL_BYTES = 3000000;
 const QUIZ_COOLDOWN = 60 * 1000;
-const ROLE_LABELS = { admin: 'Admin', guru: 'Guru', siswa: 'Siswa', orangtua: 'Orang Tua' };
+const ROLE_LABELS = { admin: 'Admin', guru: 'Tutor', siswa: 'Mentee', orangtua: 'Orang Tua' };
 const MASK = catalog.MASK;
 
 class HttpError extends Error {
@@ -334,13 +334,16 @@ function sanitizePresence(p) {
   const tab = str(p.tab, 60);
   if (!/^[A-Za-z0-9_-]{4,60}$/.test(tab)) return null;
   if (p.gone) return { tab, gone: true };
-  return {
-    tab,
-    data: {
-      page: str(p.page, 60), visibility: p.visibility === 'hidden' ? 'hidden' : 'visible',
-      idle: Math.max(0, Math.min(86400000, int(p.idle, 0))), browser: str(p.browser, 30), os: str(p.os, 30), device: str(p.device, 30)
-    }
+  const data = {
+    page: str(p.page, 60), visibility: p.visibility === 'hidden' ? 'hidden' : 'visible',
+    idle: Math.max(0, Math.min(86400000, int(p.idle, 0))), browser: str(p.browser, 30), os: str(p.os, 30), device: str(p.device, 30)
   };
+  // Kesehatan koneksi tab (js/safe-save.js): antrean belum terkirim & riwayat putus sambung.
+  if (p.net && typeof p.net === 'object') {
+    const n = (v, max) => Math.max(0, Math.min(max, int(v, 0)));
+    data.net = { pending: n(p.net.pending, 100000), drops: n(p.net.drops, 10000), offlineMs: n(p.net.offlineMs, 7 * 86400000), lastDropAt: n(p.net.lastDropAt, 9e15) };
+  }
+  return { tab, data };
 }
 
 function presenceStmts(tokenHash, pres, now) {
@@ -699,7 +702,13 @@ async function applyChanges(db, req, tokenHash, changes, now, afterStmts) {
       const meta = catalog.info(k) || {};
       if (meta.quiet) return;
       if (meta.target) {
-        [value, before].forEach(r => { if (r) meta.target.forEach(f => { if (typeof r[f] === 'string') targets.add(r[f]); }); });
+        [value, before].forEach(r => {
+          if (!r) return;
+          meta.target.forEach(f => {
+            if (typeof r[f] === 'string') targets.add(r[f]);
+            else if (Array.isArray(r[f])) r[f].slice(0, 300).forEach(u => { if (typeof u === 'string') targets.add(u); });
+          });
+        });
       } else broadcastAll = true;
     };
     const activeAdmins = () => [...userIdx.entries()].filter(([, x]) => x.r === 'admin' && x.s !== 'Dikeluarkan').length;
@@ -1044,9 +1053,15 @@ const BLOB_CHUNK_MAX = 1100000;   // karakter base64 per bagian (~800 KB data)
  * images:true = isi wajib PNG/JPEG/WEBP (diperiksa dari byte awal, bukan dari nama/tipe kiriman).
  */
 function blobPolicy(ctx, key) {
-  const m = /^(music|cap|qris|proof):([A-Za-z0-9_.:-]{1,200})$/.exec(String(key || ''));
+  const m = /^(music|cap|qris|proof|wb):([A-Za-z0-9_.:-]{1,200})$/.exec(String(key || ''));
   if (!m) return null;
   if (m[1] === 'music') return { read: true, write: ctx.isAdmin, del: ctx.isAdmin, maxBytes: 16 * 1024 * 1024 };
+  // Halaman PDF / gambar whiteboard: "wb:<kelas>:<papan>:<berkas>". Hak per kelas dicek di wbAccess().
+  if (m[1] === 'wb') {
+    if (!/^[A-Za-z0-9_.-]{1,80}:[A-Za-z0-9_.-]{1,80}:/.test(m[2])) return null;
+    const staff = ctx.isAdmin || ctx.role === 'guru';
+    return { read: true, write: staff, del: staff, maxBytes: WB_FILE_MAX, images: true, wb: m[2].split(':')[0] };
+  }
   if (m[1] === 'qris') return { read: true, write: ctx.isAdmin, del: ctx.isAdmin, maxBytes: 1536 * 1024, images: true };
   const owner = m[2].split(':')[0];
   const mine = owner === ctx.id;
@@ -1055,6 +1070,27 @@ function blobPolicy(ctx, key) {
     return { read: mine || ctx.isAdmin, write: mine && ctx.role === 'siswa', del: ctx.isAdmin, maxBytes: 3 * 1024 * 1024, images: true, once: true };
   }
   return { read: mine, write: mine && ctx.role === 'siswa', del: mine || ctx.isAdmin, maxBytes: 4 * 1024 * 1024 };
+}
+
+const WB_FILE_MAX = 900 * 1024;               // satu halaman PDF/gambar setelah dikompres di browser
+const WB_COURSE_MAX = 8 * 1024 * 1024;        // total berkas whiteboard per kelas
+/**
+ * Hak berkas whiteboard per kelas: tutor kelas & admin menulis; anggota kelas
+ * (mentee terdaftar, orang tuanya, tutor kelas) membaca.
+ */
+async function wbAccess(db, user, ctx, courseId, write) {
+  if (ctx.isAdmin) return true;
+  const rows = await db.query("SELECT v FROM kv WHERE k = 'lms_courses' AND id = ? AND v IS NOT NULL", [courseId]);
+  const course = rows.length ? parse(rows[0].v) : null;
+  if (!course) return false;
+  const tutors = Array.isArray(course.teacherIds) && course.teacherIds.length ? course.teacherIds : (course.teacherId ? [course.teacherId] : []);
+  if (ctx.role === 'guru') return tutors.includes(user.id);
+  if (write) return false;
+  const ids = ctx.role === 'orangtua' ? (Array.isArray(user.childIds) ? user.childIds.map(String) : []) : [user.id];
+  if (!ids.length) return false;
+  const en = await db.query(`SELECT 1 FROM kv WHERE k = 'lms_enrollments' AND v IS NOT NULL AND json_extract(v, '$.courseId') = ?
+    AND json_extract(v, '$.studentId') IN (${ids.map(() => '?').join(',')}) LIMIT 1`, [courseId].concat(ids));
+  return en.length > 0;
 }
 
 const IMAGE_TYPES = ['image/png', 'image/jpeg', 'image/webp'];
@@ -1075,6 +1111,14 @@ async function blobPut(db, req, body) {
   const pol = blobPolicy(ctx, key);
   if (!pol || !pol.write) throw forbidden('Anda tidak berhak mengunggah berkas ini.');
   const part = int(body.part, -1), parts = int(body.parts, 0), size = int(body.size, -1);
+  if (pol.wb && part === 0) {
+    if (!(await wbAccess(db, user, ctx, pol.wb, true))) throw forbidden('Hanya tutor kelas ini dan admin yang dapat mengunggah berkas whiteboard.');
+    const pre = 'wb:' + pol.wb + ':';
+    const [used] = await db.query('SELECT COALESCE(SUM(size), 0) AS s FROM blob_meta WHERE key >= ? AND key < ? AND key <> ?', [pre, pre.slice(0, -1) + ';', key]);
+    if (Number(used && used.s) + Math.max(0, size) > WB_COURSE_MAX) {
+      throw bad(`Ruang berkas whiteboard kelas ini (${WB_COURSE_MAX / 1048576} MB) sudah penuh. Hapus papan berisi PDF/gambar lama terlebih dahulu.`);
+    }
+  }
   const data = typeof body.data === 'string' ? body.data : '';
   if (!(parts >= 1 && parts <= 40 && part >= 0 && part < parts)) throw bad('Bagian berkas tidak valid.');
   if (!(size >= 0 && size <= pol.maxBytes)) throw bad('Ukuran berkas melebihi batas.');
@@ -1120,6 +1164,7 @@ async function blobGet(db, req, body) {
   const key = str(body.key, 240);
   const pol = blobPolicy(ctx, key);
   if (!pol || !pol.read) throw forbidden('Anda tidak berhak membuka berkas ini.');
+  if (pol.wb && !(await wbAccess(db, user, ctx, pol.wb, false))) throw forbidden('Berkas whiteboard ini hanya untuk anggota kelasnya.');
   const part = Math.max(0, int(body.part, 0));
   const [meta, data] = await db.run([
     { sql: 'SELECT size, type, parts, complete FROM blob_meta WHERE key = ?', args: [key] },
@@ -1134,9 +1179,11 @@ async function blobDel(db, req, body) {
   const ctx = rules.makeCtx(user);
   const prefix = str(body.prefix, 240);
   if (prefix) {
-    if (!/^(music|cap):[A-Za-z0-9_.:-]*$/.test(prefix)) throw bad('Prefix tidak valid.');
-    const pol = blobPolicy(ctx, prefix + 'x');
+    if (!/^(music|cap|wb):[A-Za-z0-9_.:-]*$/.test(prefix)) throw bad('Prefix tidak valid.');
+    // Prefix whiteboard minimal satu kelas ("wb:<kelas>:"); diuji dengan berkas contoh di bawahnya.
+    const pol = blobPolicy(ctx, prefix.startsWith('wb:') ? (/^wb:[^:]+:$/.test(prefix) ? prefix + 'x:x' : prefix + 'x') : prefix + 'x');
     if (!pol || !pol.del || (prefix.startsWith('cap:') && !/^cap:[^:]+:/.test(prefix) && !ctx.isAdmin)) throw forbidden('Anda tidak berhak menghapus berkas ini.');
+    if (pol.wb && !(await wbAccess(db, user, ctx, pol.wb, true))) throw forbidden('Anda tidak berhak menghapus berkas whiteboard kelas ini.');
     const end = prefix.slice(0, -1) + String.fromCharCode(prefix.charCodeAt(prefix.length - 1) + 1);
     await db.atomic([
       { sql: 'DELETE FROM blobs WHERE key >= ? AND key < ?', args: [prefix, end] },
@@ -1147,6 +1194,7 @@ async function blobDel(db, req, body) {
   const key = str(body.key, 240);
   const pol = blobPolicy(ctx, key);
   if (!pol || !pol.del) throw forbidden('Anda tidak berhak menghapus berkas ini.');
+  if (pol.wb && !(await wbAccess(db, user, ctx, pol.wb, true))) throw forbidden('Anda tidak berhak menghapus berkas whiteboard kelas ini.');
   await db.atomic([
     { sql: 'DELETE FROM blobs WHERE key = ?', args: [key] },
     { sql: 'DELETE FROM blob_meta WHERE key = ?', args: [key] }

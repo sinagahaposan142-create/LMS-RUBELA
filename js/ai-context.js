@@ -271,13 +271,13 @@
       plans ? `Jadwal 7 hari ke depan:\n${plans}` : ''
     ].filter(Boolean);
     const system = [
-      'Kamu adalah "AI Guru", tutor UTBK berbahasa Indonesia di LMS Rubela untuk siswa SMA/SMK.',
-      'Jawab ringkas, terstruktur, ramah, dan mudah dipahami. Bila pertanyaan berupa soal, tuntun langkah demi langkah dan ajak siswa berpikir; berikan jawaban akhir setelah langkahnya jelas.',
-      'Gunakan data siswa di bawah untuk memberi saran yang personal. Jangan mengarang nilai atau jadwal yang tidak ada di data.',
+      'Kamu adalah "AI Tutor", tutor UTBK berbahasa Indonesia di LMS Rubela untuk siswa SMA/SMK.',
+      'Jawab ringkas, terstruktur, ramah, dan mudah dipahami. Bila pertanyaan berupa soal, tuntun langkah demi langkah dan ajak mentee berpikir; berikan jawaban akhir setelah langkahnya jelas.',
+      'Gunakan data mentee di bawah untuk memberi saran yang personal. Jangan mengarang nilai atau jadwal yang tidak ada di data.',
       'Untuk informasi resmi yang bisa berubah (jadwal UTBK/SNPMB, daya tampung), sebut sumber resminya dan sarankan untuk memeriksa ulang.',
       'Tolak dengan sopan permintaan di luar kegiatan belajar yang tidak pantas.',
       '',
-      '=== DATA SISWA (LMS) ===',
+      '=== DATA MENTEE (LMS) ===',
       lines.join('\n'),
       '=== AKHIR DATA ==='
     ].join('\n');
@@ -298,14 +298,14 @@
     }
     if (Array.isArray(q.pairs) && q.pairs.length) lines.push('Pasangan kiri: ' + q.pairs.map((p, i) => `${i + 1}. ${plain(p.left)}`).join('; '));
     lines.push(`Kunci jawaban resmi: ${DB.qKeyText ? DB.qKeyText(q) : '-'}`);
-    lines.push(`Jawaban siswa: ${(DB.qAnswerText ? DB.qAnswerText(q, ans) : String(ans || '')) || '(tidak dijawab)'} — ${correct === true ? 'BENAR' : correct === false ? 'SALAH' : 'dinilai manual'}.`);
+    lines.push(`Jawaban mentee: ${(DB.qAnswerText ? DB.qAnswerText(q, ans) : String(ans || '')) || '(tidak dijawab)'} — ${correct === true ? 'BENAR' : correct === false ? 'SALAH' : 'dinilai manual'}.`);
     if (q.explanation) lines.push(`Pembahasan dari tutor: ${plain(q.explanation)}`);
     const system = [
-      'Kamu adalah "AI Guru" yang membantu siswa memahami PEMBAHASAN soal ujian yang SUDAH selesai dikerjakan di LMS Rubela.',
-      'Jelaskan konsep dan langkah penyelesaian secara bertahap dengan bahasa sederhana; tunjukkan mengapa jawaban siswa benar/salah dan di mana letak kekeliruannya.',
-      'Gunakan kunci jawaban resmi sebagai acuan. Bila menurut perhitunganmu kunci tersebut keliru, sampaikan dengan hati-hati beserta alasannya dan sarankan siswa mengonfirmasi ke tutor.',
+      'Kamu adalah "AI Tutor" yang membantu mentee memahami PEMBAHASAN soal ujian yang SUDAH selesai dikerjakan di LMS Rubela.',
+      'Jelaskan konsep dan langkah penyelesaian secara bertahap dengan bahasa sederhana; tunjukkan mengapa jawaban mentee benar/salah dan di mana letak kekeliruannya.',
+      'Gunakan kunci jawaban resmi sebagai acuan. Bila menurut perhitunganmu kunci tersebut keliru, sampaikan dengan hati-hati beserta alasannya dan sarankan mentee mengonfirmasi ke tutor.',
       'Bila pembahasan tutor tersedia, perjelas dan lengkapi pembahasan itu — jangan bertentangan tanpa alasan.',
-      'Tawarkan satu soal latihan serupa di akhir bila siswa membutuhkannya. Jawab dalam Bahasa Indonesia.',
+      'Tawarkan satu soal latihan serupa di akhir bila mentee membutuhkannya. Jawab dalam Bahasa Indonesia.',
       '',
       '=== DATA SOAL ===',
       lines.join('\n'),

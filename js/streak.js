@@ -795,8 +795,8 @@
     const ids = new Set();
     DB.getCoursesByTeacher(user.id).forEach(c => DB.getEnrollmentsByCourse(c.id).forEach(e => ids.add(e.studentId)));
     const people = DB.getUsers().filter(u => ids.has(u.id));
-    container.innerHTML = `<div class="card"><div class="card-header">${UI.secHead('🔥', 'Streak Belajar Siswa Saya', 'mentee di kelas yang Anda ampu • hanya baca')}</div><div id="skTutor"></div></div>`;
-    if (!people.length) { container.querySelector('#skTutor').innerHTML = '<div class="empty"><div class="empty-icon">📭</div>Belum ada siswa di kelas Anda.</div>'; return; }
+    container.innerHTML = `<div class="card"><div class="card-header">${UI.secHead('🔥', 'Streak Belajar Mentee Saya', 'mentee di kelas yang Anda ampu • hanya baca')}</div><div id="skTutor"></div></div>`;
+    if (!people.length) { container.querySelector('#skTutor').innerHTML = '<div class="empty"><div class="empty-icon">📭</div>Belum ada mentee di kelas Anda.</div>'; return; }
     renderRoster(container.querySelector('#skTutor'), user, people, { canGrant: false });
   }
 

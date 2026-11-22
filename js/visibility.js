@@ -52,9 +52,9 @@
     const policy = course && course.newStudentPolicy === 'fromJoin';
     return `<span class="vis-ctrl">${badge(rec)}
       <button type="button" class="btn btn-sm ${on ? 'btn-secondary' : 'btn-primary'}" data-vis-toggle="${esc(kind)}:${esc(rec.id)}" data-on="${on ? 1 : 0}"
-        title="${on ? 'Sembunyikan dari siswa' : 'Tampilkan kembali untuk siswa'}">${on ? '⏸ Matikan' : '▶ Aktifkan'}</button>
+        title="${on ? 'Sembunyikan dari mentee' : 'Tampilkan kembali untuk mentee'}">${on ? '⏸ Matikan' : '▶ Aktifkan'}</button>
       ${policy ? `<button type="button" class="btn btn-sm btn-ghost" data-vis-re="${esc(kind)}:${esc(rec.id)}"
-        title="Buka juga untuk siswa yang bergabung setelah konten ini dibuat">🔄 Aktifkan ulang${rec.reactivatedAt ? ` <span class="muted small">(${UI.fmtDate(rec.reactivatedAt)})</span>` : ''}</button>` : ''}
+        title="Buka juga untuk mentee yang bergabung setelah konten ini dibuat">🔄 Aktifkan ulang${rec.reactivatedAt ? ` <span class="muted small">(${UI.fmtDate(rec.reactivatedAt)})</span>` : ''}</button>` : ''}
       ${rel}
     </span>`;
   }
@@ -85,12 +85,12 @@
             UI.toast(`Konten dirilis untuk ${b.name}. Mentee angkatan ini diberi notifikasi.`);
           }
         } else if (t.dataset.visRe) {
-          if (!UI.confirmDialog('Aktifkan ulang konten ini? Siswa yang bergabung setelah konten dibuat juga akan dapat melihat & mengerjakannya.')) return;
+          if (!UI.confirmDialog('Aktifkan ulang konten ini? Mentee yang bergabung setelah konten dibuat juga akan dapat melihat & mengerjakannya.')) return;
           DB.reactivateContent(kind, id, user);
-          UI.toast('Konten diaktifkan ulang untuk siswa baru.');
+          UI.toast('Konten diaktifkan ulang untuk mentee baru.');
         } else {
           const on = t.dataset.on === '1';
-          if (on && !UI.confirmDialog('Matikan konten ini? Siswa dan orang tua tidak akan melihatnya sampai diaktifkan kembali.')) return;
+          if (on && !UI.confirmDialog('Matikan konten ini? Mentee dan orang tua tidak akan melihatnya sampai diaktifkan kembali.')) return;
           DB.setContentActive(kind, id, !on, user);
           UI.toast(on ? 'Konten dinonaktifkan.' : 'Konten diaktifkan.');
         }

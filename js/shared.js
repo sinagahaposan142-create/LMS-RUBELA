@@ -2,6 +2,8 @@
  * CBT (take/grade), video embed helper, attendance rendering.
  */
 (function (global) {
+  // Isi lingkaran avatar: avatar almamater / foto / inisial (js/avatars.js).
+  const AV = (u) => (global.Avatars ? Avatars.inner(u) : UI.esc(UI.initials(u && u.name)));
 
   /* ===== YouTube / Video embed helper ===== */
   /** URL embed Vimeo (YouTube ditangani YTPlayer: thumbnail dulu, youtube-nocookie saat diputar). */
@@ -567,7 +569,7 @@
   /* ===== Announcements / Pengumuman ===== */
   /** Label ramah untuk sasaran pengumuman, mis. "Peran: Orang Tua". */
   function audienceLabel(a) {
-    const roles = { guru: 'Tutor', siswa: 'Siswa', orangtua: 'Orang Tua', admin: 'Admin' };
+    const roles = { guru: 'Tutor', siswa: 'Mentee', orangtua: 'Orang Tua', admin: 'Admin' };
     if (a.targetType === 'semua') return 'Semua pengguna';
     if (a.targetType === 'role') return 'Peran: ' + (roles[a.targetRole] || a.targetRole || '-');
     if (a.targetType === 'kelas') {
@@ -784,7 +786,7 @@
           <div class="muted small">Bawaan 7 hari. Kosongkan bila ingin tayang tanpa batas waktu.</div></div>
         <div class="form-group"><label>Ditujukan Kepada</label>
           <select name="targetType" id="annTarget">
-            <option value="semua">Semua Pengguna (Tutor + Siswa + Orang Tua)</option>
+            <option value="semua">Semua Pengguna (Tutor + Mentee + Orang Tua)</option>
             <option value="role">Peran Tertentu</option>
             <option value="kelas">Kelas Tertentu</option>
             <option value="individu">Individu</option>
@@ -844,7 +846,7 @@
       if (t === 'role') {
         detailBox.innerHTML = `<label>Peran</label>
         <select name="targetRole">
-          <option value="siswa">Siswa</option>
+          <option value="siswa">Mentee</option>
           <option value="guru">Tutor</option>
           <option value="orangtua">Orang Tua</option>
         </select>
@@ -855,7 +857,7 @@
       } else {
         const users = DB.getUsers().filter(u => u.role !== 'admin');
         detailBox.innerHTML = '<label>Individu</label><input id="annIndSearch" placeholder="Cari..." style="margin-bottom:6px;padding:6px;border:1px solid var(--gray-300);border-radius:4px;width:100%;" /><div id="annIndList" style="max-height:150px;overflow-y:auto;border:1px solid var(--gray-200);border-radius:6px;padding:6px;">' +
-          users.map(u => `<label style="display:block;padding:4px;" data-n="${u.name.toLowerCase()}"><input type="checkbox" name="tid" value="${u.id}" /> ${UI.esc(u.name)} (${u.role})</label>`).join('') + '</div>';
+          users.map(u => `<label style="display:block;padding:4px;" data-n="${u.name.toLowerCase()}"><input type="checkbox" name="tid" value="${u.id}" /> ${UI.esc(u.name)} (${UI.esc(Auth.ROLE_LABELS[u.role] || u.role)})</label>`).join('') + '</div>';
         setTimeout(() => {
           const search = document.getElementById('annIndSearch');
           if (search) search.addEventListener('input', (e) => {
@@ -902,7 +904,6 @@
   /* ===== Live Chat ===== */
   function renderChat(container, user) {
     let activeChatUserId = null;
-    const allUsers = DB.getUsers().filter(u => u.id !== user.id && u.role !== 'admin' || (user.role !== 'admin' && u.role === 'admin'));
     // Show relevant contacts: admin sees all, guru sees students+admin, siswa sees guru+admin
     let contacts;
     if (user.role === 'admin') {
@@ -934,7 +935,7 @@
               ${sorted.map(c => {
                 const lastMsg = getLastMessage(user.id, c.id);
                 return `<div class="chat-contact ${activeChatUserId === c.id ? 'active' : ''}" data-uid="${c.id}">
-                  <div class="avatar" style="width:32px;height:32px;font-size:12px;">${UI.initials(c.name)}</div>
+                  <div class="avatar" style="width:32px;height:32px;font-size:12px;">${AV(c)}</div>
                   <div style="flex:1;min-width:0;">
                     <div style="font-size:13px;font-weight:500;">${UI.esc(c.name)}</div>
                     <div class="muted small" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${lastMsg ? UI.esc(previewText(lastMsg, 30)) : '<i>Belum ada pesan</i>'}</div>
@@ -1045,7 +1046,7 @@
       chatMain.innerHTML = `
         <div class="chat-header">
           <button type="button" class="chat-back" id="chatBack" aria-label="Kembali ke daftar kontak">←</button>
-          <div class="avatar" style="width:32px;height:32px;font-size:12px;">${UI.initials(partner.name)}</div>
+          <div class="avatar" style="width:32px;height:32px;font-size:12px;">${AV(partner)}</div>
           <div>
             <strong>${UI.esc(partner.name)}</strong>
             <div class="muted small">${UI.esc(partner.role)} ${partner.subject ? '• ' + UI.esc(partner.subject) : ''}</div>
@@ -1231,7 +1232,7 @@
             ${list.map(c => `
               <label class="chat-fwd-item" data-name="${UI.esc(c.name.toLowerCase())}">
                 <input type="checkbox" value="${UI.esc(c.id)}" />
-                <span class="avatar" style="width:30px;height:30px;font-size:11px;">${UI.initials(c.name)}</span>
+                <span class="avatar" style="width:30px;height:30px;font-size:11px;">${AV(c)}</span>
                 <span class="chat-fwd-name">${UI.esc(c.name)}<small>${UI.esc(c.role)}</small></span>
               </label>`).join('')}
             <div class="chat-empty" id="fwdEmpty" hidden>Tidak ada kontak yang cocok.</div>
@@ -1467,7 +1468,6 @@
   function renderAiTools(container, user) {
     const enrolled = DB.getEnrollmentsByStudent(user.id);
     const courses = enrolled.map(e => DB.getCourse(e.courseId)).filter(Boolean);
-    const subs = DB.getSubmissionsByStudent(user.id);
     const attempts = DB.getCbtAttemptsByStudent(user.id).filter(a => a.submittedAt);
     const avgScore = attempts.length ? Math.round(attempts.reduce((s, a) => s + (a.score || 0), 0) / attempts.length) : null;
 
@@ -1479,7 +1479,7 @@
           <div class="sub">Rencana belajar personal</div>
         </div>
         <div class="stat-card accent-success" style="cursor:pointer;" id="aiGuru">
-          <div class="label">AI Guru</div>
+          <div class="label">AI Tutor</div>
           <div class="value" style="font-size:20px;">🧠</div>
           <div class="sub">Tanya materi kapan saja</div>
         </div>
@@ -1579,7 +1579,7 @@
         }).join('; ');
         try {
           const ans = await AI.ask(
-            `Susun rencana belajar mingguan untuk siswa UTBK bernama ${user.name} dalam Bahasa Indonesia. ` +
+            `Susun rencana belajar mingguan untuk mentee UTBK bernama ${user.name} dalam Bahasa Indonesia. ` +
             `Jadwal kelas yang sudah pasti: ${jadwal}. ` +
             (weak.length
               ? `Rata-rata skor per subtest: ${weak.map(w => `${w.short} ${w.avg}`).join(', ')}. `
@@ -1609,9 +1609,9 @@
       box.innerHTML = '<div class="card aic-card" id="aiGuruChat"></div>';
       // Percakapan tersimpan (7 hari) & tersinkron; konteks siswa dibaca ulang setiap pertanyaan.
       AIChat.mount(document.getElementById('aiGuruChat'), user, {
-        kind: 'tutor', title: 'AI Guru — Asisten Belajar', icon: '🧠', temperature: 0.6, maxTokens: 1600,
+        kind: 'tutor', title: 'AI Tutor — Asisten Belajar', icon: '🧠', temperature: 0.6, maxTokens: 1600,
         placeholder: 'Tanyakan materi, contoh soal, atau strategi UTBK…',
-        intro: `Halo ${UI.esc(String(user.name || '').split(' ')[0])}! Saya AI Guru. Tanyakan materi apa saja —
+        intro: `Halo ${UI.esc(String(user.name || '').split(' ')[0])}! Saya AI Tutor. Tanyakan materi apa saja —
           konsep, contoh soal, atau strategi UTBK. ${weak.length
             ? `Dari hasil CBT-mu, subtest yang paling perlu dikuatkan saat ini adalah <strong>${UI.esc(weak[0].short)}</strong> (rata-rata ${weak[0].avg}).`
             : 'Kerjakan beberapa CBT dulu agar saya bisa memberi saran yang lebih terarah.'}`,
@@ -1695,7 +1695,7 @@
           .map(k => `${k}: ${(contentBySubtest[k] || []).map(i => i.title).slice(0, 5).join(', ') || '-'}`).join(' | ');
         try {
           const ans = await AI.ask(
-            `Siswa bernama ${user.name} mengikuti bimbel UTBK. Data nyata hasil CBT: ${facts}. ` +
+            `Mentee bernama ${user.name} mengikuti bimbel UTBK. Data nyata hasil CBT: ${facts}. ` +
             `Materi yang tersedia di kelasnya: ${materi}. ` +
             (user.targetUniv ? `Target: ${user.targetUniv} ${user.targetMajor || ''}. ` : '') +
             'Susun rencana belajar 2 minggu yang konkret dalam Bahasa Indonesia. ' +
@@ -1793,7 +1793,7 @@
         out.innerHTML = AI.loadingHtml('AI menganalisis kesiapanmu…');
         try {
           const ans = await AI.ask(
-            `Siswa ${user.name} menyiapkan UTBK/SNBT. ` +
+            `Mentee ${user.name} menyiapkan UTBK/SNBT. ` +
             (hasTarget ? `Target: ${user.targetUniv || '-'} jurusan ${user.targetMajor || '-'}. ` : 'Target kampus belum ditentukan. ') +
             `Rata-rata skor CBT keseluruhan ${overall}/100. Rincian per subtest: ` +
             done.map(s => `${s.short} ${s.avg}`).join(', ') + '. ' +
@@ -1889,14 +1889,14 @@
         </div>
       </div>
 
-      ${user.role === 'guru' ? `<p class="muted small">Menampilkan ${students.length} siswa dari ${myCourses.length} kelas yang Anda ampu.</p>` : ''}
+      ${user.role === 'guru' ? `<p class="muted small">Menampilkan ${students.length} mentee dari ${myCourses.length} kelas yang Anda ampu.</p>` : ''}
       ${AI.noticeHtml(user)}
       ${AI.ready() ? `<div class="flex-gap" style="margin-bottom:10px;">
         <button class="btn btn-primary btn-sm" id="aiAnalyticsNarrate">🤖 Minta Ringkasan & Saran Tindak Lanjut dari AI</button>
       </div><div id="aiAnalyticsAiOut" style="margin-bottom:10px;"></div>` : ''}
 
       <div class="subtabs">
-        <button class="subtab-btn active" data-aitab="earlyWarning">Deteksi Dini Siswa</button>
+        <button class="subtab-btn active" data-aitab="earlyWarning">Deteksi Dini Mentee</button>
         <button class="subtab-btn" data-aitab="fraud">Integritas Ujian</button>
       </div>
       <div id="aiAnalyticsBox"></div>
@@ -1906,7 +1906,7 @@
     if (narrateBtn) narrateBtn.addEventListener('click', async () => {
       const out = document.getElementById('aiAnalyticsAiOut');
       narrateBtn.disabled = true;
-      out.innerHTML = AI.loadingHtml('AI merangkum kondisi siswa…');
+      out.innerHTML = AI.loadingHtml('AI merangkum kondisi mentee…');
       const facts = warnings
         .filter(w => w.category !== 'Normal')
         .slice(0, 20)
@@ -1914,8 +1914,8 @@
         .join('; ');
       try {
         const ans = await AI.ask(
-          'Kamu asisten analitik untuk bimbel UTBK. Berikut data nyata siswa yang perlu perhatian: ' +
-          (facts || 'tidak ada siswa berkategori bermasalah') + '. ' +
+          'Kamu asisten analitik untuk bimbel UTBK. Berikut data nyata mentee yang perlu perhatian: ' +
+          (facts || 'tidak ada mentee berkategori bermasalah') + '. ' +
           'Buat ringkasan singkat dan saran tindak lanjut yang konkret untuk ' +
           (user.role === 'guru' ? 'tutor kelas' : 'admin lembaga') + ' dalam Bahasa Indonesia. ' +
           'Kelompokkan berdasarkan prioritas. Jangan menambah nama atau angka yang tidak saya berikan. Maksimal 300 kata.',
@@ -1935,11 +1935,11 @@
         const atRisk = warnings.filter(w => w.category !== 'Normal').sort((a, b) => b.risk - a.risk);
         box.innerHTML = `
           <div class="card">
-            <div class="card-header"><h3>Deteksi Dini: Murid Berisiko (${atRisk.length})</h3></div>
+            <div class="card-header"><h3>Deteksi Dini: Mentee Berisiko (${atRisk.length})</h3></div>
             <p class="muted small">AI menganalisis: presensi, keterlambatan tugas, penurunan nilai, aktivitas rendah.</p>
-            ${atRisk.length === 0 ? '<div class="empty"><div class="empty-icon">✅</div>Semua murid dalam kondisi baik!</div>' : `
+            ${atRisk.length === 0 ? '<div class="empty"><div class="empty-icon">✅</div>Semua mentee dalam kondisi baik!</div>' : `
             <div class="table-wrap"><table class="table">
-              <thead><tr><th>Siswa</th><th>Kategori</th><th>Absent Rate</th><th>Tugas Telat</th><th>Avg CBT</th><th>Tren</th><th>Indikasi</th></tr></thead>
+              <thead><tr><th>Mentee</th><th>Kategori</th><th>Absent Rate</th><th>Tugas Telat</th><th>Avg CBT</th><th>Tren</th><th>Indikasi</th></tr></thead>
               <tbody>${atRisk.map(w => {
                 const badge = w.category === 'Critical' ? 'badge-gray' : 'badge-warning';
                 const indicators = [];
@@ -1978,7 +1978,7 @@
             </p>
             ${fraudAlerts.length === 0 ? '<div class="empty"><div class="empty-icon">🛡️</div>Tidak ada pelanggaran atau anomali yang tercatat.</div>' : `
             <div class="table-wrap"><table class="table">
-              <thead><tr><th>Siswa</th><th>Ujian</th><th>Skor</th><th>Durasi</th><th>Pelanggaran</th><th>Tingkat</th><th>Temuan</th></tr></thead>
+              <thead><tr><th>Mentee</th><th>Ujian</th><th>Skor</th><th>Durasi</th><th>Pelanggaran</th><th>Tingkat</th><th>Temuan</th></tr></thead>
               <tbody>${fraudAlerts.map(f => `<tr>
                 <td><strong>${UI.esc(f.student.name)}</strong></td>
                 <td>${UI.esc(f.exam?.title || '-')}</td>
@@ -2023,8 +2023,8 @@
           <p class="muted small" style="margin:6px 0 0;">Kosongkan untuk membuat kelas terbuka (tanpa password).</p>
         </div>
         <div class="alert alert-info">
-          Password ini hanya diminta ketika <strong>siswa bergabung sendiri</strong> dari halaman Jelajah Kelas.
-          Admin tetap dapat menambahkan siswa langsung tanpa password.
+          Password ini hanya diminta ketika <strong>mentee bergabung sendiri</strong> dari halaman Jelajah Kelas.
+          Admin tetap dapat menambahkan mentee langsung tanpa password.
         </div>
         <div class="flex-gap" style="justify-content:space-between;">
           <button type="button" class="btn btn-secondary" id="genPwBtn">🎲 Buat Otomatis</button>
@@ -2070,7 +2070,7 @@
         <span class="lock-ic">🔐</span>
         <h3 style="margin:0 0 4px;">${UI.esc(course.title)}</h3>
         <p class="muted small">Kelas ini dilindungi password. Mintalah password kepada
-        <strong>${UI.esc(teacher ? teacher.name : 'guru pengajar')}</strong> atau admin.</p>
+        <strong>${UI.esc(teacher ? teacher.name : 'tutor pengajar')}</strong> atau admin.</p>
       </div>
       <form id="gateForm" class="form mt-2">
         <div class="form-group">
@@ -2096,7 +2096,7 @@
       }
       attempts++;
       err.textContent = attempts >= 3
-        ? 'Password masih salah. Hubungi guru atau admin untuk mendapatkan password kelas.'
+        ? 'Password masih salah. Hubungi tutor atau admin untuk mendapatkan password kelas.'
         : 'Password kelas salah. Coba lagi.';
       err.classList.remove('hidden');
       const input = document.getElementById('gatePw');
@@ -2225,7 +2225,7 @@
           <div class="stat-card accent-primary">
             <div class="label">Peserta</div>
             <div class="value">${rows.length}</div>
-            <div class="sub">siswa aktif diperingkat</div>
+            <div class="sub">mentee aktif diperingkat</div>
           </div>
           <div class="stat-card accent-success">
             <div class="label">Rata-rata Poin</div>
@@ -2248,26 +2248,26 @@
             <button type="button" class="class-chip ${activeCourse === '' ? 'is-active' : ''}" data-lb-course="">
               <span class="cc-dot"></span>
               <span class="cc-title">Semua Kelas</span>
-              <span class="cc-meta">${DB.getUsers().filter(u => u.role === 'siswa').length} siswa</span>
+              <span class="cc-meta">${DB.getUsers().filter(u => u.role === 'siswa').length} mentee</span>
             </button>
             ${courses.map(c => `
               <button type="button" class="class-chip ${activeCourse === c.id ? 'is-active' : ''}" data-lb-course="${c.id}">
                 <span class="cc-dot"></span>
                 <span class="cc-title">${UI.esc(c.title)}</span>
-                <span class="cc-meta">${DB.getEnrollmentsByCourse(c.id).length} siswa</span>
+                <span class="cc-meta">${DB.getEnrollmentsByCourse(c.id).length} mentee</span>
               </button>`).join('')}
           </div>
         </div>
 
         <div class="card">
           ${rows.length === 0
-            ? '<div class="empty"><div class="empty-icon">🏅</div>Belum ada siswa untuk diperingkat.</div>'
+            ? '<div class="empty"><div class="empty-icon">🏅</div>Belum ada mentee untuk diperingkat.</div>'
             : `<div class="lb-list">${rows.map((r, i) => {
                 const medal = i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : (i + 1);
                 const cls = i === 0 ? 'top1' : i === 1 ? 'top2' : i === 2 ? 'top3' : '';
                 return `<div class="lb-row ${cls} ${r.s.id === user.id ? 'is-me' : ''}" style="animation-delay:${Math.min(0.4, i * 0.04)}s;">
                   <div class="rank">${medal}</div>
-                  <div class="avatar">${UI.initials(r.s.name)}</div>
+                  <div class="avatar">${AV(r.s)}</div>
                   <div class="who">
                     <div class="nm">${UI.esc(r.s.name)}${r.s.id === user.id ? ' <span class="badge badge-info">Saya</span>' : ''}</div>
                     <div class="mt">Level ${r.st.level} • ${UI.esc(r.s.kelas || '-')} • Kehadiran ${r.st.attendancePct}% • ${r.st.submissions} tugas • ${r.st.cbtDone} CBT</div>
@@ -2316,7 +2316,7 @@
         return `<button type="button" class="class-chip ${activeId === c.id ? 'is-active' : ''}" ${attr}="${c.id}">
           <span class="cc-dot"></span>
           <span class="cc-title">${UI.esc(c.title)}</span>
-          <span class="cc-meta">${DB.getEnrollmentsByCourse(c.id).length} siswa • ${UI.esc(teacher ? teacher.name.split(' ').slice(-1)[0] : '-')}</span>
+          <span class="cc-meta">${DB.getEnrollmentsByCourse(c.id).length} mentee • ${UI.esc(teacher ? teacher.name.split(' ').slice(-1)[0] : '-')}</span>
         </button>`;
       }).join('')}
     </div>`;
@@ -2371,7 +2371,7 @@
             people.push({ u: t, role: 'guru', tag, isSession });
           });
       }
-      students.forEach(st => people.push({ u: st, role: 'siswa', tag: st.kelas || 'Siswa' }));
+      students.forEach(st => people.push({ u: st, role: 'siswa', tag: st.kelas || 'Mentee' }));
     }
 
     /** Muat status tersimpan; default 'hadir' bila belum ada catatan. */
@@ -2462,7 +2462,7 @@
           </div>
 
           ${people.length === 0
-            ? '<div class="empty"><div class="empty-icon">👥</div>Belum ada siswa terdaftar di kelas ini.</div>'
+            ? '<div class="empty"><div class="empty-icon">👥</div>Belum ada mentee terdaftar di kelas ini.</div>'
             : `<div class="att-sheet">
                 ${people.map((p, i) => rowHtml(p, i)).join('')}
               </div>`}
@@ -2489,7 +2489,7 @@
       return `
         <div class="att-row ${p.isSession ? 'is-session' : ''}" data-uid="${p.u.id}" data-role="${p.role}">
           <div class="att-person">
-            <div class="avatar">${UI.initials(p.u.name)}</div>
+            <div class="avatar">${AV(p.u)}</div>
             <div>
               <div class="nm">${UI.esc(p.u.name)}${p.isSession ? ' <span class="badge badge-success">sesi ini</span>' : ''}</div>
               <div class="sub">${UI.esc(p.tag)}${p.role === 'guru' ? ' • presensi tutor' : ''}</div>

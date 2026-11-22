@@ -30,6 +30,7 @@
     submissions: 'lms_submissions',
     enrollments: 'lms_enrollments',
     questions: 'lms_questions',
+    passages: 'lms_passages',
     cbts: 'lms_cbts',
     cbtAttempts: 'lms_cbt_attempts',
     attendance: 'lms_attendance',
@@ -55,9 +56,9 @@
     'lms_activity_log', 'lms_birthday_notified', 'lms_whiteboard_boards',
     'lms_learning_log', 'lms_streak_grants', 'lms_reading_texts', 'lms_verses',
     'lms_hub_courses', 'lms_hub_progress', 'lms_hub_payments', 'lms_capsule_vaults', 'lms_capsules',
-    'lms_music_tracks', 'lms_ai_chats', 'lms_game_questions', 'lms_game_battles', 'lms_game_scores',
+    'lms_music_tracks', 'lms_ai_chats', 'lms_game_questions', 'lms_game_battles', 'lms_game_scores', 'lms_game_rooms', 'lms_game_players',
     'lms_topics', 'lms_news', 'lms_ptn_campuses', 'lms_ptn_faculties', 'lms_ptn_majors', 'lms_admission_events', 'lms_utbk_plans',
-    'lms_groups', 'lms_group_posts', 'lms_group_answers'
+    'lms_groups', 'lms_group_posts', 'lms_group_answers', 'lms_study_sessions', 'lms_study_goals', 'lms_study_stats'
   ];
 
   /* ===== Hari & jadwal ===== */
@@ -233,7 +234,7 @@
   const PAYMENT_KINDS = [
     { key: 'spp',          label: 'SPP / Biaya Kelas', icon: '📚', fine: false },
     { key: 'pendaftaran',  label: 'Biaya Pendaftaran', icon: '📝', fine: false },
-    { key: 'denda',        label: 'Denda Siswa',       icon: '⚠️', fine: true  },
+    { key: 'denda',        label: 'Denda Mentee',       icon: '⚠️', fine: true  },
     { key: 'lainnya',      label: 'Pemasukan Lain',    icon: '💼', fine: false }
   ];
   const FINE_REASONS = [
@@ -594,7 +595,7 @@
     const courses = [
       { id: 'c_pk_11a', subtest: SUBTESTS[3].name, label: '',
         mainClasses: ['Kelas 11-A'], teacherIds: ['u_guru1'], teacherId: 'u_guru1',
-        title: 'Kelas 11-A • Pengetahuan Kuantitatif (PK) — Bu Maria Simbolon',
+        title: 'Kelas 11-A • Pengetahuan Kuantitatif (PK)',
         description: 'Kelas Pengetahuan Kuantitatif untuk Kelas 11-A. Fokus aljabar, barisan, dan logika bilangan.',
         category: 'TPS', price: 500000, password: 'pk2026',
         schedule: { days: ['Senin', 'Kamis'], time: '16:00', endTime: '17:30', startDate: ymdOf(now), sessions: 16 },
@@ -603,7 +604,7 @@
 
       { id: 'c_pk_11b', subtest: SUBTESTS[3].name, label: '',
         mainClasses: ['Kelas 11-B'], teacherIds: ['u_guru2'], teacherId: 'u_guru2',
-        title: 'Kelas 11-B • Pengetahuan Kuantitatif (PK) — Bu Irana Dewi',
+        title: 'Kelas 11-B • Pengetahuan Kuantitatif (PK)',
         description: 'Kelas Pengetahuan Kuantitatif untuk Kelas 11-B dengan pendekatan latihan intensif.',
         category: 'TPS', price: 500000, password: '',
         schedule: { days: ['Selasa', 'Jumat'], time: '16:00', endTime: '17:30', startDate: ymdOf(now), sessions: 16 },
@@ -612,7 +613,7 @@
 
       { id: 'c_pu_12', subtest: SUBTESTS[0].name, label: 'Gabungan',
         mainClasses: ['Kelas 12-A'], teacherIds: ['u_guru3', 'u_guru1'], teacherId: 'u_guru3',
-        title: 'Kelas 12-A • Penalaran Umum (PU) — Pak Budi & Bu Maria',
+        title: 'Kelas 12-A • Penalaran Umum (PU)',
         description: 'Kelas Penalaran Umum gabungan dua tutor untuk Kelas 12-A.',
         category: 'TPS', price: 550000, password: '',
         schedule: { days: ['Rabu'], time: '19:00', endTime: '20:30', startDate: ymdOf(now), sessions: 12 },
@@ -621,7 +622,7 @@
 
       { id: 'c_lbind_10', subtest: SUBTESTS[4].name, label: '',
         mainClasses: ['Kelas 10-A'], teacherIds: ['u_guru4'], teacherId: 'u_guru4',
-        title: 'Kelas 10-A • Literasi dalam Bahasa Indonesia — Bu Sari Wulandari',
+        title: 'Kelas 10-A • Literasi dalam Bahasa Indonesia',
         description: 'Literasi Bahasa Indonesia untuk Kelas 10-A: pemahaman bacaan dan penalaran teks.',
         category: 'Literasi', price: 450000, password: '',
         schedule: { days: ['Sabtu'], time: '09:00', endTime: '10:30', startDate: ymdOf(now), sessions: 12 },
@@ -1115,6 +1116,31 @@
 
   // Generic helpers
   function getAll(key) { return load(key, []); }
+
+  /**
+   * Judul kelas tanpa nama tutor. Kelas lama menyimpan judul buatan otomatis
+   * "Kelas 11-A • PK • Bu A & Pak B" atau "Kelas 11-A • PK — Bu A". Nama tutor
+   * ditampilkan di kolom/label tutor sendiri, jadi judul cukup kelas + subtest.
+   */
+  function cleanCourseTitle(course) {
+    if (!course) return '';
+    const st = subtestByName(course.subtest);
+    const mains = (course.mainClasses || []).join(', ');
+    const auto = [mains, st ? st.short : course.subtest].filter(Boolean).join(' • ');
+    const raw = String(course.title || '').replace(/\s+/g, ' ').trim();
+    if (!raw) return auto || 'Kelas';
+    const low = (x) => String(x || '').toLowerCase().trim();
+    const subNames = (st ? [st.name, st.short, st.code] : [course.subtest]).filter(Boolean).map(low);
+    const hasSub = (x) => subNames.some(n => n && low(x).includes(n));
+    let base = raw;
+    const dash = raw.split(/\s+[—–]\s+/);
+    if (dash.length > 1 && (hasSub(dash[0]) || (mains && low(dash[0]).includes(low(mains))))) base = dash[0];
+    const parts = base.split(/\s*•\s*/);
+    if (parts.length >= 3 && subNames.includes(low(parts[1]))) base = parts.slice(0, 2).join(' • ');
+    else if (parts.length >= 2 && /\s&\s/.test(parts[parts.length - 1]) && !hasSub(parts[parts.length - 1])) base = parts.slice(0, -1).join(' • ');
+    return base || auto || 'Kelas';
+  }
+  const withCleanTitle = (c) => (c && c.title !== cleanCourseTitle(c) ? Object.assign({}, c, { title: cleanCourseTitle(c) }) : c);
   function setAll(key, list) { save(key, list); }
   function findById(key, id) { return getAll(key).find(x => x.id === id) || null; }
   function add(key, record) {
@@ -1301,6 +1327,7 @@
 
   let batchMemo = { sid: null, at: 0, batch: null };
 
+  const passageKeyCache = new Map();   // isi HTML teks bacaan -> teks polos (dibandingkan berulang saat impor)
   const DB = {
     KEYS, uid, periodKey,
 
@@ -1467,14 +1494,24 @@
       return course.teacherId ? [course.teacherId] : [];
     },
     courseTeachers: (course) => DB.courseTeacherIds(course).map(id => findById(KEYS.users, id)).filter(Boolean),
-    /** Nama tampilan kelas: "Kelas 11-A • PK — Bu Maria" (dibangun bila kosong). */
-    courseTitle: (course) => {
-      if (!course) return '-';
-      if (course.title && course.title.trim()) return course.title;
-      const st = subtestByName(course.subtest);
-      const mains = (course.mainClasses || []).join(', ');
-      const tutors = DB.courseTeachers(course).map(t => t.name).join(' & ');
-      return [mains, st ? st.short : course.subtest, tutors].filter(Boolean).join(' • ');
+    /** Nama tampilan kelas: "Kelas 11-A • PK" (tanpa nama tutor). */
+    courseTitle: (course) => (course ? cleanCourseTitle(course) : '-'),
+    /** Ringkasan tutor untuk label sempit: "Nailul, Davi +5". */
+    /** Tanda singkat kartu kelas: kode subtest (PK, PU, …). Huruf pertama judul selalu "K" untuk "Kelas …". */
+    courseMark: (course) => {
+      const st = course && subtestByName(course.subtest);
+      if (st && st.short) return st.short.slice(0, 4);
+      const t = String((course && (course.subtest || course.title)) || '?').replace(/^kelas\s+/i, '').trim();
+      return (t.slice(0, 1) || '?').toUpperCase();
+    },
+    courseTutorsShort: (course, max) => {
+      // "Bu Maria Simbolon" -> "Bu Maria": sapaan saja (Bu/Pak/Kak) tidak cukup untuk membedakan tutor.
+      const HON = /^(bu|ibu|pak|bapak|kak|mas|mbak|bang|sdr|sdri|dr|drs|ir|prof)\.?$/i;
+      const short = (name) => { const w = String(name || '').trim().split(/\s+/).filter(Boolean); return (HON.test(w[0] || '') ? w.slice(0, 2) : w.slice(0, 1)).join(' '); };
+      const names = DB.courseTeachers(course).map(t => short(t.name)).filter(Boolean);
+      const n = max || 2;
+      if (!names.length) return '';
+      return names.length <= n ? names.join(', ') : `${names.slice(0, n).join(', ')} +${names.length - n}`;
     },
     /** Ringkasan jadwal: "Senin, Kamis • 16:00–17:30". */
     courseScheduleLabel: (course) => {
@@ -1749,6 +1786,35 @@
     /* ===== Users ===== */
     getUsers: () => getAll(KEYS.users),
     getUser: (id) => findById(KEYS.users, id),
+    /**
+     * Penempatan kelas: mentee aktif tanpa kelas subtest aktif, dan tutor aktif
+     * yang belum mengampu kelas aktif. Dipakai daftar akun, Ruang Perhatian, dan ringkasan admin.
+     * @returns {Map<string, number>} id pengguna → jumlah kelas aktif
+     */
+    classCountByUser: () => {
+      const active = new Map(getAll(KEYS.courses).filter(c => c.active !== false).map(c => [c.id, c]));
+      const out = new Map();
+      getAll(KEYS.enrollments).forEach(e => { if (active.has(e.courseId)) out.set(e.studentId, (out.get(e.studentId) || 0) + 1); });
+      active.forEach(c => DB.courseTeacherIds(c).forEach(id => out.set(id, (out.get(id) || 0) + 1)));
+      return out;
+    },
+    unplacedUsers: (role) => {
+      const counts = DB.classCountByUser();
+      return getAll(KEYS.users).filter(u => u.role === role && (u.status || 'Aktif') === 'Aktif' && !counts.get(u.id));
+    },
+    /** Subtest yang diampu tutor (data lama: satu `subject`; data baru: `subjects`). */
+    userSubjects: (u) => {
+      if (!u) return [];
+      const list = Array.isArray(u.subjects) && u.subjects.length ? u.subjects : (u.subject ? String(u.subject).split(/\s*[,;]\s*/) : []);
+      return [...new Set(list.map(x => String(x || '').trim()).filter(Boolean))];
+    },
+    /** Label ringkas: "PK, PU" (nama manual ditampilkan apa adanya). */
+    userSubjectsLabel: (u, sep) => DB.userSubjects(u).map(n => { const st = subtestByName(n); return st ? st.short : n; }).join(sep || ', '),
+    /** Nama subtest dari teks bebas (kode/singkatan/nama) → nama resmi atau teks aslinya. */
+    resolveSubjectNames: (raw) => [...new Set(String(raw || '').split(/\s*[,;|]\s*/).map(x => x.trim()).filter(Boolean).map(v => {
+      const hit = SUBTESTS.find(st => [st.name, st.short, st.code].some(n => n.toLowerCase() === v.toLowerCase()));
+      return hit ? hit.name : v.slice(0, 80);
+    }))],
     findUserByUsername: (u) => getAll(KEYS.users).find(x => x.username.toLowerCase() === String(u).toLowerCase()) || null,
     addUser: (u) => {
       const rec = add(KEYS.users, u);
@@ -1756,7 +1822,16 @@
       return rec;
     },
     updateUser: (id, p) => {
+      const prev = p && Object.prototype.hasOwnProperty.call(p, 'kelas') ? findById(KEYS.users, id) : null;
       const rec = update(KEYS.users, id, p);
+      // Kelas utama mentee berubah → pindahkan pendaftaran kelas subtest yang mengikuti kelas utama.
+      if (prev && prev.role === 'siswa' && (prev.kelas || '') !== (p.kelas || '')) {
+        getAll(KEYS.courses).forEach(c => {
+          const mains = c.mainClasses || [];
+          if (prev.kelas && mains.includes(prev.kelas) && !(p.kelas && mains.includes(p.kelas))) DB.unenroll(c.id, id);
+          if (p.kelas && mains.includes(p.kelas)) DB.enroll(c.id, id);
+        });
+      }
       // Pembaruan profil kecil (mis. lastSeen) tidak perlu dicatat.
       const keys = Object.keys(p || {}).filter(k => !['lastSeen', 'lastLogin'].includes(k));
       if (rec && keys.length) DB.logActivity('user.update', `Memperbarui akun "${rec.name}" (${keys.join(', ')})`, id);
@@ -1812,18 +1887,9 @@
             let next = ids.map(x => (x === id && heir && heir.role === 'guru' ? heir.id : x)).filter(x => x !== id);
             next = [...new Set(next)];
             const patch = { teacherIds: next, teacherId: next[0] || null };
-            if (user.name && c.title && c.title.includes(user.name)) {
-              // Ganti hanya nama tutor di judul (format judul buatan admin dipertahankan).
-              const heirIn = heir && heir.role === 'guru' && heir.name && !c.title.includes(heir.name);
-              let t = heirIn ? c.title.split(user.name).join(heir.name) : c.title.split(user.name).join('');
-              if (!heirIn) {
-                t = t.replace(/\s*&\s*&\s*/g, ' & ')
-                  .replace(/([—•,\-–])\s*&\s*/g, '$1 ')
-                  .replace(/\s*&\s*(?=$|\s*[—•,\-–])/g, '')
-                  .replace(/[\s—•,&\-–]+$/, '').replace(/^[\s—•,&\-–]+/, '').replace(/\s{2,}/g, ' ').trim();
-              }
-              patch.title = t;               // kosong → judul otomatis (DB.courseTitle)
-            }
+            // Judul kelas tidak memuat nama tutor (lihat cleanCourseTitle), jadi cukup data tutornya.
+            const t = cleanCourseTitle(c);
+            if (c.title && t !== c.title) patch.title = t;
             update(KEYS.courses, c.id, patch);
           });
           // Sesi mendatang pindah ke tutor pengganti; riwayat sesi lampau tetap tersimpan.
@@ -2066,8 +2132,8 @@
     },
 
     /* ===== Courses ===== */
-    getCourses: () => getAll(KEYS.courses),
-    getCourse: (id) => findById(KEYS.courses, id),
+    getCourses: () => getAll(KEYS.courses).map(withCleanTitle),
+    getCourse: (id) => withCleanTitle(findById(KEYS.courses, id)),
     /** Kelas yang dilindungi password (diatur admin / guru pemilik). */
     hasCoursePassword: (id) => {
       const c = findById(KEYS.courses, id);
@@ -2079,7 +2145,18 @@
       if (!c.password || String(c.password).trim() === '') return true;
       return String(c.password).trim() === String(input || '').trim();
     },
-    getCoursesByTeacher: (tid) => getAll(KEYS.courses).filter(c => DB.courseTeacherIds(c).includes(tid)),
+    getCoursesByTeacher: (tid) => getAll(KEYS.courses).filter(c => DB.courseTeacherIds(c).includes(tid)).map(withCleanTitle),
+    /**
+     * Rapikan judul kelas yang tersimpan (hapus nama tutor dari judul lama).
+     * Dijalankan admin saat masuk; mengembalikan jumlah kelas yang diubah.
+     */
+    tidyCourseTitles: () => {
+      const list = getAll(KEYS.courses);
+      let n = 0;
+      list.forEach(c => { const t = cleanCourseTitle(c); if (c.title && t !== c.title) { c.title = t; n++; } });
+      if (n) setAll(KEYS.courses, list);
+      return n;
+    },
     addCourse: (c) => {
       const rec = Object.assign({ createdAt: Date.now(), mainClasses: [], teacherIds: [] }, c);
       if ((!rec.teacherIds || !rec.teacherIds.length) && rec.teacherId) rec.teacherIds = [rec.teacherId];
@@ -2109,6 +2186,7 @@
       setAll(KEYS.payments, getAll(KEYS.payments).filter(p => p.courseId !== id));
       setAll(KEYS.classPlans, getAll(KEYS.classPlans).filter(pl => pl.courseId !== id));
       setAll(KEYS.whiteboards, getAll(KEYS.whiteboards).filter(w => w.courseId !== id));
+      if (global.BlobStore) BlobStore.removePrefix(`wb:${id}:`).catch(() => {});
       save('lms_whiteboard_boards', load('lms_whiteboard_boards', []).filter(x => x.courseId !== id));
       remove(KEYS.courses, id);
     },
@@ -2280,10 +2358,66 @@
     addQuestion: (q) => add(KEYS.questions, Object.assign({ createdAt: Date.now() }, q)),
     updateQuestion: (id, p) => update(KEYS.questions, id, p),
     deleteQuestion: (id) => {
-      // Remove this question from any CBTs that reference it
-      const cbts = getAll(KEYS.cbts).map(c => Object.assign({}, c, { questionIds: (c.questionIds || []).filter(qid => qid !== id) }));
-      setAll(KEYS.cbts, cbts);
+      // Lepas soal dari ujian yang memakainya (daftar lama & per bagian subtest).
+      const list = getAll(KEYS.cbts);
+      let changed = false;
+      list.forEach(c => {
+        const uses = (c.questionIds || []).includes(id) || (c.sections || []).some(s => (s.questionIds || []).includes(id));
+        if (!uses) return;
+        changed = true;
+        c.questionIds = (c.questionIds || []).filter(qid => qid !== id);
+        if (Array.isArray(c.sections)) c.sections = c.sections.map(s => Object.assign({}, s, { questionIds: (s.questionIds || []).filter(qid => qid !== id) }));
+      });
+      if (changed) setAll(KEYS.cbts, list);
       remove(KEYS.questions, id);
+    },
+
+    /* ===== Teks Bacaan (stimulus bersama beberapa soal) =====
+     * { id, title, subject, html, authorId, createdAt, updatedAt }. Soal menautkannya
+     * lewat `passageId`; saat ujian teks tampil sekali di atas kelompok soalnya. */
+    getPassages: () => getAll(KEYS.passages),
+    getPassage: (id) => (id ? findById(KEYS.passages, id) : null),
+    questionsOfPassage: (pid) => getAll(KEYS.questions).filter(q => q.passageId === pid),
+    addPassage: (p) => add(KEYS.passages, Object.assign({ createdAt: Date.now(), updatedAt: Date.now(), title: '', html: '' }, p)),
+    updatePassage: (id, patch) => update(KEYS.passages, id, Object.assign({ updatedAt: Date.now() }, patch)),
+    /** Hapus teks bacaan; soal yang menautkannya tetap ada tanpa teks. */
+    deletePassage: (id) => {
+      const qs = getAll(KEYS.questions);
+      if (qs.some(q => q.passageId === id)) setAll(KEYS.questions, qs.map(q => (q.passageId === id ? Object.assign({}, q, { passageId: null }) : q)));
+      remove(KEYS.passages, id);
+    },
+    /** Teks bacaan dengan isi sama dipakai ulang (impor berulang tidak menggandakan teks). */
+    passageKey: (h) => {
+      const src = String(h || '');
+      if (passageKeyCache.has(src)) return passageKeyCache.get(src);
+      const k = (global.RichText ? RichText.plain(src, 20000) : src).toLowerCase().replace(/\s+/g, ' ').trim();
+      if (passageKeyCache.size > 500) passageKeyCache.clear();
+      passageKeyCache.set(src, k);
+      return k;
+    },
+    /** Teks bacaan tersimpan yang isinya sama (tanpa membuat baru). */
+    findPassage: (p) => {
+      const k = DB.passageKey(p && p.html);
+      if (!k) return null;
+      return getAll(KEYS.passages).find(x => DB.passageKey(x.html) === k && (!p.subject || !x.subject || x.subject === p.subject)) || null;
+    },
+    findOrCreatePassage: (p, authorId) => {
+      if (!DB.passageKey(p.html)) return null;
+      const hit = DB.findPassage(p);
+      if (hit) return hit;
+      return DB.addPassage({ title: String(p.title || '').replace(/[<>]/g, '').trim().slice(0, 120), subject: p.subject || '', html: p.html, authorId, source: p.source || '' });
+    },
+    /** Kelompokkan id soal agar soal dengan teks bacaan yang sama berurutan (posisi soal pertama dipertahankan). */
+    groupByPassage: (ids) => {
+      const out = [], placed = new Set();
+      const pidOf = (id) => { const q = findById(KEYS.questions, id); return q && q.passageId ? q.passageId : null; };
+      (ids || []).forEach(id => {
+        if (placed.has(id)) return;
+        const pid = pidOf(id);
+        if (!pid) { out.push(id); placed.add(id); return; }
+        ids.forEach(other => { if (!placed.has(other) && pidOf(other) === pid) { out.push(other); placed.add(other); } });
+      });
+      return out;
     },
 
     /* ===== CBT (Computer Based Test) ===== */
@@ -2510,43 +2644,83 @@
       return out.sort((x, y) => y.weight - x.weight);
     },
 
-    /* ===== Whiteboard per kelas ===== */
+    /* ===== Whiteboard per kelas =====
+     * Satu rekaman lms_whiteboards = satu papan (biasanya satu per materi/pertemuan):
+     * { id, courseId, title, topic, planId, createdBy, createdAt, strokes, board, pages, pageData,
+     *   media:[{key,bytes,at}], thumb, revision, updatedAt, updatedBy }.
+     * Rekaman lama (satu papan per kelas, tanpa judul) tetap terbaca sebagai "Papan Kelas". */
+    WB_MEDIA_LIMIT: 8 * 1024 * 1024,
     getWhiteboards: () => getAll(KEYS.whiteboards),
-    getWhiteboard: (courseId) => getAll(KEYS.whiteboards).find(w => w.courseId === courseId) || null,
-    saveWhiteboard: (courseId, state, actor) => {
+    getCourseBoards: (courseId) => getAll(KEYS.whiteboards).filter(w => w.courseId === courseId)
+      .sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0)),
+    getWhiteboardBoard: (id) => (id ? findById(KEYS.whiteboards, id) : null),
+    boardTitle: (b) => (b && String(b.title || '').trim()) || 'Papan Kelas',
+    /** Total ukuran PDF/gambar papan satu kelas (dibatasi agar database tidak membengkak). */
+    whiteboardMediaBytes: (courseId) => DB.getCourseBoards(courseId)
+      .reduce((n, b) => n + (b.media || []).reduce((m, x) => m + (Number(x.bytes) || 0), 0), 0),
+    createWhiteboardBoard: (courseId, meta, actor) => {
       const course = findById(KEYS.courses, courseId);
-      if (!course || !DB.canEditWhiteboard(actor, course)) {
-        throw new Error('Aktor tidak berhak mengubah whiteboard kelas ini.');
-      }
+      if (!course || !DB.canEditWhiteboard(actor, course)) throw new Error('Hanya admin/tutor kelas yang dapat membuat papan.');
+      const m = meta || {};
+      const title = String(m.title || '').replace(/[<>]/g, '').trim().slice(0, 100);
+      if (!title) throw new Error('Judul papan wajib diisi.');
+      return add(KEYS.whiteboards, {
+        id: uid('wb'), courseId, title, topic: String(m.topic || '').replace(/[<>]/g, '').trim().slice(0, 120),
+        planId: m.planId || null, createdBy: actor.id, createdAt: Date.now(), schemaVersion: 2,
+        strokes: [], board: m.board || undefined, media: [], revision: 0, updatedAt: 0
+      });
+    },
+    updateWhiteboardMeta: (id, patch, actor) => {
+      const rec = findById(KEYS.whiteboards, id);
+      if (!rec || !DB.canEditWhiteboard(actor, findById(KEYS.courses, rec.courseId))) throw new Error('Anda tidak berhak mengubah papan ini.');
+      const p = {};
+      if (patch.title != null) { p.title = String(patch.title).replace(/[<>]/g, '').trim().slice(0, 100); if (!p.title) throw new Error('Judul papan wajib diisi.'); }
+      if (patch.topic != null) p.topic = String(patch.topic).replace(/[<>]/g, '').trim().slice(0, 120);
+      if (patch.planId !== undefined) p.planId = patch.planId || null;
+      return update(KEYS.whiteboards, id, p);
+    },
+    /** Hapus papan beserta simpanan versinya dan berkas PDF/gambarnya. */
+    deleteWhiteboardBoard: (id, actor) => {
+      const rec = findById(KEYS.whiteboards, id);
+      if (!rec) return;
+      if (!DB.canEditWhiteboard(actor, findById(KEYS.courses, rec.courseId))) throw new Error('Anda tidak berhak menghapus papan ini.');
+      save('lms_whiteboard_boards', load('lms_whiteboard_boards', []).filter(x => x.boardId !== id));
+      remove(KEYS.whiteboards, id);
+      if (global.BlobStore) BlobStore.removePrefix(`wb:${rec.courseId}:${id}:`).catch(() => {});
+    },
+    saveWhiteboard: (boardId, state, actor) => {
       const list = getAll(KEYS.whiteboards);
-      const i = list.findIndex(w => w.courseId === courseId);
+      const i = list.findIndex(w => w.id === boardId);
       const prev = i >= 0 ? list[i] : null;
-      const rec = Object.assign({
-        id: prev ? prev.id : uid('wb'), courseId, schemaVersion: 1,
-        strokes: [], revision: 0, createdAt: prev ? prev.createdAt : Date.now()
-      }, prev || {}, state || {}, {
-        courseId,
-        revision: Math.max(Number(prev && prev.revision) || 0, Number(state && state.revision) || 0) + 1,
+      const course = prev && findById(KEYS.courses, prev.courseId);
+      if (!prev) throw new Error('Papan tidak ditemukan. Mungkin sudah dihapus.');
+      if (!course || !DB.canEditWhiteboard(actor, course)) throw new Error('Aktor tidak berhak mengubah whiteboard kelas ini.');
+      const rec = Object.assign({}, prev, state || {}, {
+        id: prev.id, courseId: prev.courseId, title: prev.title, topic: prev.topic, planId: prev.planId,
+        createdBy: prev.createdBy || (actor && actor.id) || null, createdAt: prev.createdAt || Date.now(),
+        revision: Math.max(Number(prev.revision) || 0, Number(state && state.revision) || 0) + 1,
         updatedAt: Date.now(), updatedBy: actor && actor.id ? actor.id : null
       });
-      if (i >= 0) list[i] = rec; else list.push(rec);
+      list[i] = rec;
       save(KEYS.whiteboards, list);
       return rec;
     },
-    /* Riwayat versi & papan tersimpan per kelas.
-     * { id, courseId, type:'version'|'board', name, auto, createdAt, createdBy,
+    /* Riwayat versi & papan tersimpan per papan.
+     * { id, courseId, boardId, type:'version'|'board', name, auto, createdAt, createdBy,
      *   objects:[...], board:{w,h,bg,template} }
-     * Batas: 15 versi + 20 papan per kelas agar localStorage tidak penuh. */
-    getWhiteboardSaves: (courseId, type) => load('lms_whiteboard_boards', [])
-      .filter(x => x.courseId === courseId && (!type || x.type === type))
+     * Batas: 15 versi + 20 simpanan per papan agar localStorage tidak penuh.
+     * Simpanan lama tanpa boardId tampil di semua papan kelas itu. */
+    getWhiteboardSaves: (courseId, type, boardId) => load('lms_whiteboard_boards', [])
+      .filter(x => x.courseId === courseId && (!type || x.type === type) && (!boardId || !x.boardId || x.boardId === boardId))
       .sort((a, b) => b.createdAt - a.createdAt),
     addWhiteboardSave: (courseId, entry, actor) => {
       const course = findById(KEYS.courses, courseId);
       if (!course || !DB.canEditWhiteboard(actor, course)) throw new Error('Hanya admin/tutor kelas yang dapat menyimpan papan.');
       const type = entry.type === 'board' ? 'board' : 'version';
       const name = String(entry.name || '').trim().slice(0, 80) || (type === 'board' ? 'Papan tanpa judul' : 'Versi otomatis');
+      const boardId = entry.boardId || null;
       const rec = {
-        id: uid('wbs'), courseId, type, name, auto: !!entry.auto,
+        id: uid('wbs'), courseId, boardId, type, name, auto: !!entry.auto,
         createdAt: Date.now(), createdBy: actor.id,
         objects: JSON.parse(JSON.stringify(entry.objects || [])),
         board: Object.assign({}, entry.board || {})
@@ -2554,7 +2728,7 @@
       let list = load('lms_whiteboard_boards', []);
       list.push(rec);
       const LIMIT = { version: 15, board: 20 };
-      const mine = list.filter(x => x.courseId === courseId && x.type === type).sort((a, b) => b.createdAt - a.createdAt);
+      const mine = list.filter(x => x.courseId === courseId && x.type === type && (x.boardId || null) === boardId).sort((a, b) => b.createdAt - a.createdAt);
       if (mine.length > LIMIT[type]) {
         const drop = new Set(mine.slice(LIMIT[type]).map(x => x.id));
         list = list.filter(x => !drop.has(x.id));
@@ -3476,7 +3650,7 @@
       if (!DB.canToggleContent(kind, rec, actor)) throw new Error('Anda tidak berhak mengubah status konten ini.');
       const now = Date.now();
       const out = update(key, id, { active: true, reactivatedAt: now, activeChangedAt: now, activeChangedBy: actor.id });
-      DB.logActivity('content.reactivate', `Mengaktifkan ulang ${kind} "${rec.title || id}" untuk siswa baru`, id);
+      DB.logActivity('content.reactivate', `Mengaktifkan ulang ${kind} "${rec.title || id}" untuk mentee baru`, id);
       const course = rec.courseId ? findById(KEYS.courses, rec.courseId) : null;
       if (course && ['assignment', 'cbt', 'material', 'module'].includes(kind)) {
         DB.notifyUsers(getAll(KEYS.enrollments).filter(e => e.courseId === course.id).map(e => e.studentId), {
@@ -3746,7 +3920,7 @@
     /** Siswa mengirim bukti (berkas sudah diunggah ke proofKey). */
     hubSubmitPayment: ({ courseId, proofKey, proofName, note }) => {
       const actor = sessionActor();
-      if (!actor || actor.role !== 'siswa') throw new Error('Hanya siswa yang dapat mengirim bukti pembayaran.');
+      if (!actor || actor.role !== 'siswa') throw new Error('Hanya mentee yang dapat mengirim bukti pembayaran.');
       const c = DB.getHubCourse(courseId);
       if (!c || c.active === false || !DB.hubIsPaid(c)) throw new Error('Course tidak tersedia untuk dibayar.');
       const last = DB.hubPaymentFor(courseId, actor.id);
@@ -3762,7 +3936,7 @@
       list.push(rec);
       save('lms_hub_payments', list);
       const admins = load(KEYS.users, []).filter(u => u.role === 'admin' && u.status !== 'Dikeluarkan').map(u => u.id);
-      DB.notifyUsers(admins, { icon: '💳', title: 'Bukti pembayaran baru', body: `${actor.name || 'Siswa'} — ${c.title} (${DB.formatRupiah(c.price)})`, link: 'hub-pay' });
+      DB.notifyUsers(admins, { icon: '💳', title: 'Bukti pembayaran baru', body: `${actor.name || 'Mentee'} — ${c.title} (${DB.formatRupiah(c.price)})`, link: 'hub-pay' });
       return rec;
     },
     /** Admin menyetujui / menolak. Disetujui → siswa langsung terdaftar di course. */
@@ -3773,7 +3947,7 @@
       if (!p) throw new Error('Data pembayaran tidak ditemukan.');
       if (decision !== 'approved' && decision !== 'rejected') throw new Error('Keputusan tidak valid.');
       const why = String(reason || '').replace(/[<>]/g, '').trim().slice(0, 300);
-      if (decision === 'rejected' && !why) throw new Error('Tuliskan alasan penolakan agar siswa tahu yang harus diperbaiki.');
+      if (decision === 'rejected' && !why) throw new Error('Tuliskan alasan penolakan agar mentee tahu yang harus diperbaiki.');
       p.status = decision;
       p.rejectReason = decision === 'rejected' ? why : '';
       p.decidedAt = Date.now();

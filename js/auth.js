@@ -31,7 +31,7 @@
   }
 
   const ROLE_LABELS = {
-    admin: 'Admin', guru: 'Guru', siswa: 'Siswa', orangtua: 'Orang Tua'
+    admin: 'Admin', guru: 'Tutor', siswa: 'Mentee', orangtua: 'Orang Tua'
   };
 
   /** Periksa kredensial TANPA membuat sesi (mode lokal). */

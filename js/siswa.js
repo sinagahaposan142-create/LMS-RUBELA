@@ -198,7 +198,7 @@
     const asgCount = sid ? DB.studentContent('assignment', sid, c.id).length : DB.getAssignmentsByCourse(c.id).length;
     return `
       <div class="course-card">
-        <div class="course-banner ${UI.bannerClass(idx)}">${UI.esc((c.title || '?').slice(0, 1).toUpperCase())}</div>
+        <div class="course-banner ${UI.bannerClass(idx)}">${UI.esc(DB.courseMark(c))}</div>
         <div class="course-body">
           <h4>${UI.esc(c.title)}</h4>
           <div class="meta">${UI.esc(c.category || 'Umum')} • ${UI.esc(t ? t.name : '-')}</div>
@@ -243,7 +243,7 @@
         <div class="alert alert-info" style="margin-bottom:0;">
           🔐 <strong>Kelas berpassword.</strong> Penempatan kelas utama diatur oleh <strong>Admin</strong>.
           Di halaman ini Anda masih bisa bergabung sendiri, tetapi kelas bertanda <strong>Terkunci</strong>
-          memerlukan password dari admin atau guru pengajarnya.
+          memerlukan password dari admin atau tutor pengajarnya.
         </div>
       </div>
 
@@ -268,7 +268,7 @@
         const locked = DB.hasCoursePassword(c.id);
         return `<div class="course-card">
           <div class="course-banner ${UI.bannerClass(i)}">
-            ${UI.esc((c.title || '?').slice(0, 1).toUpperCase())}
+            ${UI.esc(DB.courseMark(c))}
             <span class="lock-chip">${locked ? '🔒 Terkunci' : '🔓 Terbuka'}</span>
           </div>
           <div class="course-body">
@@ -278,7 +278,7 @@
             ${locked && !enrolled ? '<div class="muted small">Butuh password kelas untuk bergabung.</div>' : ''}
           </div>
           <div class="course-footer">
-            <span>${DB.getEnrollmentsByCourse(c.id).length} siswa</span>
+            <span>${DB.getEnrollmentsByCourse(c.id).length} mentee</span>
             ${enrolled
               ? '<span class="badge badge-success">Sudah Bergabung</span>'
               : `<button class="btn btn-sm btn-primary" data-enroll="${c.id}">${locked ? '🔒 Masukkan Password' : 'Gabung'}</button>`}
@@ -297,7 +297,7 @@
           if (course.teacherId) {
             DB.addNotification({
               userId: course.teacherId, type: 'kelas', icon: '👋',
-              title: 'Siswa baru bergabung',
+              title: 'Mentee baru bergabung',
               body: `${user.name} bergabung ke kelas ${course.title}.`,
               link: 'courses'
             });
@@ -337,7 +337,7 @@
       </div>
       <div class="card">
         <h3 class="mt-0">${UI.esc(course.title)}</h3>
-        <div class="muted small">${UI.esc(course.category || 'Umum')} • Guru: ${UI.esc(teacher ? teacher.name : '-')}</div>
+        <div class="muted small">${UI.esc(course.category || 'Umum')} • Tutor: ${UI.esc(teacher ? teacher.name : '-')}</div>
         <p class="mt-2">${UI.esc(course.description)}</p>
       </div>
 
@@ -372,13 +372,13 @@
       btn.classList.add('active');
       const tab = btn.dataset.tab;
       const el = document.getElementById('tabContent');
-      if (global.Whiteboard) Whiteboard.destroy();
+      if (global.WbHub) WbHub.destroy();
       if (tab === 'materials') renderCourseMaterials(el, course, user);
       else if (tab === 'modules') renderCourseModules(el, course, user);
       else if (tab === 'recordings') renderCourseRecordings(el, course, user);
       else if (tab === 'assignments') renderCourseAssignments(el, course, user);
       else if (tab === 'cbts') renderCourseCbts(el, course, user);
-      else if (tab === 'whiteboard') Whiteboard.mount({ container: el, course, user });
+      else if (tab === 'whiteboard') WbHub.render({ container: el, course, user });
       else if (tab === 'attendance') renderCourseAttendance(el, course, user);
     }));
     renderCourseMaterials(document.getElementById('tabContent'), course, user);
@@ -402,7 +402,7 @@
         { key: 'new', label: 'Terbaru', cmp: (a, b) => (b.createdAt || 0) - (a.createdAt || 0) }
       ],
       pageSize: 10,
-      empty: 'Guru belum mengunggah materi.',
+      empty: 'Tutor belum mengunggah materi.',
       render: (rows, ctx) => rows.map(m => `
             <div class="list-item">
               <div class="title">${ctx.highlight(m.title)}</div>
@@ -605,6 +605,9 @@
 
       if (sub) DB.updateSubmission(sub.id, AutoGrader.invalidateOnAnswerChange(sub, payload));
       else DB.addSubmission(Object.assign({ assignmentId, studentId: user.id }, payload));
+      // Antrean kirim langsung ditulis ke perangkat; bila offline terkirim otomatis saat sinyal kembali.
+      if (global.Sync && Sync.saveNow) Sync.saveNow();
+      const offline = !!(global.SafeSave && !SafeSave.net().online);
       try { localStorage.removeItem(draftKey); } catch (e) {}
       if (draftTimer) clearTimeout(draftTimer);
 
@@ -624,9 +627,8 @@
         body: `${asg.title}${course ? ' • ' + DB.courseTitle(course) : ''}.`,
         link: 'anak-tugas'
       }));
-      UI.toast(payload.grade != null
-        ? `Jawaban terkirim. Nilai otomatis: ${payload.grade}. 🚀`
-        : 'Jawaban terkirim. 🚀', 'success');
+      UI.toast(offline ? 'Sinyal sedang putus. Jawaban tersimpan di perangkat ini dan terkirim otomatis saat sinyal kembali.'
+        : payload.grade != null ? `Jawaban terkirim. Nilai otomatis: ${payload.grade}. 🚀` : 'Jawaban terkirim. 🚀', offline ? 'info' : 'success');
       Editor.setHost(null);
       UI.modal.close();
       const currentKey = (document.querySelector('.side-nav a.active') || {}).dataset

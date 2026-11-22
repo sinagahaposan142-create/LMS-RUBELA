@@ -478,7 +478,7 @@
       const st = DB.subtestByName(active);
       host.innerHTML = `
         <p class="muted small tp-intro">Kelompokkan soal per <strong>materi</strong> dan <strong>sub materi</strong>. Dipakai untuk memfilter Bank Soal,
-          menyusun ujian khusus materi tertentu, dan melihat penguasaan siswa per materi.</p>
+          menyusun ujian khusus materi tertentu, dan melihat penguasaan mentee per materi.</p>
         <div class="tp-subtabs" role="tablist" aria-label="Subtest">
           ${DB.SUBTESTS.map(s => `<button type="button" role="tab" aria-selected="${s.name === active}" class="tp-subtab ${s.name === active ? 'is-on' : ''}" data-tp-st="${esc(s.name)}">${esc(s.short)}
             <span class="tp-count">${topicsOf(s.name).length}</span></button>`).join('')}

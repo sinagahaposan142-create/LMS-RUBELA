@@ -405,7 +405,70 @@
     setTimeout(go, wait);
   }
 
+  /* ===== Menu aksi baris (⋯) =====
+   * <details> agar bisa dibuka dengan keyboard tanpa skrip tambahan. Panel
+   * diposisikan fixed supaya tidak terpotong tabel yang dapat digulir.
+   * items: [{ label, attrs: 'data-edit="…"', danger?, icon? }] (null dilewati) */
+  function actionMenu(items, label) {
+    const list = (items || []).filter(Boolean);
+    if (!list.length) return '';
+    return `<details class="act-menu"><summary class="act-menu-btn" aria-label="${esc(label || 'Aksi lainnya')}" title="${esc(label || 'Aksi lainnya')}">
+        <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><circle cx="5" cy="12" r="1.8" fill="currentColor"/><circle cx="12" cy="12" r="1.8" fill="currentColor"/><circle cx="19" cy="12" r="1.8" fill="currentColor"/></svg></summary>
+      <div class="act-menu-list" role="menu">${list.map(it => `<button type="button" role="menuitem" class="act-menu-item${it.danger ? ' is-danger' : ''}" ${it.attrs || ''}>${it.icon ? `<span class="ami-ic" aria-hidden="true">${it.icon}</span>` : ''}${esc(it.label)}</button>`).join('')}</div></details>`;
+  }
+  function placeActionMenu(d) {
+    const panel = d.querySelector('.act-menu-list');
+    const btn = d.querySelector('summary');
+    if (!panel || !btn) return;
+    const r = btn.getBoundingClientRect();
+    panel.style.visibility = 'hidden';
+    panel.style.display = 'block';
+    const w = panel.offsetWidth, h = panel.offsetHeight;
+    const vw = window.innerWidth, vh = window.innerHeight;
+    let left = Math.min(vw - w - 8, Math.max(8, r.right - w));
+    let top = r.bottom + 6;
+    if (top + h > vh - 8) top = Math.max(8, r.top - h - 6);
+    panel.style.left = left + 'px';
+    panel.style.top = top + 'px';
+    panel.style.visibility = '';
+  }
+  function closeActionMenus(except) {
+    document.querySelectorAll('details.act-menu[open]').forEach(d => { if (d !== except) d.removeAttribute('open'); });
+  }
+  document.addEventListener('toggle', (e) => {
+    const d = e.target;
+    if (!(d instanceof HTMLElement) || !d.classList.contains('act-menu')) return;
+    if (d.open) { closeActionMenus(d); placeActionMenu(d); }
+  }, true);
+  document.addEventListener('click', (e) => {
+    const inMenu = e.target.closest && e.target.closest('details.act-menu');
+    if (!inMenu) { closeActionMenus(); return; }
+    // Item dipilih → tutup menu setelah handler halaman berjalan.
+    if (e.target.closest('.act-menu-item')) setTimeout(() => inMenu.removeAttribute('open'), 0);
+  });
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeActionMenus(); });
+  window.addEventListener('resize', () => closeActionMenus(), { passive: true });
+  document.addEventListener('scroll', (e) => {
+    if (e.target && e.target.closest && e.target.closest('.act-menu-list')) return;
+    closeActionMenus();
+  }, { passive: true, capture: true });
+
+  /** Tumpukan avatar kecil + nama ringkas (mis. daftar tutor). */
+  function peopleStack(users, max) {
+    const list = (users || []).filter(Boolean);
+    if (!list.length) return '<span class="muted small">—</span>';
+    const n = max || 3;
+    const shown = list.slice(0, n);
+    const av = (u) => (window.Avatars ? Avatars.inner(u) : esc(initials(u.name)));
+    const first = (u) => String(u.name || '').trim().split(/\s+/).slice(0, 2).join(' ');
+    const names = list.length <= 2 ? list.map(first).join(', ') : `${first(list[0])} +${list.length - 1} lainnya`;
+    return `<span class="ppl-stack" title="${esc(list.map(u => u.name).join(', '))}">
+      <span class="ppl-avs">${shown.map(u => `<span class="ppl-av">${av(u)}</span>`).join('')}${list.length > n ? `<span class="ppl-av is-more">+${list.length - n}</span>` : ''}</span>
+      <span class="ppl-names">${esc(names)}</span></span>`;
+  }
+
   global.UI = {
+    actionMenu, peopleStack,
     esc, fmtDate, fmtDateTime, toDateInput, toDateTimeLocalInput, todayYMD, fmtYMD, fmtRp, fmtDuration,
     modal, toast, confirmDialog, setBusy, initials, bannerClass, reloadAfterSync, colorFieldHtml,
     progressHtml, meterHtml, secHead, fmtRelative, greeting,

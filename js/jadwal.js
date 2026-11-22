@@ -30,15 +30,15 @@
     return user.role === 'admin' ? DB.getCourses() : DB.getCoursesByTeacher(user.id);
   }
 
-  /** Label baris sheet: "Kelas 11-A • PK bersama Bu Maria" */
+  /** Label baris sheet: "Kelas 11-A • PK" + "bersama Bu Maria, Pak Budi +3" (ringkas, tanpa meluber). */
   function courseRowLabel(course) {
     const st = DB.subtestByName(course.subtest);
     const mains = (course.mainClasses || []).join(', ');
-    const tutors = DB.courseTeachers(course).map(t => t.name).join(' & ');
+    const n = DB.courseTeachers(course).length;
     const sub = st ? st.short : (course.subtest || course.category || 'Kelas');
     return {
       main: [mains, sub].filter(Boolean).join(' • '),
-      sub: tutors ? 'bersama ' + tutors : 'belum ada tutor',
+      sub: n ? 'bersama ' + DB.courseTutorsShort(course, 2) : 'belum ada tutor',
       icon: st ? st.icon : '📘'
     };
   }
@@ -223,18 +223,19 @@
           <div class="muted small mt-1">Jadwal rutin: ${esc(DB.courseScheduleLabel(course))}</div>
         </div>
 
-        ${o.user.role === 'admin' && !editing ? `
-        <div class="form-group"><label>Kelas</label>
+        ${!editing && courses.length > 1 ? `
+        <div class="form-group"><label for="pfCourse">Kelas</label>
           <select name="courseId" id="pfCourse">
             ${courses.map(c => `<option value="${c.id}" ${c.id === courseId ? 'selected' : ''}>${esc(DB.courseTitle(c))}</option>`).join('')}
           </select>
+          ${o.user.role !== 'admin' ? `<p class="muted small" style="margin:6px 0 0;">Anda mengajar ${courses.length} kelas — pilih kelas untuk rencana ini.</p>` : ''}
         </div>` : ''}
 
         <div class="form-row">
           <div class="form-group"><label>Tanggal Pelaksanaan</label>
             <input name="date" type="date" required value="${esc(date)}" /></div>
           <div class="form-group"><label for="pfTeacher">Tutor Pengajar</label>
-            <select name="teacherId" id="pfTeacher">${teacherOptionsHtml(course, editing ? editing.teacherId : null)}</select>
+            <select name="teacherId" id="pfTeacher">${teacherOptionsHtml(course, editing ? editing.teacherId : (o.user.role === 'guru' ? o.user.id : null))}</select>
             <p class="muted small" id="pfTeacherHint" style="margin:6px 0 0;">${teacherHint(course)}</p>
           </div>
         </div>
@@ -254,7 +255,7 @@
         <div class="form-group"><label>Tautan Zoom / Google Meet</label>
           <input name="meetingLink" type="url" value="${esc(editing ? (editing.meetingLink || '') : (course.meetingLink || ''))}"
                  placeholder="https://meet.google.com/xxx-xxxx-xxx" />
-          <p class="muted small" style="margin:6px 0 0;">Dipakai pada tombol "Masuk Kelas" di agenda siswa dan orang tua.</p>
+          <p class="muted small" style="margin:6px 0 0;">Dipakai pada tombol "Masuk Kelas" di agenda mentee dan orang tua.</p>
         </div>
 
         <div class="form-group"><label>Status Rencana</label>
@@ -285,16 +286,14 @@
     UI.modal.open(editing ? 'Edit Rencana Kelas' : 'Tambah Rencana Kelas', body);
     document.getElementById('cancelBtn').addEventListener('click', () => UI.modal.close());
 
-    /* Saat admin mengganti kelas, daftar tutor, jam, dan tautan HARUS ikut
-     * berubah. Sebelumnya daftar tutor dihitung sekali dari kelas pertama dan
-     * tidak ada listener di sini, sehingga kelas dengan dua tutor tetap
-     * menampilkan satu nama dan rencana tersimpan atas nama tutor yang salah. */
+    /* Saat kelas diganti (admin atau tutor yang mengajar beberapa kelas),
+     * daftar tutor, jam, dan tautan ikut berubah mengikuti kelas terpilih. */
     const courseSel = document.getElementById('pfCourse');
     if (courseSel) courseSel.addEventListener('change', () => {
       const c = DB.getCourse(courseSel.value);
       if (!c) return;
       const sel = document.getElementById('pfTeacher');
-      if (sel) sel.innerHTML = teacherOptionsHtml(c, null);
+      if (sel) sel.innerHTML = teacherOptionsHtml(c, o.user.role === 'guru' ? o.user.id : null);
       const hint = document.getElementById('pfTeacherHint');
       if (hint) hint.textContent = teacherHint(c);
 
@@ -738,7 +737,7 @@
         e.stopPropagation();
         if (!guardPlan(user, b.dataset.confirmPlan)) return;
         const pl = DB.confirmClassPlan(b.dataset.confirmPlan);
-        UI.toast('Kelas divalidasi FIX. Siswa & orang tua diberi notifikasi.');
+        UI.toast('Kelas divalidasi FIX. Mentee & orang tua diberi notifikasi.');
         if (pl) notifyPlanChange(pl, 'fixed');
         paint();
       }));
